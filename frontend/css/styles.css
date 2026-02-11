@@ -100,6 +100,12 @@ button:disabled {
   border-radius: 0;
   border: none;
   box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 720px;
+  height: calc(100vh - 220px);
+  overflow: hidden;
+  font-size: 15px;
 }
 
 .form-panel {
@@ -1424,7 +1430,7 @@ body.modal-open .info-card {
 }
 
 .date-label {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
 }
 
@@ -1468,7 +1474,7 @@ body.modal-open .info-card {
 }
 
 .now-time {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
 }
 
@@ -1814,6 +1820,9 @@ body.modal-open .info-card {
 
 .views {
   margin-top: 16px;
+  flex: 1;
+  overflow: auto;
+  padding-right: 8px;
 }
 
 .view {
@@ -2459,7 +2468,7 @@ body.modal-open .info-card {
   border-radius: 12px;
   padding: 8px 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -2544,7 +2553,7 @@ body.modal-open .info-card {
 
 .month-day-number {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--ink);
 }
 
@@ -2617,12 +2626,12 @@ body.modal-open .info-card {
 
 .card-title {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   letter-spacing: 0.02em;
 }
 
 .card-event {
-  font-size: 13px;
+  font-size: 14px;
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -2645,6 +2654,8 @@ body.modal-open .info-card {
 
   .calendar-panel {
     margin: 0 -20px;
+    min-height: 560px;
+    height: calc(100vh - 200px);
   }
 
   .day-grid {
