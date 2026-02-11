@@ -1,4 +1,4 @@
-import { API_BASE, appConfig, saveSettings, state } from "./core.js";
+import { API_BASE, appConfig, applyTheme, saveSettings, state } from "./core.js";
 import { dom } from "./dom.js";
 import {
   addDays,
@@ -199,6 +199,7 @@ function hydrateSettingsForm() {
     appConfig.finishEarlyBufferMinutes || 15;
   dom.settingsForm.includeActiveOccurrences.checked =
     appConfig.includeActiveOccurrences !== false;
+  dom.settingsForm.theme.value = appConfig.theme || "sand";
   const lookaheadMinutes = Math.max(
     1,
     Math.round((appConfig.lookaheadSeconds || 14 * 24 * 60 * 60) / 60)
@@ -2795,6 +2796,7 @@ function handleSettingsSubmit(event) {
     formData.get("includeActiveOccurrences") === "on";
   const lookaheadMinutes = Math.max(1, Number(formData.get("lookaheadMinutes") || 1));
   const userTimeZone = formData.get("userTimeZone")?.toString().trim() || "";
+  const theme = formData.get("theme")?.toString().trim() || "sand";
   if (userTimeZone) {
     try {
       Intl.DateTimeFormat("en-US", { timeZone: userTimeZone });
@@ -2809,11 +2811,13 @@ function handleSettingsSubmit(event) {
   appConfig.finishEarlyBufferMinutes = finishEarlyBufferMinutes;
   appConfig.includeActiveOccurrences = includeActiveOccurrences;
   appConfig.lookaheadSeconds = lookaheadMinutes * 60;
+  appConfig.theme = theme;
   if (userTimeZone) {
     appConfig.userTimeZone = userTimeZone;
   }
   dom.brandTitle.textContent = appConfig.scheduleName;
   dom.brandSubtitle.textContent = appConfig.subtitle;
+  applyTheme(appConfig.theme);
   if (dom.timeZoneLabel) {
     dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
   }

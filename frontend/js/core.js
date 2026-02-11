@@ -46,6 +46,7 @@ const defaultConfig = {
     Number(window.APP_CONFIG?.lookaheadSeconds || 14 * 24 * 60 * 60)
   ),
   userTimeZone: window.APP_CONFIG?.userTimeZone || null,
+  theme: window.APP_CONFIG?.theme || "sand",
 };
 
 const storedConfig = (() => {
@@ -73,6 +74,11 @@ try {
 
 const minuteGranularity = Math.max(1, Number(appConfig.minuteGranularity || 5));
 const API_BASE = window.location.origin;
+
+function applyTheme(theme) {
+  const nextTheme = theme || "sand";
+  document.body.dataset.theme = nextTheme;
+}
 
 
 function saveView(view) {
@@ -114,6 +120,7 @@ export {
   isTypingInField,
   loadView,
   minuteGranularity,
+  applyTheme,
   saveSettings,
   saveView,
   state,

@@ -1,4 +1,4 @@
-import { appConfig, isTypingInField, loadView, state } from "./core.js";
+import { appConfig, applyTheme, isTypingInField, loadView, state } from "./core.js";
 import { dom } from "./dom.js";
 import {
   ensureOccurrences,
@@ -33,6 +33,7 @@ import {
 
 dom.brandTitle.textContent = appConfig.scheduleName || dom.brandTitle.textContent;
 dom.brandSubtitle.textContent = appConfig.subtitle || dom.brandSubtitle.textContent;
+applyTheme(appConfig.theme);
 if (dom.timeZoneLabel) {
   dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
 }
