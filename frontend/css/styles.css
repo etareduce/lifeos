@@ -96,6 +96,10 @@ button:disabled {
 
 .calendar-panel {
   position: relative;
+  margin: 0 -32px;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
 }
 
 .form-panel {
@@ -2637,6 +2641,10 @@ body.modal-open .info-card {
 @media (max-width: 720px) {
   .page {
     padding: 20px;
+  }
+
+  .calendar-panel {
+    margin: 0 -20px;
   }
 
   .day-grid {
