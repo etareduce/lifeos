@@ -1,5 +1,6 @@
 const dom = {
   dateLabel: document.getElementById("dateLabel"),
+  timeZoneLabel: document.getElementById("timeZoneLabel"),
   tabs: document.querySelectorAll(".tab"),
   views: {
     day: document.getElementById("viewDay"),

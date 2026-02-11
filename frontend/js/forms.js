@@ -2814,6 +2814,9 @@ function handleSettingsSubmit(event) {
   }
   dom.brandTitle.textContent = appConfig.scheduleName;
   dom.brandSubtitle.textContent = appConfig.subtitle;
+  if (dom.timeZoneLabel) {
+    dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
+  }
   dom.settingsStatus.textContent = "Saved. Refresh to apply granularity.";
   saveSettings(appConfig);
 }

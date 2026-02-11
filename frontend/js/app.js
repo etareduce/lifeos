@@ -33,6 +33,9 @@ import {
 
 dom.brandTitle.textContent = appConfig.scheduleName || dom.brandTitle.textContent;
 dom.brandSubtitle.textContent = appConfig.subtitle || dom.brandSubtitle.textContent;
+if (dom.timeZoneLabel) {
+  dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
+}
 
 bindFormHandlers(refreshView);
 
