@@ -22,6 +22,13 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   background: radial-gradient(circle at 20% 15%, var(--bg-1) 0%, var(--bg-2) 40%, var(--bg-3) 100%);
@@ -90,10 +97,13 @@ body[data-theme="ember"] {
 }
 
 .page {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   padding: 32px;
   display: grid;
+  grid-template-rows: auto 1fr;
   gap: 24px;
+  overflow: hidden;
 }
 
 .topbar {
@@ -165,8 +175,8 @@ button:disabled {
   box-shadow: none;
   display: flex;
   flex-direction: column;
-  min-height: 720px;
-  height: calc(100vh - 220px);
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   font-size: 15px;
 }
@@ -1760,6 +1770,23 @@ body.modal-open .info-card {
   pointer-events: auto;
 }
 
+.info-card.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  pointer-events: auto;
+}
+
+.info-card.active[data-bridge-side="left"]::before {
+  left: -16px;
+}
+
+.info-card.active[data-bridge-side="right"]::before {
+  right: -16px;
+}
+
 .info-title {
   font-weight: 700;
   font-size: 14px;
@@ -1865,12 +1892,49 @@ body.modal-open .info-card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .info-copy svg {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.info-copy.copy-ok {
+  color: #2f7a42;
+  background: rgba(47, 122, 66, 0.12);
+}
+
+.info-copy.copy-fail {
+  color: #a63b32;
+  background: rgba(166, 59, 50, 0.12);
+}
+
+.info-copy::after {
+  content: attr(data-copy-status);
+  position: absolute;
+  right: 0;
+  top: -24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(27, 26, 22, 0.12);
+  background: #fffaf2;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--ink);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.info-copy.copy-ok::after,
+.info-copy.copy-fail::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .info-list {
@@ -1899,6 +1963,7 @@ body.modal-open .info-card {
 .views {
   margin-top: 16px;
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding-right: 8px;
 }
@@ -1941,7 +2006,7 @@ body.modal-open .info-card {
   gap: 12px;
   align-items: stretch;
   min-height: 520px;
-  --hour-height: 44px;
+  --hour-height: 54px;
 }
 
 .day-column {
@@ -1953,7 +2018,7 @@ body.modal-open .info-card {
   display: grid;
   grid-template-rows: repeat(24, var(--hour-height));
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -2269,7 +2334,7 @@ body.modal-open .info-card {
   border-radius: 12px;
   border: 1.5px solid rgba(255, 255, 255, 0.7);
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #1c1a12;
   display: grid;
@@ -2378,7 +2443,7 @@ body.modal-open .info-card {
 
 .day-block .event-time {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-weight: 500;
   margin-top: 0;
@@ -2443,7 +2508,7 @@ body.modal-open .info-card {
   display: grid;
   place-items: center;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .more {
@@ -2481,7 +2546,7 @@ body.modal-open .info-card {
   display: grid;
   grid-template-rows: repeat(24, var(--hour-height));
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   box-sizing: border-box;
@@ -2546,7 +2611,7 @@ body.modal-open .info-card {
   border-radius: 12px;
   padding: 8px 10px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   text-align: center;
 }
 
@@ -2732,8 +2797,8 @@ body.modal-open .info-card {
 
   .calendar-panel {
     margin: 0 -20px;
-    min-height: 560px;
-    height: calc(100vh - 200px);
+    min-height: 0;
+    height: 100%;
   }
 
   .day-grid {

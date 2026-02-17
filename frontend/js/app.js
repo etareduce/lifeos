@@ -381,19 +381,34 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy-blob-id]");
   if (!button) return;
   event.preventDefault();
+  event.stopPropagation();
   const blobId = button.getAttribute("data-copy-blob-id");
   if (!blobId) return;
-  const originalLabel = button.textContent;
-  button.textContent = "Copying...";
+  const defaultAriaLabel = button.dataset.defaultAriaLabel || button.getAttribute("aria-label") || "Copy blob id";
+  button.dataset.defaultAriaLabel = defaultAriaLabel;
+  const existingTimer = Number(button.dataset.copyStatusTimer || 0);
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
+  }
+  button.classList.remove("copy-ok", "copy-fail");
+  button.removeAttribute("data-copy-status");
   try {
     await navigator.clipboard.writeText(blobId);
-    button.textContent = "Copied";
+    button.classList.add("copy-ok");
+    button.dataset.copyStatus = "Copied";
+    button.setAttribute("aria-label", "Blob id copied");
   } catch (error) {
-    button.textContent = "Copy failed";
+    button.classList.add("copy-fail");
+    button.dataset.copyStatus = "Copy failed";
+    button.setAttribute("aria-label", "Copy blob id failed");
   }
-  window.setTimeout(() => {
-    button.textContent = originalLabel;
-  }, 1200);
+  const timerId = window.setTimeout(() => {
+    button.classList.remove("copy-ok", "copy-fail");
+    button.removeAttribute("data-copy-status");
+    button.setAttribute("aria-label", defaultAriaLabel);
+    delete button.dataset.copyStatusTimer;
+  }, 1100);
+  button.dataset.copyStatusTimer = String(timerId);
 });
 
 document.addEventListener(

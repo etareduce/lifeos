@@ -109,12 +109,35 @@ function saveSettings(config) {
 }
 
 function isTypingInField(target) {
-  return (
-    target &&
-    (target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.isContentEditable)
-  );
+  if (!(target instanceof Element)) return false;
+  const isEditableControl =
+    target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+  if (!isEditableControl) return false;
+  if (target instanceof HTMLInputElement) {
+    const blockedTypes = new Set([
+      "button",
+      "submit",
+      "reset",
+      "checkbox",
+      "radio",
+      "range",
+      "color",
+      "file",
+      "hidden",
+    ]);
+    if (blockedTypes.has((target.type || "").toLowerCase())) {
+      return false;
+    }
+  }
+  if (target instanceof HTMLElement) {
+    const style = window.getComputedStyle(target);
+    const hiddenByStyle =
+      style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse";
+    if (hiddenByStyle || target.getClientRects().length === 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export {

@@ -194,25 +194,33 @@ function clearInfoCardHideTimeout() {
   }
 }
 
+function isInfoCardAnchorHovered() {
+  return Boolean(
+    document.querySelector(".day-block:hover, .full-day-chip:hover, .month-day:hover")
+  );
+}
+
 function scheduleInfoCardHide(cleanup) {
-  if (state.infoCardLocked) return;
   clearInfoCardHideTimeout();
   state.infoCardHideTimeout = window.setTimeout(() => {
     state.infoCardHideTimeout = null;
-    if (state.infoCardLocked || state.infoCardHovering || state.infoCardAnchorHovering) {
+    const cardHovered = Boolean(dom.infoCard?.matches(":hover"));
+    const anchorHovered = isInfoCardAnchorHovered();
+    state.infoCardHovering = cardHovered;
+    state.infoCardAnchorHovering = anchorHovered;
+    if (cardHovered || anchorHovered) {
       return;
     }
     if (typeof cleanup === "function") {
       cleanup();
     }
     hideInfoCard();
-  }, 140);
+  }, 40);
 }
 
 function showInfoCardHtml(html, anchorRect) {
   const card = getInfoCard();
   if (!html || !anchorRect) return;
-  if (state.infoCardLocked) return;
   clearInfoCardHideTimeout();
   card.innerHTML = html;
   card.classList.add("active");
@@ -229,11 +237,11 @@ function showInfoCardHtml(html, anchorRect) {
   top = Math.max(padding, Math.min(top, window.innerHeight - cardHeight - padding));
   card.style.left = `${left}px`;
   card.style.top = `${top}px`;
+  card.dataset.bridgeSide = left >= anchorRect.right ? "left" : "right";
 }
 
 function showInfoCard(blob, anchorRect) {
   if (!blob || !anchorRect) return;
-  if (state.infoCardLocked) return;
   const recurrenceName = blob.recurrence_payload?.recurrence_name;
   const recurrenceDescription = blob.recurrence_payload?.recurrence_description;
   const recurrenceEnd = blob.recurrence_payload?.end_date;
@@ -408,9 +416,13 @@ function showInfoCard(blob, anchorRect) {
 function hideInfoCard() {
   const card = dom.infoCard;
   if (!card) return;
+  clearInfoCardHideTimeout();
+  state.infoCardHovering = false;
+  state.infoCardAnchorHovering = false;
   card.classList.remove("active");
   card.setAttribute("aria-hidden", "true");
   delete card.dataset.blobId;
+  delete card.dataset.bridgeSide;
 }
 
 function clearInfoCardLock() {
@@ -481,6 +493,7 @@ async function toggleStarFromCalendar(blob) {
   if (!blob?.recurrence_id || blob.preview) return;
   const wasLocked = state.infoCardLocked;
   const lockedId = state.lockedBlobId;
+  const activeInfoBlobId = dom.infoCard?.dataset?.blobId || null;
   const occurrenceStart = blob.schedulable_timerange?.start;
   const occurrenceDate = occurrenceStart ? new Date(occurrenceStart) : null;
   if (!occurrenceDate || Number.isNaN(occurrenceDate.getTime())) return;
@@ -519,18 +532,22 @@ async function toggleStarFromCalendar(blob) {
       : item
   );
   setActive(state.view);
-  if (wasLocked && lockedId === blob.id) {
+  const shouldRestoreInfoCard =
+    (wasLocked && lockedId === blob.id) || activeInfoBlobId === blob.id;
+  if (shouldRestoreInfoCard) {
     const viewRoot = state.view === "week" ? dom.views.week : dom.views.day;
     const blockEl =
-      viewRoot?.querySelector(`.day-block[data-blob-id="${lockedId}"]`) ||
-      viewRoot?.querySelector(`.full-day-chip[data-blob-id="${lockedId}"]`);
-    const updatedBlob = state.blobs.find((item) => item.id === lockedId);
+      viewRoot?.querySelector(`.day-block[data-blob-id="${blob.id}"]`) ||
+      viewRoot?.querySelector(`.full-day-chip[data-blob-id="${blob.id}"]`);
+    const updatedBlob = state.blobs.find((item) => item.id === blob.id);
     if (blockEl && updatedBlob) {
       state.infoCardLocked = false;
       showInfoCard(updatedBlob, blockEl.getBoundingClientRect());
-      state.infoCardLocked = true;
-      state.lockedBlobId = lockedId;
-      blockEl.classList.add("active");
+      if (wasLocked && lockedId === blob.id) {
+        state.infoCardLocked = true;
+        state.lockedBlobId = blob.id;
+        blockEl.classList.add("active");
+      }
     }
   }
 
@@ -588,7 +605,7 @@ async function handleInfoCardDelete(event) {
 
 function renderDay() {
   const dayStart = startOfDay(state.anchorDate);
-  const hourHeight = 44;
+  const hourHeight = 54;
   const hours = Array.from({ length: 24 }, (_, idx) => {
     const hour = idx % 24;
     const labelHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
@@ -754,16 +771,6 @@ function renderDay() {
     blocksEls.forEach((el) => el.classList.remove("active"));
   };
 
-  const setLockedInfoCard = (blockEl) => {
-    state.infoCardLocked = true;
-    state.lockedBlobId = blockEl.dataset.blobId || null;
-  };
-
-  const clearLockedInfoCard = () => {
-    state.infoCardLocked = false;
-    state.lockedBlobId = null;
-  };
-
   const applyInfoCardAndOverlay = (blockEl) => {
     const blob = getBlobById(blockEl.dataset.blobId);
     if (!blob) return;
@@ -821,13 +828,12 @@ function renderDay() {
   blocksEls.forEach((blockEl) => {
     blockEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-      if (state.infoCardLocked) return;
+      if (state.infoCardHovering) return;
       state.infoCardAnchorHovering = true;
       clearInfoCardHideTimeout();
       applyInfoCardAndOverlay(blockEl);
     });
     blockEl.addEventListener("mouseleave", () => {
-      if (state.infoCardLocked) return;
       state.infoCardAnchorHovering = false;
       scheduleInfoCardHide(() => {
         overlay.classList.remove("active", "overflow-top", "overflow-bottom");
@@ -838,13 +844,9 @@ function renderDay() {
       if (event.shiftKey) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (event.target.closest(".star-toggle")) return;
-      if (state.infoCardLocked) {
-        clearLockedInfoCard();
-      }
       clearActiveBlocks();
       blockEl.classList.add("active");
       applyInfoCardAndOverlay(blockEl);
-      setLockedInfoCard(blockEl);
     });
     const starBtn = blockEl.querySelector(".star-toggle");
     if (starBtn) {
@@ -871,14 +873,13 @@ function renderDay() {
     }
     chipEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-      if (state.infoCardLocked) return;
+      if (state.infoCardHovering) return;
       state.infoCardAnchorHovering = true;
       clearInfoCardHideTimeout();
       const blob = getBlobById(chipEl.dataset.blobId);
       showInfoCard(blob, chipEl.getBoundingClientRect());
     });
     chipEl.addEventListener("mouseleave", () => {
-      if (state.infoCardLocked) return;
       state.infoCardAnchorHovering = false;
       scheduleInfoCardHide();
     });
@@ -886,15 +887,10 @@ function renderDay() {
       if (event.shiftKey) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (event.target.closest(".full-day-star-toggle")) return;
-      if (state.infoCardLocked) {
-        clearLockedInfoCard();
-      }
       fullDayEls.forEach((el) => el.classList.remove("active"));
       chipEl.classList.add("active");
       const blob = getBlobById(chipEl.dataset.blobId);
       showInfoCard(blob, chipEl.getBoundingClientRect());
-      state.infoCardLocked = true;
-      state.lockedBlobId = chipEl.dataset.blobId || null;
     });
   });
   if (state.activeBlockClickHandler) {
@@ -909,7 +905,8 @@ function renderDay() {
     overlay.classList.remove("active", "overflow-top", "overflow-bottom");
     originalOverlay?.classList.remove("active");
     hideInfoCard();
-    clearLockedInfoCard();
+    state.infoCardLocked = false;
+    state.lockedBlobId = null;
   };
   document.addEventListener("click", state.activeBlockClickHandler);
   if (state.infoCardActionHandler) {
@@ -1080,7 +1077,7 @@ function renderDay() {
 function renderWeek() {
   const weekStart = getWeekStart(state.anchorDate);
   const days = Array.from({ length: 7 }, (_, idx) => addDays(weekStart, idx));
-  const hourHeight = 44;
+  const hourHeight = 54;
   const hours = Array.from({ length: 24 }, (_, idx) => {
     const hour = idx % 24;
     const labelHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
@@ -1298,14 +1295,13 @@ function renderWeek() {
       }
       chipEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-        if (state.infoCardLocked) return;
+        if (state.infoCardHovering) return;
         state.infoCardAnchorHovering = true;
         clearInfoCardHideTimeout();
         const blob = getBlobById(chipEl.dataset.blobId);
         showInfoCard(blob, chipEl.getBoundingClientRect());
       });
       chipEl.addEventListener("mouseleave", () => {
-        if (state.infoCardLocked) return;
         state.infoCardAnchorHovering = false;
         scheduleInfoCardHide();
       });
@@ -1313,27 +1309,17 @@ function renderWeek() {
         if (event.shiftKey) return;
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         if (event.target.closest(".full-day-star-toggle")) return;
-        if (state.infoCardLocked) {
-          clearLockedInfoCard();
-        }
         allDayColumns.forEach((col) =>
           col.querySelectorAll(".full-day-chip").forEach((el) => el.classList.remove("active"))
         );
         chipEl.classList.add("active");
         const blob = getBlobById(chipEl.dataset.blobId);
         showInfoCard(blob, chipEl.getBoundingClientRect());
-        state.infoCardLocked = true;
-        state.lockedBlobId = chipEl.dataset.blobId || null;
       });
     });
   });
   dayColumns.forEach((column) => {
     column.querySelectorAll(".day-block").forEach((blockEl) => {
-      const setLockedInfoCard = () => {
-        state.infoCardLocked = true;
-        state.lockedBlobId = blockEl.dataset.blobId || null;
-      };
-
       const applyInfoCardAndOverlay = () => {
         const blob = getBlobById(blockEl.dataset.blobId);
         if (!blob) return;
@@ -1397,13 +1383,12 @@ function renderWeek() {
 
       blockEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-        if (state.infoCardLocked) return;
+        if (state.infoCardHovering) return;
         state.infoCardAnchorHovering = true;
         clearInfoCardHideTimeout();
         applyInfoCardAndOverlay();
       });
       blockEl.addEventListener("mouseleave", () => {
-        if (state.infoCardLocked) return;
         state.infoCardAnchorHovering = false;
         scheduleInfoCardHide(() => {
           dayTracks.forEach(({ overlay, originalOverlay }) => {
@@ -1423,7 +1408,6 @@ function renderWeek() {
         );
         blockEl.classList.add("active");
         applyInfoCardAndOverlay();
-        setLockedInfoCard();
       });
       const starBtn = blockEl.querySelector(".star-toggle");
       if (starBtn) {
@@ -1466,6 +1450,15 @@ function renderWeek() {
   state.infoCardActionHandler = (event) => {
     if (event.target.closest(".info-close")) {
       handleInfoCardDelete(event);
+      return;
+    }
+    if (event.target.closest(".info-star-btn")) {
+      const blobId = dom.infoCard?.dataset?.blobId || state.lockedBlobId;
+      if (!blobId) return;
+      const blob = getBlobById(blobId);
+      if (!blob?.preview) {
+        toggleStarFromCalendar(blob);
+      }
     }
   };
   document.addEventListener("click", state.infoCardActionHandler);
@@ -1761,6 +1754,7 @@ function renderMonth() {
   `;
   dom.views.month.querySelectorAll(".month-day").forEach((dayEl) => {
     dayEl.addEventListener("mouseenter", () => {
+      if (state.infoCardHovering) return;
       state.infoCardAnchorHovering = true;
       clearInfoCardHideTimeout();
       let stars = [];
@@ -1790,7 +1784,6 @@ function renderMonth() {
       showInfoCardHtml(html, dayEl.getBoundingClientRect());
     });
     dayEl.addEventListener("mouseleave", () => {
-      if (state.infoCardLocked) return;
       state.infoCardAnchorHovering = false;
       scheduleInfoCardHide();
     });
@@ -1838,7 +1831,7 @@ function renderAll() {
 function updateNowIndicators() {
   if (state.view === "day") {
     const dayTrack = dom.views.day?.querySelector(".day-track");
-    updateNowLine(dayTrack, 44, state.anchorDate);
+    updateNowLine(dayTrack, 54, state.anchorDate);
   } else if (state.view === "week") {
     const columns = dom.views.week?.querySelectorAll(".week-day-column") || [];
     columns.forEach((column) => {
@@ -1847,7 +1840,7 @@ function updateNowIndicators() {
       const dayDate = new Date(dateIso);
       if (Number.isNaN(dayDate.getTime())) return;
       const track = column.querySelector(".week-day-track");
-      updateNowLine(track, 44, dayDate);
+      updateNowLine(track, 54, dayDate);
     });
   }
 }
