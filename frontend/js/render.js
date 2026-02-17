@@ -828,7 +828,6 @@ function renderDay() {
   blocksEls.forEach((blockEl) => {
     blockEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-      if (state.infoCardHovering) return;
       state.infoCardAnchorHovering = true;
       clearInfoCardHideTimeout();
       applyInfoCardAndOverlay(blockEl);
@@ -873,7 +872,6 @@ function renderDay() {
     }
     chipEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-      if (state.infoCardHovering) return;
       state.infoCardAnchorHovering = true;
       clearInfoCardHideTimeout();
       const blob = getBlobById(chipEl.dataset.blobId);
@@ -1295,7 +1293,6 @@ function renderWeek() {
       }
       chipEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-        if (state.infoCardHovering) return;
         state.infoCardAnchorHovering = true;
         clearInfoCardHideTimeout();
         const blob = getBlobById(chipEl.dataset.blobId);
@@ -1383,7 +1380,6 @@ function renderWeek() {
 
       blockEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
-        if (state.infoCardHovering) return;
         state.infoCardAnchorHovering = true;
         clearInfoCardHideTimeout();
         applyInfoCardAndOverlay();
@@ -1754,7 +1750,6 @@ function renderMonth() {
   `;
   dom.views.month.querySelectorAll(".month-day").forEach((dayEl) => {
     dayEl.addEventListener("mouseenter", () => {
-      if (state.infoCardHovering) return;
       state.infoCardAnchorHovering = true;
       clearInfoCardHideTimeout();
       let stars = [];
