@@ -19,6 +19,8 @@ import {
   toLocalInputFromDate,
 } from "./utils.js";
 
+let infoCardEventsBound = false;
+
 function getPolicyFlags(policy = {}) {
   const rawMask = Number(policy.scheduling_policies);
   const mask = Number.isFinite(rawMask) ? rawMask : 0;
@@ -169,22 +171,33 @@ function formatRecurrenceEnd(value) {
 }
 
 function getInfoCard() {
-  if (dom.infoCard) return dom.infoCard;
+  if (dom.infoCard) {
+    bindInfoCardEvents(dom.infoCard);
+    return dom.infoCard;
+  }
   const card = document.createElement("div");
   card.id = "infoCard";
   card.className = "info-card";
   card.setAttribute("aria-hidden", "true");
+  bindInfoCardEvents(card);
+  document.body.appendChild(card);
+  dom.infoCard = card;
+  return card;
+}
+
+function bindInfoCardEvents(card) {
+  if (!card || infoCardEventsBound) return;
+  infoCardEventsBound = true;
   card.addEventListener("mouseenter", () => {
     state.infoCardHovering = true;
     clearInfoCardHideTimeout();
   });
-  card.addEventListener("mouseleave", () => {
+  card.addEventListener("mouseleave", (event) => {
     state.infoCardHovering = false;
+    state.infoCardAnchorHovering = isInfoCardAnchorTarget(event.relatedTarget);
+    if (state.infoCardAnchorHovering) return;
     scheduleInfoCardHide();
   });
-  document.body.appendChild(card);
-  dom.infoCard = card;
-  return card;
 }
 
 function clearInfoCardHideTimeout() {
@@ -198,6 +211,24 @@ function isInfoCardAnchorHovered() {
   return Boolean(
     document.querySelector(".day-block:hover, .full-day-chip:hover, .month-day:hover")
   );
+}
+
+function isInfoCardAnchorTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest(".day-block, .full-day-chip, .month-day"));
+}
+
+function clearInfoCardOverlays() {
+  const dayOverlay = dom.views.day?.querySelector("#schedulableOverlay");
+  const dayOriginalOverlay = dom.views.day?.querySelector("#originalOverlay");
+  dayOverlay?.classList.remove("active", "overflow-top", "overflow-bottom");
+  dayOriginalOverlay?.classList.remove("active");
+  dom.views.week
+    ?.querySelectorAll(".schedulable-overlay")
+    .forEach((overlay) => overlay.classList.remove("active", "overflow-top", "overflow-bottom"));
+  dom.views.week
+    ?.querySelectorAll(".original-overlay")
+    .forEach((overlay) => overlay.classList.remove("active"));
 }
 
 function scheduleInfoCardHide(cleanup) {
@@ -215,7 +246,7 @@ function scheduleInfoCardHide(cleanup) {
       cleanup();
     }
     hideInfoCard();
-  }, 40);
+  }, 140);
 }
 
 function showInfoCardHtml(html, anchorRect) {
@@ -419,6 +450,7 @@ function hideInfoCard() {
   clearInfoCardHideTimeout();
   state.infoCardHovering = false;
   state.infoCardAnchorHovering = false;
+  clearInfoCardOverlays();
   card.classList.remove("active");
   card.setAttribute("aria-hidden", "true");
   delete card.dataset.blobId;
@@ -832,8 +864,11 @@ function renderDay() {
       clearInfoCardHideTimeout();
       applyInfoCardAndOverlay(blockEl);
     });
-    blockEl.addEventListener("mouseleave", () => {
+    blockEl.addEventListener("mouseleave", (event) => {
       state.infoCardAnchorHovering = false;
+      if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
+        return;
+      }
       scheduleInfoCardHide(() => {
         overlay.classList.remove("active", "overflow-top", "overflow-bottom");
         originalOverlay?.classList.remove("active");
@@ -877,8 +912,11 @@ function renderDay() {
       const blob = getBlobById(chipEl.dataset.blobId);
       showInfoCard(blob, chipEl.getBoundingClientRect());
     });
-    chipEl.addEventListener("mouseleave", () => {
+    chipEl.addEventListener("mouseleave", (event) => {
       state.infoCardAnchorHovering = false;
+      if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
+        return;
+      }
       scheduleInfoCardHide();
     });
     chipEl.addEventListener("click", (event) => {
@@ -1075,6 +1113,7 @@ function renderDay() {
 function renderWeek() {
   const weekStart = getWeekStart(state.anchorDate);
   const days = Array.from({ length: 7 }, (_, idx) => addDays(weekStart, idx));
+  const calendarBlobs = getCalendarBlobs();
   const hourHeight = 54;
   const hours = Array.from({ length: 24 }, (_, idx) => {
     const hour = idx % 24;
@@ -1083,76 +1122,117 @@ function renderWeek() {
     return `${labelHour} ${suffix}`;
   });
 
-  const dayEntries = days.map((date) => {
+  const dayStampsByTimeZone = new Map();
+  const getDayStampsForTimeZone = (timeZone) => {
+    if (dayStampsByTimeZone.has(timeZone)) {
+      return dayStampsByTimeZone.get(timeZone);
+    }
+    const stamps = days.map((date) => {
+      const parts = getZonedParts(date, timeZone);
+      return parts ? partsToDayStamp(parts) : null;
+    });
+    dayStampsByTimeZone.set(timeZone, stamps);
+    return stamps;
+  };
+
+  const blobMetas = calendarBlobs
+    .map((blob) => {
+      const blobTimeZone = getBlobTimeZone(blob);
+      const effectiveRange = getEffectiveOccurrenceRange(blob);
+      if (!effectiveRange) return null;
+      const startParts = getZonedParts(effectiveRange.start, blobTimeZone);
+      const endParts = getZonedParts(effectiveRange.effectiveEnd, blobTimeZone);
+      if (!startParts || !endParts) return null;
+      const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
+      const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
+      const startStamp = partsToDayStamp(startParts);
+      const endStamp = partsToDayStamp(endParts);
+      const fullDay =
+        startStamp === endStamp &&
+        startParts.hour === 0 &&
+        startParts.minute === 0 &&
+        endParts.hour === 23 &&
+        endParts.minute >= 59;
+      const baseRange = blob.realized_timerange || blob.default_scheduled_timerange || {};
+      const baseEnd = toDate(baseRange.end);
+      const isAdjusted =
+        baseEnd &&
+        !Number.isNaN(baseEnd.getTime()) &&
+        effectiveRange.effectiveEnd.getTime() !== baseEnd.getTime();
+      return {
+        id: blob.id,
+        title: blob.name,
+        type: getTagType(blob.tags),
+        colorClass: getRecurrenceColorClass(blob),
+        policy: blob.policy,
+        starred: isOccurrenceStarred(blob),
+        preview: Boolean(blob.preview),
+        blobTimeZone,
+        dayStamps: getDayStampsForTimeZone(blobTimeZone),
+        effectiveRange,
+        startParts,
+        endParts,
+        startStamp,
+        endStamp,
+        fullDay,
+        schedStartParts,
+        schedEndParts,
+        time: formatTimeRangeInTimeZone(
+          effectiveRange.start,
+          effectiveRange.effectiveEnd,
+          blobTimeZone
+        ),
+        schedStartIso: blob.schedulable_timerange?.start || "",
+        schedEndIso: blob.schedulable_timerange?.end || "",
+        originalStartIso: baseRange.start || "",
+        originalEndIso: baseRange.end || "",
+        adjusted: Boolean(isAdjusted),
+      };
+    })
+    .filter(Boolean);
+
+  const dayEntries = days.map((date, dayIndex) => {
     const fullDayEvents = [];
-    const blocks = getCalendarBlobs()
-      .map((blob) => {
-        const blobTimeZone = getBlobTimeZone(blob);
-        const viewParts = getZonedParts(date, blobTimeZone);
-        const viewStamp = viewParts ? partsToDayStamp(viewParts) : null;
+    const blocks = blobMetas
+      .map((meta) => {
+        const viewStamp = meta.dayStamps[dayIndex];
         if (!viewStamp) return null;
-        const effectiveRange = getEffectiveOccurrenceRange(blob);
-        if (!effectiveRange) return null;
-        const startParts = getZonedParts(effectiveRange.start, blobTimeZone);
-        const endParts = getZonedParts(effectiveRange.effectiveEnd, blobTimeZone);
-        const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
-        const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
-        if (!startParts || !endParts) return null;
-        const startStamp = partsToDayStamp(startParts);
-        const endStamp = partsToDayStamp(endParts);
-        const fullDay =
-          startStamp === endStamp &&
-          startParts.hour === 0 &&
-          startParts.minute === 0 &&
-          endParts.hour === 23 &&
-          endParts.minute >= 59;
-        if (fullDay && startStamp === viewStamp) {
+        if (meta.fullDay && meta.startStamp === viewStamp) {
           fullDayEvents.push({
-              id: blob.id,
-              title: blob.name,
-              type: getTagType(blob.tags),
-              colorClass: getRecurrenceColorClass(blob),
-              starred: isOccurrenceStarred(blob),
-              preview: Boolean(blob.preview),
-            });
+            id: meta.id,
+            title: meta.title,
+            type: meta.type,
+            colorClass: meta.colorClass,
+            starred: meta.starred,
+            preview: meta.preview,
+          });
           return null;
         }
-        const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+        const clamped = getClampedMinutes(meta.startParts, meta.endParts, viewStamp);
         if (!clamped) return null;
         const minutes = clamped.endMin - clamped.startMin;
-        const showContent = partsToDayStamp(startParts) === viewStamp;
-        const baseRange = blob.realized_timerange || blob.default_scheduled_timerange || {};
-        const baseStart = toDate(baseRange.start);
-        const baseEnd = toDate(baseRange.end);
-        const isAdjusted =
-          baseEnd &&
-          !Number.isNaN(baseEnd.getTime()) &&
-          effectiveRange.effectiveEnd.getTime() !== baseEnd.getTime();
+        const showContent = meta.startStamp === viewStamp;
         return {
-          id: blob.id,
-          title: blob.name,
-          time: formatTimeRangeInTimeZone(
-            effectiveRange.start,
-            effectiveRange.effectiveEnd,
-            blobTimeZone
-          ),
-          type: getTagType(blob.tags),
-          colorClass: getRecurrenceColorClass(blob),
-          policy: blob.policy,
-          starred: isOccurrenceStarred(blob),
+          id: meta.id,
+          title: meta.title,
+          time: meta.time,
+          type: meta.type,
+          colorClass: meta.colorClass,
+          policy: meta.policy,
+          starred: meta.starred,
           top: (clamped.startMin / 60) * hourHeight,
           height: Math.max(18, (minutes / 60) * hourHeight),
           startMin: clamped.startMin,
           endMin: clamped.endMin,
-          schedStartIso: blob.schedulable_timerange?.start || "",
-          schedEndIso: blob.schedulable_timerange?.end || "",
-          originalStartIso: baseRange.start || "",
-          originalEndIso: baseRange.end || "",
-          adjusted: Boolean(isAdjusted),
-          schedStartParts,
-          schedEndParts,
+          schedStartIso: meta.schedStartIso,
+          schedEndIso: meta.schedEndIso,
+          originalStartIso: meta.originalStartIso,
+          originalEndIso: meta.originalEndIso,
+          adjusted: meta.adjusted,
+          schedStartParts: meta.schedStartParts,
+          schedEndParts: meta.schedEndParts,
           showContent,
-          preview: Boolean(blob.preview),
+          preview: meta.preview,
         };
       })
       .filter(Boolean)
@@ -1298,8 +1378,11 @@ function renderWeek() {
         const blob = getBlobById(chipEl.dataset.blobId);
         showInfoCard(blob, chipEl.getBoundingClientRect());
       });
-      chipEl.addEventListener("mouseleave", () => {
+      chipEl.addEventListener("mouseleave", (event) => {
         state.infoCardAnchorHovering = false;
+        if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
+          return;
+        }
         scheduleInfoCardHide();
       });
       chipEl.addEventListener("click", (event) => {
@@ -1384,8 +1467,11 @@ function renderWeek() {
         clearInfoCardHideTimeout();
         applyInfoCardAndOverlay();
       });
-      blockEl.addEventListener("mouseleave", () => {
+      blockEl.addEventListener("mouseleave", (event) => {
         state.infoCardAnchorHovering = false;
+        if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
+          return;
+        }
         scheduleInfoCardHide(() => {
           dayTracks.forEach(({ overlay, originalOverlay }) => {
             overlay.classList.remove("active", "overflow-top", "overflow-bottom");
@@ -1778,8 +1864,11 @@ function renderMonth() {
       `;
       showInfoCardHtml(html, dayEl.getBoundingClientRect());
     });
-    dayEl.addEventListener("mouseleave", () => {
+    dayEl.addEventListener("mouseleave", (event) => {
       state.infoCardAnchorHovering = false;
+      if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
+        return;
+      }
       scheduleInfoCardHide();
     });
   });
@@ -1880,11 +1969,8 @@ function startInteractiveCreate(options = {}) {
   state.pendingDefaultRange = null;
   state.pendingSchedulableRange = null;
   dom.formStatus.textContent = "Click start/end for schedulable range.";
-  if (state.view !== "day" && state.view !== "week") {
-    setActive("day");
-  }
-  renderAll();
-  setActive(state.view);
+  const targetView = state.view === "day" || state.view === "week" ? state.view : "day";
+  setActive(targetView);
 }
 
 export {

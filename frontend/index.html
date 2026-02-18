@@ -8,20 +8,29 @@
   </head>
   <body>
     <div class="page">
-      <header class="topbar">
+      <aside class="panel sidebar">
+        <button class="ghost small sidebar-toggle" id="sidebarToggleBtn" type="button" aria-label="Collapse sidebar">
+          ☰
+        </button>
         <div class="brand">
-          <div class="logo">E</div>
           <div>
             <div class="title" id="brandTitle">Elastisched</div>
             <div class="subtitle" id="brandSubtitle">Schedule at a glance</div>
           </div>
         </div>
-        <div class="controls">
-          <button class="ghost icon settings" id="settingsBtn" title="Settings">⚙</button>
-          <button class="ghost icon help" id="helpBtn" title="Keyboard shortcuts">?</button>
-        </div>
-      </header>
+        <nav class="sidebar-nav" aria-label="Workspace menu">
+          <button class="sidebar-link active" id="settingsBtn" type="button" data-short="S">
+            <span class="sidebar-link-title">Settings</span>
+            <span class="sidebar-link-subtitle">Workspace and schedule defaults</span>
+          </button>
+          <button class="sidebar-link" id="helpBtn" type="button" data-short="?">
+            <span class="sidebar-link-title">Help menu</span>
+            <span class="sidebar-link-subtitle">Keyboard shortcuts and tips</span>
+          </button>
+        </nav>
+      </aside>
 
+      <main class="workspace">
       <div class="modal" id="settingsModal" aria-hidden="true">
         <div class="modal-backdrop" id="settingsBackdrop"></div>
         <section class="panel form-panel modal-panel" id="settingsPanel">
@@ -30,9 +39,11 @@
               <div class="form-title">Settings</div>
               <div class="form-subtitle">Customize labels and granularity</div>
             </div>
-            <button class="ghost small" id="closeSettingsBtn">Close</button>
+            <div class="settings-header-actions">
+              <button class="ghost small" id="closeSettingsBtn">Close</button>
+            </div>
           </div>
-          <form id="settingsForm" class="blob-form">
+          <form id="settingsForm" class="blob-form settings-form">
             <div class="settings-tabs vertical" role="tablist">
               <button class="settings-tab active" type="button" data-settings-tab="general">
                 General
@@ -42,51 +53,124 @@
               </button>
             </div>
             <div class="settings-section active" data-settings-section="general">
-              <label>
-                Schedule name
-                <input type="text" name="scheduleName" placeholder="Elastisched" />
-              </label>
-              <label>
-                Subtitle
-                <input type="text" name="subtitle" placeholder="Schedule at a glance" />
-              </label>
-              <label>
-                Theme
-                <select name="theme">
-                  <option value="sand">Sand</option>
-                  <option value="sage">Sage</option>
-                  <option value="ocean">Ocean</option>
-                  <option value="ember">Ember</option>
-                </select>
-              </label>
-              <label>
-                User timezone
-                <select name="userTimeZone"></select>
-              </label>
+              <div class="settings-section-header">
+                <div class="settings-section-title">General settings</div>
+                <div class="settings-section-copy">
+                  Configure how your workspace appears across the app.
+                </div>
+              </div>
+              <div class="settings-grid">
+                <article class="settings-card">
+                  <div class="settings-card-title">Workspace identity</div>
+                  <div class="settings-card-copy">
+                    Set the primary title and subtitle shown throughout the interface.
+                  </div>
+                  <label>
+                    Schedule name
+                    <input type="text" name="scheduleName" placeholder="Elastisched" />
+                  </label>
+                  <label>
+                    Subtitle
+                    <input type="text" name="subtitle" placeholder="Schedule at a glance" />
+                  </label>
+                </article>
+                <article class="settings-card">
+                  <div class="settings-card-title">Display preferences</div>
+                  <div class="settings-card-copy">
+                    Control your default theme and preferred local timezone.
+                  </div>
+                  <label>
+                    Theme
+                    <select name="theme">
+                      <option value="sand">Sand</option>
+                      <option value="sage">Sage</option>
+                      <option value="ocean">Ocean</option>
+                      <option value="ember">Ember</option>
+                    </select>
+                  </label>
+                  <label>
+                    User timezone
+                    <select name="userTimeZone"></select>
+                  </label>
+                </article>
+              </div>
             </div>
             <div class="settings-section" data-settings-section="scheduling">
-              <label>
-                Minute granularity
-                <input type="number" name="minuteGranularity" min="1" step="1" />
-              </label>
-              <label>
-                Finish early buffer (minutes)
-                <input type="number" name="finishEarlyBufferMinutes" min="1" step="1" />
-              </label>
-              <label class="settings-toggle">
-                <span>Reschedule ongoing events</span>
-                <input type="checkbox" name="includeActiveOccurrences" />
-              </label>
-              <label>
-                Lookahead minutes
-                <input type="number" name="lookaheadMinutes" min="1" step="1" />
-              </label>
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="primary">Save</button>
-              <span class="form-status" id="settingsStatus"></span>
+              <div class="settings-section-header">
+                <div class="settings-section-title">Scheduling defaults</div>
+                <div class="settings-section-copy">
+                  Define planner behavior that controls cadence and schedule regeneration.
+                </div>
+              </div>
+              <div class="settings-grid">
+                <article class="settings-card">
+                  <div class="settings-card-title">Engine behavior</div>
+                  <label>
+                    Minute granularity
+                    <input type="number" name="minuteGranularity" min="1" step="1" />
+                  </label>
+                  <label>
+                    Lookahead minutes
+                    <input type="number" name="lookaheadMinutes" min="1" step="1" />
+                  </label>
+                </article>
+                <article class="settings-card">
+                  <div class="settings-card-title">Execution options</div>
+                  <label>
+                    Finish early buffer (minutes)
+                    <input type="number" name="finishEarlyBufferMinutes" min="1" step="1" />
+                  </label>
+                  <label class="settings-toggle">
+                    <span>Reschedule ongoing events</span>
+                    <input type="checkbox" name="includeActiveOccurrences" />
+                  </label>
+                </article>
+                <article class="settings-card">
+                  <label class="settings-toggle">
+                    <span>Enable advanced engine tuning</span>
+                    <input type="checkbox" name="engineAdvancedEnabled" />
+                  </label>
+                </article>
+                <article class="settings-card settings-advanced-card" id="advancedEngineCard">
+                  <div class="settings-card-title">Advanced engine tuning</div>
+                  <div class="settings-card-copy">
+                    Fine-tune optimization parameters.
+                  </div>
+                  <label>
+                    Initial temp
+                    <input type="number" name="engineInitialTemp" min="0.0001" step="0.0001" />
+                  </label>
+                  <label>
+                    Final temp
+                    <input type="number" name="engineFinalTemp" min="0.000001" step="0.000001" />
+                  </label>
+                  <label>
+                    Num iters
+                    <input type="number" name="engineNumIters" min="1" step="1" />
+                  </label>
+                  <label>
+                    Illegal schedule weight
+                    <input type="number" name="engineIllegalScheduleWeight" min="0" step="0.01" />
+                  </label>
+                  <label>
+                    Overlap cost weight
+                    <input type="number" name="engineOverlapCostWeight" min="0" step="0.01" />
+                  </label>
+                  <label>
+                    Split cost weight
+                    <input type="number" name="engineSplitCostWeight" min="0" step="0.01" />
+                  </label>
+                </article>
+              </div>
             </div>
           </form>
+          <div class="settings-save-dock">
+            <span class="form-status settings-dirty-indicator" id="settingsDirtyIndicator"></span>
+            <button type="submit" form="settingsForm" class="primary" id="settingsSaveBtn" disabled>
+              Save changes
+            </button>
+            <span class="form-status" id="settingsStatus"></span>
+          </div>
         </section>
       </div>
 
@@ -626,6 +710,7 @@
           <div id="viewYear" class="view"></div>
         </div>
       </section>
+      </main>
     </div>
 
     <script src="./js/constants.js"></script>

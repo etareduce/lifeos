@@ -1,5 +1,42 @@
 import { minuteGranularity } from "./core.js";
 
+const timeZonePartsFormatterCache = new Map();
+const timeRangeFormatterCache = new Map();
+
+function getTimeZonePartsFormatter(timeZone) {
+  const key = timeZone || "UTC";
+  if (timeZonePartsFormatterCache.has(key)) {
+    return timeZonePartsFormatterCache.get(key);
+  }
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: key,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  timeZonePartsFormatterCache.set(key, formatter);
+  return formatter;
+}
+
+function getTimeRangeFormatter(timeZone) {
+  const key = timeZone || "UTC";
+  if (timeRangeFormatterCache.has(key)) {
+    return timeRangeFormatterCache.get(key);
+  }
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    timeZone: key,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  timeRangeFormatterCache.set(key, formatter);
+  return formatter;
+}
+
 function toDate(value) {
   return value ? new Date(value) : null;
 }
@@ -38,16 +75,7 @@ function getLocalTimeZone() {
 }
 
 function getTimeZoneParts(date, timeZone) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  const formatter = getTimeZonePartsFormatter(timeZone);
   const parts = formatter.formatToParts(date);
   const map = {};
   parts.forEach((part) => {
@@ -232,12 +260,7 @@ function formatTimeRangeInTimeZone(start, end, timeZone) {
   if (!startDate || !endDate) {
     return "";
   }
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  const formatter = getTimeRangeFormatter(timeZone);
   return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
 }
 

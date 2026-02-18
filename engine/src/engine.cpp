@@ -416,10 +416,18 @@ DependencyCheckResult check_dependency_violations(const Schedule& schedule) {
     return result;
 }
 
-ScheduleCostFunction::ScheduleCostFunction(const Schedule& schedule, sec_t granularity)
+ScheduleCostFunction::ScheduleCostFunction(
+    const Schedule& schedule,
+    sec_t granularity,
+    double illegal_schedule_weight,
+    double overlap_cost_weight,
+    double split_cost_weight)
     :
 schedule_ref(schedule),
-granularity(granularity)
+granularity(granularity),
+illegal_schedule_weight(illegal_schedule_weight),
+overlap_cost_weight(overlap_cost_weight),
+split_cost_weight(split_cost_weight)
 {
     if (schedule.scheduled_jobs.size() == 0) {
         return;
@@ -528,7 +536,10 @@ double ScheduleCostFunction::split_cost() const {
 }
 
 double ScheduleCostFunction::schedule_cost() const {
-    double cost = illegal_schedule_cost() + overlap_cost() + split_cost();
+    double cost =
+        (illegal_schedule_weight * illegal_schedule_cost()) +
+        (overlap_cost_weight * overlap_cost()) +
+        (split_cost_weight * split_cost());
     return cost;
 }
 
@@ -548,6 +559,18 @@ std::pair<Schedule, std::vector<double>> schedule_jobs(
     const double final_temp,
     const uint64_t num_iters
 ) {
+    EngineConfig config;
+    config.granularity = granularity;
+    config.initial_temp = initial_temp;
+    config.final_temp = final_temp;
+    config.num_iters = num_iters;
+    return schedule_jobs(std::move(jobs), config);
+}
+
+std::pair<Schedule, std::vector<double>> schedule_jobs(
+    std::vector<Job> jobs,
+    const EngineConfig& config
+) {
     if (jobs.size() == 0) {
         return std::make_pair<Schedule, std::vector<double>>(Schedule(), {});
     };
@@ -565,23 +588,35 @@ std::pair<Schedule, std::vector<double>> schedule_jobs(
 
     Schedule initial_schedule = Schedule(jobs);
 
-    ScheduleCostFunction initial_cost_function = ScheduleCostFunction(initial_schedule, granularity);
+    ScheduleCostFunction initial_cost_function = ScheduleCostFunction(
+        initial_schedule,
+        config.granularity,
+        config.illegal_schedule_weight,
+        config.overlap_cost_weight,
+        config.split_cost_weight
+    );
     (void)initial_cost_function;
 
     SimulatedAnnealingOptimizer<Schedule> optimizer = SimulatedAnnealingOptimizer<Schedule>(
-        [granularity](Schedule s) {
-            ScheduleCostFunction cost_function = ScheduleCostFunction(s, granularity);
+        [config](Schedule s) {
+            ScheduleCostFunction cost_function = ScheduleCostFunction(
+                s,
+                config.granularity,
+                config.illegal_schedule_weight,
+                config.overlap_cost_weight,
+                config.split_cost_weight
+            );
             return cost_function.schedule_cost();
         },
-        [granularity, &gen](Schedule s) {
+        [config, &gen](Schedule s) {
             return generate_random_schedule_neighbor(
                 s,
-                granularity,
+                config.granularity,
                 gen);
         },
-        initial_temp,
-        final_temp,
-        num_iters
+        config.initial_temp,
+        config.final_temp,
+        config.num_iters
     );
 
     Schedule best_schedule = optimizer.optimize(initial_schedule);
@@ -594,13 +629,15 @@ Schedule schedule(
     std::vector<Job> jobs,
     const uint64_t granularity
 ) {
-    std::pair<Schedule, std::vector<double>> s = schedule_jobs(
-        jobs,
-        granularity,
-        10.0f,
-        1e-4,
-        1000000
-    );
+    EngineConfig config;
+    config.granularity = granularity;
+    return schedule(std::move(jobs), config);
+}
 
+Schedule schedule(
+    std::vector<Job> jobs,
+    const EngineConfig& config
+) {
+    auto s = schedule_jobs(std::move(jobs), config);
     return s.first;
 }

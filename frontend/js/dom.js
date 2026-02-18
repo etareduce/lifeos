@@ -1,4 +1,7 @@
 const dom = {
+  page: document.querySelector(".page"),
+  sidebar: document.querySelector(".sidebar"),
+  sidebarToggleBtn: document.getElementById("sidebarToggleBtn"),
   dateLabel: document.getElementById("dateLabel"),
   timeZoneLabel: document.getElementById("timeZoneLabel"),
   tabs: document.querySelectorAll(".tab"),
@@ -44,6 +47,9 @@ const dom = {
   llmConfirmBtn: document.getElementById("llmConfirmBtn"),
   llmDiscardBtn: document.getElementById("llmDiscardBtn"),
   settingsForm: document.getElementById("settingsForm"),
+  settingsSaveBtn: document.getElementById("settingsSaveBtn"),
+  settingsDirtyIndicator: document.getElementById("settingsDirtyIndicator"),
+  advancedEngineCard: document.getElementById("advancedEngineCard"),
   settingsStatus: document.getElementById("settingsStatus"),
   alertModal: document.getElementById("alertModal"),
   alertBackdrop: document.getElementById("alertBackdrop"),

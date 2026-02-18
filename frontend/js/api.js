@@ -46,6 +46,12 @@ async function runSchedule(granularityMinutes, lookaheadSeconds) {
     lookahead_seconds: lookaheadSeconds,
     user_timezone: appConfig.userTimeZone,
     include_active_occurrences: appConfig.includeActiveOccurrences,
+    initial_temp: appConfig.engineInitialTemp,
+    final_temp: appConfig.engineFinalTemp,
+    num_iters: appConfig.engineNumIters,
+    illegal_schedule_weight: appConfig.engineIllegalScheduleWeight,
+    overlap_cost_weight: appConfig.engineOverlapCostWeight,
+    split_cost_weight: appConfig.engineSplitCostWeight,
   };
   const response = await fetch(`${API_BASE}/schedule`, {
     method: "POST",

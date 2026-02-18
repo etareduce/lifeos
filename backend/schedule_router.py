@@ -240,6 +240,51 @@ def _validate_schedule(schedule: engine.Schedule) -> str | None:
     return _dependency_violation_message(jobs)
 
 
+def _run_engine_schedule(
+    jobs: list[engine.Job],
+    *,
+    granularity_seconds: int,
+    initial_temp: float,
+    final_temp: float,
+    num_iters: int,
+    illegal_schedule_weight: float,
+    overlap_cost_weight: float,
+    split_cost_weight: float,
+):
+    engine_config_cls = getattr(engine, "EngineConfig", None)
+    schedule_with_config = getattr(engine, "schedule_jobs_with_config", None)
+    if engine_config_cls is not None and callable(schedule_with_config):
+        config = engine_config_cls()
+        config.granularity = granularity_seconds
+        config.initial_temp = initial_temp
+        config.final_temp = final_temp
+        config.num_iters = num_iters
+        if hasattr(config, "illegal_schedule_weight"):
+            config.illegal_schedule_weight = illegal_schedule_weight
+        if hasattr(config, "overlap_cost_weight"):
+            config.overlap_cost_weight = overlap_cost_weight
+        if hasattr(config, "split_cost_weight"):
+            config.split_cost_weight = split_cost_weight
+        return schedule_with_config(jobs, config)
+
+    # note: currently we have a backup scheduler which is the legacy scheduler. 
+    # consider removing this in a future version and failing rather than calling
+    # legacy scheduler.
+    legacy_schedule = getattr(engine, "schedule_jobs", None)
+    if callable(legacy_schedule):
+        return legacy_schedule(
+            jobs,
+            granularity_seconds,
+            initial_temp,
+            final_temp,
+            num_iters,
+        )
+
+    raise RuntimeError(
+        "Engine module does not expose schedule_jobs_with_config or compatible schedule_jobs."
+    )
+
+
 async def _get_or_create_schedule_state(session: AsyncSession) -> ScheduleStateModel:
     result = await session.execute(select(ScheduleStateModel))
     state = result.scalar_one_or_none()
@@ -309,6 +354,22 @@ async def run_schedule(
     epoch_start_utc = _epoch_start_utc(start_utc, user_tz)
     granularity_minutes = max(1, int(payload.granularity_minutes or 5))
     granularity_seconds = granularity_minutes * 60
+    initial_temp = float(payload.initial_temp or 10.0)
+    final_temp = float(payload.final_temp or 1e-4)
+    num_iters = int(payload.num_iters or 1000000)
+    illegal_schedule_weight = float(payload.illegal_schedule_weight or 1.0)
+    overlap_cost_weight = float(payload.overlap_cost_weight or 1.0)
+    split_cost_weight = float(payload.split_cost_weight or 1.0)
+    if initial_temp <= 0 or final_temp <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="initial_temp and final_temp must be greater than 0.",
+        )
+    if num_iters <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="num_iters must be greater than 0.",
+        )
     include_active = True if payload.include_active_occurrences is None else bool(
         payload.include_active_occurrences
     )
@@ -362,7 +423,20 @@ async def run_schedule(
         jobs.append(job)
 
     try:
-        schedule = engine.schedule(jobs, granularity_seconds)
+        result = _run_engine_schedule(
+            jobs,
+            granularity_seconds=granularity_seconds,
+            initial_temp=initial_temp,
+            final_temp=final_temp,
+            num_iters=num_iters,
+            illegal_schedule_weight=illegal_schedule_weight,
+            overlap_cost_weight=overlap_cost_weight,
+            split_cost_weight=split_cost_weight,
+        )
+        if isinstance(result, tuple):
+            schedule = result[0]
+        else:
+            schedule = result
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

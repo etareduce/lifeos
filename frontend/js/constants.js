@@ -6,4 +6,12 @@ window.APP_CONFIG = {
   includeActiveOccurrences: true,
   lookaheadSeconds: 14 * 24 * 60 * 60,
   projectTimeZone: "UTC",
+  theme: "sand",
+  engineInitialTemp: 10.0,
+  engineFinalTemp: 0.0001,
+  engineNumIters: 1000000,
+  engineAdvancedEnabled: false,
+  engineIllegalScheduleWeight: 1.0,
+  engineOverlapCostWeight: 1.0,
+  engineSplitCostWeight: 1.0,
 };

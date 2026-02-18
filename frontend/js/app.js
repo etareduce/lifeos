@@ -469,12 +469,20 @@ window.addEventListener("keydown", (event) => {
     event.keyCode === 39;
   if (event.key === "Escape") {
     clearInfoCardLock();
+    let closedSidebarModal = false;
     if (dom.settingsModal.classList.contains("active")) {
       toggleSettings(false);
       dom.settingsStatus.textContent = "";
+      closedSidebarModal = true;
     }
     if (dom.helpModal?.classList.contains("active")) {
       toggleHelp(false);
+      closedSidebarModal = true;
+    }
+    if (closedSidebarModal) {
+      document.querySelectorAll(".sidebar-link.active").forEach((link) => {
+        link.classList.remove("active");
+      });
     }
     if (dom.formPanel.classList.contains("active")) {
       toggleForm(false);

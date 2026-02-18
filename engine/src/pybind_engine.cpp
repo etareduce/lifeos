@@ -89,11 +89,67 @@ PYBIND11_MODULE(engine, m) {
     // Cost Function
     py::class_<ScheduleCostFunction>(m, "ScheduleCostFunction")
         .def(py::init<const Schedule&, sec_t>())
+        .def(py::init<const Schedule&, sec_t, double, double, double>(),
+             py::arg("schedule"),
+             py::arg("granularity"),
+             py::arg("illegal_schedule_weight"),
+             py::arg("overlap_cost_weight"),
+             py::arg("split_cost_weight"))
         .def("schedule_cost", &ScheduleCostFunction::schedule_cost);
 
-    m.def("schedule", &schedule, "Run the scheduler with default configurations",
-          py::arg("jobs"), py::arg("granularity"));
+    py::class_<EngineConfig>(m, "EngineConfig")
+        .def(py::init<>())
+        .def_readwrite("granularity", &EngineConfig::granularity)
+        .def_readwrite("initial_temp", &EngineConfig::initial_temp)
+        .def_readwrite("final_temp", &EngineConfig::final_temp)
+        .def_readwrite("num_iters", &EngineConfig::num_iters)
+        .def_readwrite("num_workers", &EngineConfig::num_workers)
+        .def_readwrite("illegal_schedule_weight", &EngineConfig::illegal_schedule_weight)
+        .def_readwrite("overlap_cost_weight", &EngineConfig::overlap_cost_weight)
+        .def_readwrite("split_cost_weight", &EngineConfig::split_cost_weight)
+        .def_readwrite("log_engine_run", &EngineConfig::log_engine_run)
+        .def_readwrite("output_file", &EngineConfig::output_file);
 
-    m.def("schedule_jobs", &schedule_jobs, "Run the scheduler",
-          py::arg("jobs"), py::arg("granularity"), py::arg("initial_temp"), py::arg("final_temp"), py::arg("num_iters"));
+    m.def(
+        "schedule",
+        static_cast<Schedule (*)(std::vector<Job>, const uint64_t)>(&schedule),
+        "Run the scheduler with default configurations",
+        py::arg("jobs"),
+        py::arg("granularity")
+    );
+    m.def(
+        "schedule_with_config",
+        [](std::vector<Job> jobs, const EngineConfig& config) {
+            return schedule(std::move(jobs), config);
+        },
+        "Run the scheduler with EngineConfig",
+        py::arg("jobs"),
+        py::arg("config")
+    );
+
+    m.def(
+        "schedule_jobs",
+        static_cast<std::pair<Schedule, std::vector<double>> (*)(
+            std::vector<Job>,
+            const uint64_t,
+            const double,
+            const double,
+            const uint64_t
+        )>(&schedule_jobs),
+        "Run the scheduler",
+        py::arg("jobs"),
+        py::arg("granularity"),
+        py::arg("initial_temp"),
+        py::arg("final_temp"),
+        py::arg("num_iters")
+    );
+    m.def(
+        "schedule_jobs_with_config",
+        [](std::vector<Job> jobs, const EngineConfig& config) {
+            return schedule_jobs(std::move(jobs), config);
+        },
+        "Run the scheduler with EngineConfig and return cost history",
+        py::arg("jobs"),
+        py::arg("config")
+    );
 } 

@@ -31,6 +31,7 @@ const WEEK_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 const editOnlyElements = document.querySelectorAll(".edit-only");
 const settingsTabs = document.querySelectorAll(".settings-tab");
 const settingsSections = document.querySelectorAll(".settings-section");
+const sidebarLinks = document.querySelectorAll(".sidebar-link");
 const nonWeeklyField = document.querySelector(".non-weekly-field");
 const primaryDependencyField = document.querySelector(
   ".dependency-field:not(.slot-dependency-field)"
@@ -46,6 +47,8 @@ let formPosition = null;
 let isDraggingLlm = false;
 let llmDragOffset = { x: 0, y: 0 };
 let llmPosition = null;
+let settingsHydrating = false;
+let settingsDirty = false;
 
 const weeklyFieldPlacement = {
   dependency: {
@@ -84,6 +87,19 @@ function setRefreshHandler(handler) {
   refreshView = handler;
 }
 
+function applySidebarState() {
+  if (!dom.page) return;
+  dom.page.classList.toggle("sidebar-collapsed", Boolean(appConfig.sidebarCollapsed));
+}
+
+function toggleSidebarCollapsed(force) {
+  const next =
+    typeof force === "boolean" ? force : !Boolean(appConfig.sidebarCollapsed);
+  appConfig.sidebarCollapsed = next;
+  applySidebarState();
+  saveSettings(appConfig);
+}
+
 function toggleForm(show) {
   const isActive = typeof show === "boolean" ? show : !dom.formPanel.classList.contains("active");
   dom.formPanel.classList.toggle("active", isActive);
@@ -103,6 +119,21 @@ function toggleSettings(show) {
   if (isActive) {
     setActiveSettingsTab(settingsTabs[0]?.dataset?.settingsTab || "general");
   }
+}
+
+function setSettingsDirty(nextDirty) {
+  settingsDirty = Boolean(nextDirty);
+  if (dom.settingsSaveBtn) {
+    dom.settingsSaveBtn.disabled = !settingsDirty;
+  }
+  if (dom.settingsDirtyIndicator) {
+    dom.settingsDirtyIndicator.textContent = "";
+  }
+}
+
+function updateAdvancedEngineVisibility(enabled) {
+  if (!dom.advancedEngineCard) return;
+  dom.advancedEngineCard.classList.toggle("is-hidden", !enabled);
 }
 
 function toggleHelp(show) {
@@ -163,6 +194,10 @@ function setActiveSettingsTab(tabName) {
   settingsSections.forEach((section) => {
     section.classList.toggle("active", section.dataset.settingsSection === tabName);
   });
+  sidebarLinks.forEach((link) => {
+    const isActive = link.getAttribute("id") === "settingsBtn";
+    link.classList.toggle("active", isActive);
+  });
 }
 
 function populateTimeZones() {
@@ -192,6 +227,7 @@ function populateTimeZones() {
 }
 
 function hydrateSettingsForm() {
+  settingsHydrating = true;
   dom.settingsForm.scheduleName.value = appConfig.scheduleName || "";
   dom.settingsForm.subtitle.value = appConfig.subtitle || "";
   dom.settingsForm.minuteGranularity.value = appConfig.minuteGranularity || 5;
@@ -206,6 +242,31 @@ function hydrateSettingsForm() {
   );
   dom.settingsForm.lookaheadMinutes.value = lookaheadMinutes;
   dom.settingsForm.userTimeZone.value = appConfig.userTimeZone || "";
+  if (dom.settingsForm.engineInitialTemp) {
+    dom.settingsForm.engineInitialTemp.value = appConfig.engineInitialTemp ?? 10.0;
+  }
+  if (dom.settingsForm.engineFinalTemp) {
+    dom.settingsForm.engineFinalTemp.value = appConfig.engineFinalTemp ?? 0.0001;
+  }
+  if (dom.settingsForm.engineNumIters) {
+    dom.settingsForm.engineNumIters.value = appConfig.engineNumIters ?? 1000000;
+  }
+  if (dom.settingsForm.engineAdvancedEnabled) {
+    dom.settingsForm.engineAdvancedEnabled.checked = Boolean(appConfig.engineAdvancedEnabled);
+    updateAdvancedEngineVisibility(Boolean(appConfig.engineAdvancedEnabled));
+  }
+  if (dom.settingsForm.engineIllegalScheduleWeight) {
+    dom.settingsForm.engineIllegalScheduleWeight.value =
+      appConfig.engineIllegalScheduleWeight ?? 1.0;
+  }
+  if (dom.settingsForm.engineOverlapCostWeight) {
+    dom.settingsForm.engineOverlapCostWeight.value = appConfig.engineOverlapCostWeight ?? 1.0;
+  }
+  if (dom.settingsForm.engineSplitCostWeight) {
+    dom.settingsForm.engineSplitCostWeight.value = appConfig.engineSplitCostWeight ?? 1.0;
+  }
+  settingsHydrating = false;
+  setSettingsDirty(false);
 }
 
 function setFormMode(mode) {
@@ -2797,6 +2858,22 @@ function handleSettingsSubmit(event) {
   const lookaheadMinutes = Math.max(1, Number(formData.get("lookaheadMinutes") || 1));
   const userTimeZone = formData.get("userTimeZone")?.toString().trim() || "";
   const theme = formData.get("theme")?.toString().trim() || "sand";
+  const engineInitialTemp = Math.max(0.0001, Number(formData.get("engineInitialTemp") || 0.0001));
+  const engineFinalTemp = Math.max(0.000001, Number(formData.get("engineFinalTemp") || 0.000001));
+  const engineNumIters = Math.max(1, Math.round(Number(formData.get("engineNumIters") || 1)));
+  const engineAdvancedEnabled = formData.get("engineAdvancedEnabled") === "on";
+  const engineIllegalScheduleWeight = Math.max(
+    0,
+    Number(formData.get("engineIllegalScheduleWeight") || 0)
+  );
+  const engineOverlapCostWeight = Math.max(
+    0,
+    Number(formData.get("engineOverlapCostWeight") || 0)
+  );
+  const engineSplitCostWeight = Math.max(
+    0,
+    Number(formData.get("engineSplitCostWeight") || 0)
+  );
   if (userTimeZone) {
     try {
       Intl.DateTimeFormat("en-US", { timeZone: userTimeZone });
@@ -2812,6 +2889,13 @@ function handleSettingsSubmit(event) {
   appConfig.includeActiveOccurrences = includeActiveOccurrences;
   appConfig.lookaheadSeconds = lookaheadMinutes * 60;
   appConfig.theme = theme;
+  appConfig.engineInitialTemp = engineInitialTemp;
+  appConfig.engineFinalTemp = engineFinalTemp;
+  appConfig.engineNumIters = engineNumIters;
+  appConfig.engineAdvancedEnabled = engineAdvancedEnabled;
+  appConfig.engineIllegalScheduleWeight = engineIllegalScheduleWeight;
+  appConfig.engineOverlapCostWeight = engineOverlapCostWeight;
+  appConfig.engineSplitCostWeight = engineSplitCostWeight;
   if (userTimeZone) {
     appConfig.userTimeZone = userTimeZone;
   }
@@ -2821,7 +2905,8 @@ function handleSettingsSubmit(event) {
   if (dom.timeZoneLabel) {
     dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
   }
-  dom.settingsStatus.textContent = "Saved. Refresh to apply granularity.";
+  dom.settingsStatus.textContent = "";
+  setSettingsDirty(false);
   saveSettings(appConfig);
 }
 
@@ -2838,13 +2923,25 @@ function openCreateForm(blobType = BLOB_TYPES.TASK) {
 }
 
 function handleSettingsClick() {
+  sidebarLinks.forEach((link) => {
+    link.classList.toggle("active", link.getAttribute("id") === "settingsBtn");
+  });
   toggleSettings(true);
+  toggleHelp(false);
   populateTimeZones();
   hydrateSettingsForm();
+  setActiveSettingsTab("general");
   dom.settingsStatus.textContent = "";
+  setSettingsDirty(false);
 }
 
 function handleHelpClick() {
+  sidebarLinks.forEach((link) => {
+    link.classList.toggle("active", link.getAttribute("id") === "helpBtn");
+  });
+  applyTheme(appConfig.theme);
+  toggleSettings(false);
+  setSettingsDirty(false);
   toggleHelp(true);
 }
 
@@ -2959,12 +3056,20 @@ async function handleLlmDiscard() {
 }
 
 function handleCloseSettings() {
+  applyTheme(appConfig.theme);
   toggleSettings(false);
   dom.settingsStatus.textContent = "";
+  setSettingsDirty(false);
+  sidebarLinks.forEach((link) => {
+    link.classList.remove("active");
+  });
 }
 
 function handleCloseHelp() {
   toggleHelp(false);
+  sidebarLinks.forEach((link) => {
+    link.classList.remove("active");
+  });
 }
 
 function handleCloseForm() {
@@ -3226,6 +3331,25 @@ function bindFormHandlers(onRefresh) {
   }
   dom.blobForm.addEventListener("submit", handleBlobSubmit);
   dom.settingsForm.addEventListener("submit", handleSettingsSubmit);
+  dom.settingsForm.addEventListener("input", () => {
+    if (settingsHydrating) return;
+    setSettingsDirty(true);
+  });
+  dom.settingsForm.addEventListener("change", (event) => {
+    if (settingsHydrating) return;
+    setSettingsDirty(true);
+    if (!(event.target instanceof Element)) return;
+    if (
+      event.target instanceof HTMLInputElement &&
+      event.target.name === "engineAdvancedEnabled"
+    ) {
+      updateAdvancedEngineVisibility(event.target.checked);
+      return;
+    }
+    if (event.target instanceof HTMLSelectElement && event.target.name === "theme") {
+      applyTheme(event.target.value || appConfig.theme);
+    }
+  });
   if (dom.deleteRecurrenceBtn) {
     dom.deleteRecurrenceBtn.addEventListener("click", deleteRecurrence);
   }
@@ -3245,12 +3369,23 @@ function bindFormHandlers(onRefresh) {
   if (dom.llmScheduleBtn) {
     dom.llmScheduleBtn.addEventListener("click", handleLlmOpen);
   }
-  dom.settingsBtn.addEventListener("click", handleSettingsClick);
+  if (dom.settingsBtn) {
+    dom.settingsBtn.addEventListener("click", handleSettingsClick);
+  }
+  if (dom.sidebarToggleBtn) {
+    dom.sidebarToggleBtn.addEventListener("click", () => {
+      toggleSidebarCollapsed();
+    });
+  }
   if (dom.helpBtn) {
     dom.helpBtn.addEventListener("click", handleHelpClick);
   }
-  dom.closeSettingsBtn.addEventListener("click", handleCloseSettings);
-  dom.settingsBackdrop.addEventListener("click", handleCloseSettings);
+  if (dom.closeSettingsBtn) {
+    dom.closeSettingsBtn.addEventListener("click", handleCloseSettings);
+  }
+  if (dom.settingsBackdrop) {
+    dom.settingsBackdrop.addEventListener("click", handleCloseSettings);
+  }
   if (dom.closeHelpBtn) {
     dom.closeHelpBtn.addEventListener("click", handleCloseHelp);
   }
@@ -3418,6 +3553,7 @@ function bindFormHandlers(onRefresh) {
   }
   setLlmPreviewControls(Boolean(state.previewBlobs?.length));
   bindBlobTypeToggle(nonWeeklyField);
+  applySidebarState();
   if (settingsTabs.length) {
     settingsTabs.forEach((tab) => {
       tab.addEventListener("click", () => {

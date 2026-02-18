@@ -79,6 +79,12 @@ class ScheduleRequest(BaseModel):
     lookahead_seconds: int | None = Field(default=None, ge=1)
     user_timezone: str | None = Field(default=None, max_length=64)
     include_active_occurrences: bool | None = None
+    initial_temp: float | None = Field(default=None, gt=0)
+    final_temp: float | None = Field(default=None, gt=0)
+    num_iters: int | None = Field(default=None, ge=1)
+    illegal_schedule_weight: float | None = Field(default=None, ge=0)
+    overlap_cost_weight: float | None = Field(default=None, ge=0)
+    split_cost_weight: float | None = Field(default=None, ge=0)
 
 
 class ScheduleResponse(ScheduleStatus):
