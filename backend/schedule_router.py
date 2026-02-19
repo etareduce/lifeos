@@ -296,13 +296,20 @@ async def _get_or_create_schedule_state(session: AsyncSession) -> ScheduleStateM
     return state
 
 
+async def _get_schedule_state(session: AsyncSession) -> ScheduleStateModel | None:
+    result = await session.execute(select(ScheduleStateModel))
+    return result.scalar_one_or_none()
+
+
 @schedule_router.get(
     "/status", response_model=ScheduleStatus, operation_id="get_schedule_status"
 )
 async def get_schedule_status(
     session: AsyncSession = Depends(get_session),
 ) -> ScheduleStatus:
-    state = await _get_or_create_schedule_state(session)
+    state = await _get_schedule_state(session)
+    if state is None:
+        return ScheduleStatus(dirty=True, last_run=None)
     return ScheduleStatus(dirty=state.dirty, last_run=state.last_run)
 
 

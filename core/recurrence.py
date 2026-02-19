@@ -9,6 +9,8 @@ from .blob import Blob
 from .daytime import daytime
 from .timerange import TimeRange
 
+MAX_OCCURRENCES_PER_QUERY = 10000
+
 
 def has_overlapping_blobs(blobs: List[Blob]) -> bool:
     sorted_blobs = sorted(blobs, key=lambda b: b.schedulable_timerange.start)
@@ -318,7 +320,6 @@ class WeeklyBlobRecurrence(BlobRecurrence):
 
         while True:
             next_blob = self.next_occurrence(current)
-            print(next_blob.get_schedulable_timerange().start)
             if next_blob is None:
                 break
 
@@ -331,6 +332,8 @@ class WeeklyBlobRecurrence(BlobRecurrence):
                 break
 
             occurrences.append(next_blob)
+            if len(occurrences) >= MAX_OCCURRENCES_PER_QUERY:
+                break
             current = next_start + timedelta(microseconds=1)
 
         return occurrences
@@ -402,6 +405,8 @@ class DeltaBlobRecurrence(BlobRecurrence):
             occurrence_range = blob_copy.get_schedulable_timerange()
             if timerange.overlaps(occurrence_range):
                 occurrences.append(blob_copy)
+                if len(occurrences) >= MAX_OCCURRENCES_PER_QUERY:
+                    break
             elif occurrence_range.end <= start:
                 curr_local += self.delta
                 continue
@@ -638,6 +643,8 @@ class DateBlobRecurrence(BlobRecurrence):
 
             if timerange.overlaps(blob_copy.get_schedulable_timerange()):
                 occurrences.append(blob_copy)
+                if len(occurrences) >= MAX_OCCURRENCES_PER_QUERY:
+                    break
 
             current_year += 1
 
@@ -690,6 +697,8 @@ class DateBlobRecurrence(BlobRecurrence):
                     blob_copy.get_schedulable_timerange()
                 ):
                     occurrences.append(blob_copy)
+                    if len(occurrences) >= MAX_OCCURRENCES_PER_QUERY:
+                        break
 
             current_year += 1
 
