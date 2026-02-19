@@ -4,6 +4,9 @@ import os
 DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./core.db"
 DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
 DEFAULT_MAX_BLOB_CREATION_RETRIES = 2
+DEFAULT_GOOGLE_OAUTH_SCOPES = (
+    "openid email profile https://www.googleapis.com/auth/calendar.readonly"
+)
 
 
 def get_database_url() -> str:
@@ -25,3 +28,20 @@ def get_max_blob_creation_retries() -> int:
     except ValueError:
         return DEFAULT_MAX_BLOB_CREATION_RETRIES
     return max(0, value)
+
+
+def get_google_oauth_client_id() -> str:
+    return os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+
+
+def get_google_oauth_client_secret() -> str:
+    return os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+
+
+def get_google_oauth_redirect_uri() -> str:
+    return os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "")
+
+
+def get_google_oauth_scopes() -> str:
+    raw = os.getenv("GOOGLE_OAUTH_SCOPES", DEFAULT_GOOGLE_OAUTH_SCOPES).strip()
+    return raw or DEFAULT_GOOGLE_OAUTH_SCOPES
