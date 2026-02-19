@@ -2,12 +2,16 @@ import { API_BASE, appConfig, state } from "./core.js";
 import { toProjectIsoFromDate } from "./utils.js";
 
 async function fetchOccurrences(start, end) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12000);
   try {
     const query = new URLSearchParams({
       start: toProjectIsoFromDate(start, appConfig.projectTimeZone),
       end: toProjectIsoFromDate(end, appConfig.projectTimeZone),
     });
-    const response = await fetch(`${API_BASE}/occurrences?${query.toString()}`);
+    const response = await fetch(`${API_BASE}/occurrences?${query.toString()}`, {
+      signal: controller.signal,
+    });
     if (!response.ok) {
       throw new Error("Failed to fetch occurrences");
     }
@@ -17,6 +21,8 @@ async function fetchOccurrences(start, end) {
   } catch (error) {
     state.blobs = [];
     state.loadedRange = null;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 
@@ -33,11 +39,24 @@ async function ensureOccurrences(start, end) {
 }
 
 async function fetchScheduleStatus() {
-  const response = await fetch(`${API_BASE}/schedule/status`);
-  if (!response.ok) {
-    throw new Error("Failed to fetch schedule status");
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${API_BASE}/schedule/status`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error("Failed to fetch schedule status");
+    }
+    return response.json();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Schedule status request timed out");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return response.json();
 }
 
 async function runSchedule(granularityMinutes, lookaheadSeconds) {
@@ -208,6 +227,108 @@ async function estimateTaskDuration(payload) {
   return response.json();
 }
 
+async function getGoogleIntegrationStatus() {
+  const response = await fetch(`${API_BASE}/integrations/google/status`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch Google integration status");
+  }
+  return response.json();
+}
+
+function buildGoogleOAuthStartUrl(returnTo) {
+  const params = new URLSearchParams();
+  if (returnTo) {
+    params.set("return_to", returnTo);
+  }
+  const query = params.toString();
+  return `${API_BASE}/integrations/google/oauth/start${query ? `?${query}` : ""}`;
+}
+
+async function connectGoogleAccount(accessToken) {
+  const response = await fetch(`${API_BASE}/integrations/google/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+  if (!response.ok) {
+    let detail = "Failed to connect Google account";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function disconnectGoogleAccount() {
+  const response = await fetch(`${API_BASE}/integrations/google/connect`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error("Failed to disconnect Google account");
+  }
+}
+
+async function listGoogleCalendars() {
+  const response = await fetch(`${API_BASE}/integrations/google/calendars`);
+  if (!response.ok) {
+    let detail = "Failed to load Google calendars";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function previewGoogleSync(payload) {
+  const response = await fetch(`${API_BASE}/integrations/google/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = "Failed to generate Google sync preview";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function applyGoogleSync(payload) {
+  const response = await fetch(`${API_BASE}/integrations/google/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = "Failed to apply Google sync";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 export {
   ensureOccurrences,
   fetchOccurrences,
@@ -220,4 +341,11 @@ export {
   updateRecurrence,
   createLLMRecurrenceDraft,
   estimateTaskDuration,
+  buildGoogleOAuthStartUrl,
+  getGoogleIntegrationStatus,
+  connectGoogleAccount,
+  disconnectGoogleAccount,
+  listGoogleCalendars,
+  previewGoogleSync,
+  applyGoogleSync,
 };

@@ -13,6 +13,15 @@
   --palette-mist: #c1d4da;
   --palette-clay: #e0c1b3;
   --palette-moss: #d6ccb4;
+  --palette-coral: #f4b7a8;
+  --palette-sky: #b9dff5;
+  --palette-violet: #d4c6f1;
+  --palette-teal: #a7d9cf;
+  --palette-lemon: #f7e49e;
+  --palette-indigo: #b8c4ef;
+  --palette-ruby: #efb6c5;
+  --palette-mint: #c3e8c7;
+  --palette-slate: #c9d1da;
   --bg-1: #fce8c5;
   --bg-2: #f5efe6;
   --bg-3: #e7ddd0;
@@ -51,6 +60,15 @@ body[data-theme="sage"] {
   --palette-mist: #c0d4cc;
   --palette-clay: #d8bdb2;
   --palette-moss: #c9c3a8;
+  --palette-coral: #eab7aa;
+  --palette-sky: #b8d8df;
+  --palette-violet: #cdc7e8;
+  --palette-teal: #a7d1c3;
+  --palette-lemon: #eadca6;
+  --palette-indigo: #b8c2dd;
+  --palette-ruby: #e2b5c0;
+  --palette-mint: #badfc1;
+  --palette-slate: #c3ccd1;
   --bg-1: #dff0da;
   --bg-2: #eff4ed;
   --bg-3: #d6dfd3;
@@ -71,6 +89,15 @@ body[data-theme="ocean"] {
   --palette-mist: #bcd6dd;
   --palette-clay: #d9bfb5;
   --palette-moss: #c5c0a6;
+  --palette-coral: #e6b8b0;
+  --palette-sky: #b5d6ea;
+  --palette-violet: #c9c8e8;
+  --palette-teal: #a7d0cc;
+  --palette-lemon: #e8ddad;
+  --palette-indigo: #b6c1e3;
+  --palette-ruby: #deb5c6;
+  --palette-mint: #b7deca;
+  --palette-slate: #bec8d6;
   --bg-1: #d6e8f1;
   --bg-2: #edf4f8;
   --bg-3: #cddde7;
@@ -91,6 +118,15 @@ body[data-theme="ember"] {
   --palette-mist: #d8c0b0;
   --palette-clay: #e1b7a3;
   --palette-moss: #cbb7a0;
+  --palette-coral: #e4b097;
+  --palette-sky: #d3c5b2;
+  --palette-violet: #d5b7c7;
+  --palette-teal: #c5c8a8;
+  --palette-lemon: #e4cf9a;
+  --palette-indigo: #c8bed0;
+  --palette-ruby: #dfab98;
+  --palette-mint: #c7d0aa;
+  --palette-slate: #cabaa9;
   --bg-1: #f6d4b1;
   --bg-2: #f3e7dc;
   --bg-3: #e1c8b6;
@@ -990,6 +1026,180 @@ body.modal-open .info-card {
   display: none;
 }
 
+.integration-settings {
+  align-items: start;
+}
+
+.integration-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.integration-status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.integration-status-chip.connected {
+  background: rgba(76, 136, 94, 0.14);
+  border-color: rgba(76, 136, 94, 0.3);
+  color: #2f5b39;
+}
+
+.integration-status-chip.disconnected {
+  background: rgba(180, 73, 63, 0.12);
+  border-color: rgba(180, 73, 63, 0.35);
+  color: #8f3f36;
+}
+
+.integration-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.integration-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.integration-manual-auth {
+  border: 1px solid #e6d9c8;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(255, 250, 242, 0.7);
+}
+
+.integration-manual-auth summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.integration-calendars {
+  display: grid;
+  gap: 8px;
+}
+
+.integration-calendar-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e0d3c1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fffaf2;
+}
+
+.integration-calendar-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.integration-calendar-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.integration-calendar-name {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.integration-calendar-tz {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.integration-calendar-badge {
+  font-size: 11px;
+  border: 1px solid rgba(58, 110, 122, 0.35);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--ocean);
+}
+
+.integration-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.integration-preview-item {
+  border: 1px solid #e0d3c1;
+  border-radius: 12px;
+  background: #fffaf2;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.integration-preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: start;
+}
+
+.integration-preview-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.integration-preview-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.integration-suggestion {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid rgba(27, 26, 22, 0.2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.integration-preview-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.integration-preview-controls label {
+  display: grid;
+  gap: 4px;
+}
+
+.integration-merge-target.is-hidden {
+  display: none;
+}
+
+.integration-event-list {
+  display: grid;
+  gap: 6px;
+}
+
+.integration-event-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .settings-header-actions {
   display: inline-flex;
   align-items: center;
@@ -1028,11 +1238,11 @@ body.modal-open .info-card {
 }
 
 .color-swatches {
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(28px, 28px));
   gap: 4px;
   align-items: center;
+  justify-content: start;
 }
 
 .color-swatch {
@@ -1106,6 +1316,42 @@ body.modal-open .info-card {
 
 .color-swatch .swatch-moss {
   background: var(--palette-moss);
+}
+
+.color-swatch .swatch-coral {
+  background: var(--palette-coral);
+}
+
+.color-swatch .swatch-sky {
+  background: var(--palette-sky);
+}
+
+.color-swatch .swatch-violet {
+  background: var(--palette-violet);
+}
+
+.color-swatch .swatch-teal {
+  background: var(--palette-teal);
+}
+
+.color-swatch .swatch-lemon {
+  background: var(--palette-lemon);
+}
+
+.color-swatch .swatch-indigo {
+  background: var(--palette-indigo);
+}
+
+.color-swatch .swatch-ruby {
+  background: var(--palette-ruby);
+}
+
+.color-swatch .swatch-mint {
+  background: var(--palette-mint);
+}
+
+.color-swatch .swatch-slate {
+  background: var(--palette-slate);
 }
 
 .tag-input-row {
@@ -1590,6 +1836,10 @@ body.modal-open .info-card {
 .form-status {
   font-size: 12px;
   color: var(--muted);
+}
+
+.form-status.error {
+  color: #b4493f;
 }
 
 .settings-dirty-indicator {
@@ -2356,6 +2606,42 @@ body.modal-open .info-card {
   background: var(--palette-moss);
 }
 
+.full-day-chip.palette-coral {
+  background: var(--palette-coral);
+}
+
+.full-day-chip.palette-sky {
+  background: var(--palette-sky);
+}
+
+.full-day-chip.palette-violet {
+  background: var(--palette-violet);
+}
+
+.full-day-chip.palette-teal {
+  background: var(--palette-teal);
+}
+
+.full-day-chip.palette-lemon {
+  background: var(--palette-lemon);
+}
+
+.full-day-chip.palette-indigo {
+  background: var(--palette-indigo);
+}
+
+.full-day-chip.palette-ruby {
+  background: var(--palette-ruby);
+}
+
+.full-day-chip.palette-mint {
+  background: var(--palette-mint);
+}
+
+.full-day-chip.palette-slate {
+  background: var(--palette-slate);
+}
+
 .full-day-chip.preview {
   background: rgba(58, 110, 122, 0.12);
   border: 1px dashed rgba(58, 110, 122, 0.6);
@@ -2617,6 +2903,51 @@ body.modal-open .info-card {
 
 .day-block.palette-moss {
   background: var(--palette-moss);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-coral {
+  background: var(--palette-coral);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-sky {
+  background: var(--palette-sky);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-violet {
+  background: var(--palette-violet);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-teal {
+  background: var(--palette-teal);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-lemon {
+  background: var(--palette-lemon);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-indigo {
+  background: var(--palette-indigo);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-ruby {
+  background: var(--palette-ruby);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-mint {
+  background: var(--palette-mint);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.day-block.palette-slate {
+  background: var(--palette-slate);
   border-color: rgba(255, 255, 255, 0.7);
 }
 

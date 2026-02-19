@@ -3331,12 +3331,18 @@ function bindFormHandlers(onRefresh) {
   }
   dom.blobForm.addEventListener("submit", handleBlobSubmit);
   dom.settingsForm.addEventListener("submit", handleSettingsSubmit);
-  dom.settingsForm.addEventListener("input", () => {
+  dom.settingsForm.addEventListener("input", (event) => {
     if (settingsHydrating) return;
+    if (event.target instanceof Element && event.target.closest("[data-settings-ignore='true']")) {
+      return;
+    }
     setSettingsDirty(true);
   });
   dom.settingsForm.addEventListener("change", (event) => {
     if (settingsHydrating) return;
+    if (event.target instanceof Element && event.target.closest("[data-settings-ignore='true']")) {
+      return;
+    }
     setSettingsDirty(true);
     if (!(event.target instanceof Element)) return;
     if (

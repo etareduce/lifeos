@@ -51,6 +51,9 @@
               <button class="settings-tab" type="button" data-settings-tab="scheduling">
                 Scheduling
               </button>
+              <button class="settings-tab" type="button" data-settings-tab="integrations">
+                Integrations
+              </button>
             </div>
             <div class="settings-section active" data-settings-section="general">
               <div class="settings-section-header">
@@ -160,6 +163,72 @@
                     Split cost weight
                     <input type="number" name="engineSplitCostWeight" min="0" step="0.01" />
                   </label>
+                </article>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-section="integrations">
+              <div class="settings-section-header">
+                <div class="settings-section-title">Calendar integrations</div>
+                <div class="settings-section-copy">
+                  Connect external calendars, preview merge decisions, then apply a sync.
+                </div>
+              </div>
+              <div class="settings-grid integration-settings" data-settings-ignore="true">
+                <article class="settings-card">
+                  <div class="settings-card-title">Google account</div>
+                  <div class="settings-card-copy">
+                    Connect once, then choose which calendars to import on each sync.
+                  </div>
+                  <div class="integration-status-row">
+                    <span id="googleConnectionStatus" class="integration-status-chip disconnected">
+                      Not connected
+                    </span>
+                    <span id="googleConnectionMeta" class="integration-meta"></span>
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <button type="button" class="primary" id="googleConnectBtn">Sign in with Google</button>
+                    <button type="button" class="ghost danger" id="googleDisconnectBtn">Disconnect</button>
+                  </div>
+                  <details class="integration-manual-auth" data-settings-ignore="true">
+                    <summary>Advanced: paste access token manually</summary>
+                    <label data-settings-ignore="true">
+                      Google access token
+                      <input
+                        type="password"
+                        name="googleAccessToken"
+                        id="googleAccessTokenInput"
+                        placeholder="Paste OAuth access token"
+                        autocomplete="off"
+                        data-settings-ignore="true"
+                      />
+                    </label>
+                    <div class="integration-actions" data-settings-ignore="true">
+                      <button type="button" class="ghost" id="googleManualConnectBtn">
+                        Connect using token
+                      </button>
+                    </div>
+                  </details>
+                  <div class="form-status" id="googleConnectionMessage"></div>
+                </article>
+                <article class="settings-card">
+                  <div class="settings-card-title">Sync preview</div>
+                  <div class="settings-card-copy">
+                    Select calendars, preview merge recommendations, then apply your choices.
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <button type="button" class="ghost" id="googleLoadCalendarsBtn">
+                      Sync with Google Calendar
+                    </button>
+                    <button type="button" class="ghost" id="googlePreviewBtn">
+                      Generate preview
+                    </button>
+                    <button type="button" class="primary" id="googleApplyBtn">
+                      Apply sync
+                    </button>
+                  </div>
+                  <div class="form-status" id="googleSyncMessage"></div>
+                  <div class="integration-calendars" id="googleCalendarList"></div>
+                  <div class="integration-preview" id="googlePreviewList"></div>
                 </article>
               </div>
             </div>
@@ -605,6 +674,42 @@
                 <input type="radio" name="recurrenceColor" value="moss" aria-label="Moss" />
                 <span class="swatch swatch-moss"></span>
               </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="coral" aria-label="Coral" />
+                <span class="swatch swatch-coral"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="sky" aria-label="Sky" />
+                <span class="swatch swatch-sky"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="violet" aria-label="Violet" />
+                <span class="swatch swatch-violet"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="teal" aria-label="Teal" />
+                <span class="swatch swatch-teal"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="lemon" aria-label="Lemon" />
+                <span class="swatch swatch-lemon"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="indigo" aria-label="Indigo" />
+                <span class="swatch swatch-indigo"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="ruby" aria-label="Ruby" />
+                <span class="swatch swatch-ruby"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="mint" aria-label="Mint" />
+                <span class="swatch swatch-mint"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="slate" aria-label="Slate" />
+                <span class="swatch swatch-slate"></span>
+              </label>
             </div>
           </div>
           <div class="form-actions">
@@ -691,6 +796,7 @@
             <div class="schedule-controls">
               <button class="ghost" id="toggleFormBtn">Add recurrence</button>
               <button class="ghost" id="llmScheduleBtn">Add with AI</button>
+              <button class="ghost" id="googleSyncBtn">Sync Google</button>
               <button class="primary schedule-btn" id="runScheduleBtn">Run schedule</button>
               <div class="schedule-status" id="scheduleStatus" role="status" aria-live="polite">
                 <span class="status-dot" aria-hidden="true"></span>

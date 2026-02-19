@@ -40,6 +40,7 @@ const dom = {
   helpBackdrop: document.getElementById("helpBackdrop"),
   closeHelpBtn: document.getElementById("closeHelpBtn"),
   llmScheduleBtn: document.getElementById("llmScheduleBtn"),
+  googleSyncBtn: document.getElementById("googleSyncBtn"),
   llmPanel: document.getElementById("llmPanel"),
   closeLlmBtn: document.getElementById("closeLlmBtn"),
   llmForm: document.getElementById("llmForm"),
@@ -91,6 +92,19 @@ const dom = {
   tagSuggestions: document.getElementById("tagSuggestions"),
   estimateDurationBtn: document.getElementById("estimateDurationBtn"),
   estimateStatus: document.getElementById("estimateStatus"),
+  googleAccessTokenInput: document.getElementById("googleAccessTokenInput"),
+  googleConnectBtn: document.getElementById("googleConnectBtn"),
+  googleManualConnectBtn: document.getElementById("googleManualConnectBtn"),
+  googleDisconnectBtn: document.getElementById("googleDisconnectBtn"),
+  googleLoadCalendarsBtn: document.getElementById("googleLoadCalendarsBtn"),
+  googlePreviewBtn: document.getElementById("googlePreviewBtn"),
+  googleApplyBtn: document.getElementById("googleApplyBtn"),
+  googleConnectionStatus: document.getElementById("googleConnectionStatus"),
+  googleConnectionMeta: document.getElementById("googleConnectionMeta"),
+  googleConnectionMessage: document.getElementById("googleConnectionMessage"),
+  googleSyncMessage: document.getElementById("googleSyncMessage"),
+  googleCalendarList: document.getElementById("googleCalendarList"),
+  googlePreviewList: document.getElementById("googlePreviewList"),
 };
 
 export { dom };

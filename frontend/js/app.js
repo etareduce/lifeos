@@ -18,6 +18,7 @@ import {
   toggleSettings,
   toggleHelp,
 } from "./forms.js";
+import { bindIntegrationHandlers } from "./integrations.js";
 import {
   clearInfoCardLock,
   setActive,
@@ -39,6 +40,7 @@ if (dom.timeZoneLabel) {
 }
 
 bindFormHandlers(refreshView);
+bindIntegrationHandlers(refreshView);
 
 async function refreshView(nextView = state.view) {
   const view = nextView || state.view;
@@ -46,7 +48,7 @@ async function refreshView(nextView = state.view) {
   const range = getViewRange(view, state.anchorDate);
   await ensureOccurrences(range.start, range.end);
   setActive(view);
-  await refreshScheduleStatus();
+  refreshScheduleStatus();
   renderNowPanel();
   updateNowIndicators();
 }
