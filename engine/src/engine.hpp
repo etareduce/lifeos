@@ -50,6 +50,8 @@ private:
     const double illegal_schedule_weight;
     const double overlap_cost_weight;
     const double split_cost_weight;
+    const double consistency_cost_weight;
+    const double granularity_cost_weight;
     const std::set<Tag> rest_tags{};
     IntervalTree<sec_t, std::optional<std::vector<Job>>> day_based_schedule;
     std::optional<sec_t> min_time = std::nullopt;
@@ -60,6 +62,8 @@ public:
     double illegal_schedule_cost() const;
     double overlap_cost() const;
     double split_cost() const;
+    double consistency_cost() const;
+    double granularity_cost() const;
     double schedule_cost() const;
 
     ScheduleCostFunction(
@@ -67,7 +71,9 @@ public:
         sec_t granularity,
         double illegal_schedule_weight = 1.0,
         double overlap_cost_weight = 1.0,
-        double split_cost_weight = 1.0);
+        double split_cost_weight = 1.0,
+        double consistency_cost_weight = 1.0,
+        double granularity_cost_weight = 1.0);
 };
 
 struct EngineConfig {
@@ -79,6 +85,8 @@ struct EngineConfig {
     double illegal_schedule_weight = 1.0;
     double overlap_cost_weight = 1.0;
     double split_cost_weight = 1.0;
+    double consistency_cost_weight = 1.0;
+    double granularity_cost_weight = 1.0;
     bool log_engine_run = false;
     std::string output_file = "";
 };

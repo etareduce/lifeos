@@ -1,4 +1,12 @@
-import { appConfig, applyTheme, isTypingInField, loadView, state } from "./core.js";
+import {
+  appConfig,
+  applyTheme,
+  isTypingInField,
+  loadView,
+  loadWorkspaceMode,
+  saveWorkspaceMode,
+  state,
+} from "./core.js";
 import { dom } from "./dom.js";
 import {
   ensureOccurrences,
@@ -18,12 +26,14 @@ import {
   toggleSettings,
   toggleHelp,
 } from "./forms.js";
+import { bindIntegrationHandlers } from "./integrations.js";
 import {
   clearInfoCardLock,
   setActive,
   updateNowIndicators,
 } from "./render.js";
 import {
+  addDays,
   formatTimeRangeInTimeZone,
   getEffectiveOccurrenceRange,
   getViewRange,
@@ -39,15 +49,281 @@ if (dom.timeZoneLabel) {
 }
 
 bindFormHandlers(refreshView);
+bindIntegrationHandlers(refreshView);
+
+const WORKSPACE_MODE = {
+  HOME: "home",
+  TASKS: "tasks",
+  SEARCH: "search",
+};
+const WORKSPACE_LOOKAHEAD_DAYS = 90;
+
+function getWorkspaceDataRange() {
+  const start = new Date();
+  const end = addDays(start, WORKSPACE_LOOKAHEAD_DAYS);
+  return { start, end };
+}
+
+function setWorkspaceMode(mode) {
+  const nextMode = Object.values(WORKSPACE_MODE).includes(mode) ? mode : WORKSPACE_MODE.HOME;
+  state.workspaceMode = nextMode;
+  document.documentElement.dataset.workspaceMode = nextMode;
+  saveWorkspaceMode(nextMode);
+  if (dom.homeBtn) dom.homeBtn.classList.toggle("active", nextMode === WORKSPACE_MODE.HOME);
+  if (dom.tasksBtn) dom.tasksBtn.classList.toggle("active", nextMode === WORKSPACE_MODE.TASKS);
+  if (dom.searchBtn) dom.searchBtn.classList.toggle("active", nextMode === WORKSPACE_MODE.SEARCH);
+  if (dom.homeSection) {
+    const active = nextMode === WORKSPACE_MODE.HOME;
+    dom.homeSection.classList.toggle("active", active);
+    dom.homeSection.setAttribute("aria-hidden", (!active).toString());
+  }
+  if (dom.tasksSection) {
+    const active = nextMode === WORKSPACE_MODE.TASKS;
+    dom.tasksSection.classList.toggle("active", active);
+    dom.tasksSection.setAttribute("aria-hidden", (!active).toString());
+  }
+  if (dom.searchSection) {
+    const active = nextMode === WORKSPACE_MODE.SEARCH;
+    dom.searchSection.classList.toggle("active", active);
+    dom.searchSection.setAttribute("aria-hidden", (!active).toString());
+  }
+}
+
+function dayKeyInZone(date, timeZone) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function getUpcomingOccurrences() {
+  const now = new Date();
+  return state.blobs
+    .map((blob) => {
+      const range = getOccurrenceRange(blob);
+      if (!range || range.end <= now) return null;
+      return { blob, range };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.range.start - b.range.start);
+}
+
+function getRecurrenceSummary(blob) {
+  const payload = blob?.recurrence_payload || {};
+  const recurrenceId = blob?.recurrence_id || blob?.id || "unknown";
+  const name =
+    payload.recurrence_name ||
+    blob?.recurrence_name ||
+    blob?.name ||
+    "Untitled recurrence";
+  const description =
+    payload.recurrence_description ||
+    blob?.recurrence_description ||
+    blob?.description ||
+    "";
+  return { recurrenceId, name, description };
+}
+
+function getUpcomingRecurrenceGroups() {
+  const groups = new Map();
+  getUpcomingOccurrences().forEach((item) => {
+    const { recurrenceId, name, description } = getRecurrenceSummary(item.blob);
+    if (!groups.has(recurrenceId)) {
+      groups.set(recurrenceId, {
+        recurrenceId,
+        name,
+        description,
+        occurrences: [],
+      });
+    }
+    groups.get(recurrenceId).occurrences.push(item);
+  });
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      occurrences: group.occurrences.sort((a, b) => a.range.start - b.range.start),
+    }))
+    .sort((a, b) => {
+      const aStart = a.occurrences[0]?.range?.start?.getTime?.() || Number.POSITIVE_INFINITY;
+      const bStart = b.occurrences[0]?.range?.start?.getTime?.() || Number.POSITIVE_INFINITY;
+      return aStart - bStart;
+    });
+}
+
+function isTaskOccurrence(blob) {
+  const defaultRange = blob?.default_scheduled_timerange || null;
+  const schedulableRange = blob?.schedulable_timerange || null;
+  if (
+    !defaultRange?.start ||
+    !defaultRange?.end ||
+    !schedulableRange?.start ||
+    !schedulableRange?.end
+  ) {
+    return false;
+  }
+  const defaultStart = new Date(defaultRange.start);
+  const defaultEnd = new Date(defaultRange.end);
+  const schedStart = new Date(schedulableRange.start);
+  const schedEnd = new Date(schedulableRange.end);
+  if (
+    Number.isNaN(defaultStart.getTime()) ||
+    Number.isNaN(defaultEnd.getTime()) ||
+    Number.isNaN(schedStart.getTime()) ||
+    Number.isNaN(schedEnd.getTime())
+  ) {
+    return false;
+  }
+  return (
+    defaultStart.getTime() !== schedStart.getTime() ||
+    defaultEnd.getTime() !== schedEnd.getTime()
+  );
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderTasksPanel() {
+  if (!dom.tasksList) return;
+  const items = getUpcomingOccurrences().filter(({ blob }) => isTaskOccurrence(blob));
+  const userZone = appConfig.userTimeZone;
+  const now = new Date();
+  const todayKey = dayKeyInZone(now, userZone);
+  const weekLimit = addDays(now, 7);
+  const todayCount = items.filter(({ range }) => dayKeyInZone(range.start, userZone) === todayKey).length;
+  const weekCount = items.filter(({ range }) => range.start < weekLimit).length;
+  if (dom.tasksUpcomingCount) dom.tasksUpcomingCount.textContent = `${items.length}`;
+  if (dom.tasksTodayCount) dom.tasksTodayCount.textContent = `${todayCount}`;
+  if (dom.tasksWeekCount) dom.tasksWeekCount.textContent = `${weekCount}`;
+
+  if (!items.length) {
+    dom.tasksList.innerHTML = `<div class="tasks-empty">No upcoming tasks in the loaded range.</div>`;
+    return;
+  }
+
+  const dateFormatter = new Intl.DateTimeFormat(undefined, {
+    timeZone: userZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const markup = items
+    .slice(0, 80)
+    .map(({ blob, range }) => {
+      const timeZone = blob?.tz || userZone;
+      const title = escapeHtml(blob.name || "Untitled");
+      const description = escapeHtml(blob.description || "");
+      const dayLabel = dateFormatter.format(range.start);
+      const timeLabel = formatTimeRangeInTimeZone(range.start, range.end, timeZone);
+      return `
+        <article class="task-card">
+          <div class="task-card-main">
+            <div class="task-card-title">${title}</div>
+            ${description ? `<div class="task-card-copy">${description}</div>` : ""}
+          </div>
+          <div class="task-card-meta">
+            <div class="task-card-day">${escapeHtml(dayLabel)}</div>
+            <div class="task-card-time">${escapeHtml(timeLabel)}</div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+  dom.tasksList.innerHTML = markup;
+}
+
+function renderSearchPanel() {
+  if (!dom.eventSearchResults) return;
+  const recurrenceGroups = getUpcomingRecurrenceGroups();
+  const query = (dom.eventSearchInput?.value || "").trim().toLowerCase();
+  const matches = query
+    ? recurrenceGroups.filter((group) => {
+        return `${group.name} ${group.description} ${group.recurrenceId}`
+          .toLowerCase()
+          .includes(query);
+      })
+    : recurrenceGroups;
+
+  if (!matches.length) {
+    dom.eventSearchResults.innerHTML = query
+      ? `<div class="search-empty">No recurrences match "${escapeHtml(query)}".</div>`
+      : `<div class="search-empty">Type to search upcoming recurrences.</div>`;
+    return;
+  }
+
+  const dateFormatter = new Intl.DateTimeFormat(undefined, {
+    timeZone: appConfig.userTimeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const markup = matches
+    .slice(0, 100)
+    .map((group) => {
+      const next = group.occurrences[0] || null;
+      if (!next) return "";
+      const title = escapeHtml(group.name || "Untitled recurrence");
+      const description = escapeHtml(group.description || "");
+      const dayLabel = dateFormatter.format(next.range.start);
+      const timeLabel = formatTimeRangeInTimeZone(
+        next.range.start,
+        next.range.end,
+        next.blob?.tz || appConfig.userTimeZone
+      );
+      const countLabel = `${group.occurrences.length} upcoming`;
+      return `
+        <article class="search-card">
+          <div class="search-card-head">
+            <div class="search-card-title">${title}</div>
+            <div class="search-card-time">${escapeHtml(dayLabel)} · ${escapeHtml(timeLabel)}</div>
+          </div>
+          <div class="search-card-copy">${escapeHtml(countLabel)} occurrence(s)</div>
+          ${description ? `<div class="search-card-copy">${description}</div>` : ""}
+        </article>
+      `;
+    })
+    .join("");
+  dom.eventSearchResults.innerHTML = markup;
+}
+
+function renderWorkspacePanels() {
+  renderTasksPanel();
+  renderSearchPanel();
+}
+
+async function switchWorkspaceMode(mode) {
+  setWorkspaceMode(mode);
+  if (mode === WORKSPACE_MODE.HOME) {
+    await refreshView(state.view);
+    return;
+  }
+  const range = getWorkspaceDataRange();
+  await ensureOccurrences(range.start, range.end);
+  renderWorkspacePanels();
+  if (mode === WORKSPACE_MODE.SEARCH && dom.eventSearchInput) {
+    dom.eventSearchInput.focus();
+  }
+}
 
 async function refreshView(nextView = state.view) {
   const view = nextView || state.view;
   setActive(view, { deferRender: true });
-  const range = getViewRange(view, state.anchorDate);
+  const range =
+    state.workspaceMode === WORKSPACE_MODE.HOME
+      ? getViewRange(view, state.anchorDate)
+      : getWorkspaceDataRange();
   await ensureOccurrences(range.start, range.end);
   setActive(view);
-  await refreshScheduleStatus();
+  refreshScheduleStatus();
   renderNowPanel();
+  renderWorkspacePanels();
   updateNowIndicators();
 }
 
@@ -322,6 +598,30 @@ dom.tabs.forEach((tab) => {
   tab.addEventListener("click", () => refreshView(tab.dataset.view));
 });
 
+if (dom.homeBtn) {
+  dom.homeBtn.addEventListener("click", () => {
+    switchWorkspaceMode(WORKSPACE_MODE.HOME);
+  });
+}
+
+if (dom.tasksBtn) {
+  dom.tasksBtn.addEventListener("click", () => {
+    switchWorkspaceMode(WORKSPACE_MODE.TASKS);
+  });
+}
+
+if (dom.searchBtn) {
+  dom.searchBtn.addEventListener("click", () => {
+    switchWorkspaceMode(WORKSPACE_MODE.SEARCH);
+  });
+}
+
+if (dom.eventSearchInput) {
+  dom.eventSearchInput.addEventListener("input", () => {
+    renderSearchPanel();
+  });
+}
+
 if (dom.runScheduleBtn) {
   dom.runScheduleBtn.addEventListener("click", handleRunSchedule);
 }
@@ -480,7 +780,7 @@ window.addEventListener("keydown", (event) => {
       closedSidebarModal = true;
     }
     if (closedSidebarModal) {
-      document.querySelectorAll(".sidebar-link.active").forEach((link) => {
+      document.querySelectorAll(".sidebar-icon-link.active").forEach((link) => {
         link.classList.remove("active");
       });
     }
@@ -499,6 +799,9 @@ window.addEventListener("keydown", (event) => {
     openCreateForm("event");
   }
   if (isArrowLeft || isArrowRight) {
+    if (state.workspaceMode !== WORKSPACE_MODE.HOME) {
+      return;
+    }
     const direction = isArrowLeft ? -1 : 1;
     const view = state.view;
     const next = shiftAnchorDate(view, state.anchorDate, direction);
@@ -521,7 +824,16 @@ window.addEventListener("elastisched:refresh", () => {
   window.elastischedRefresh?.();
 });
 const savedView = loadView();
-refreshView(savedView || "day");
+const savedWorkspaceMode = loadWorkspaceMode();
+const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspaceMode)
+  ? savedWorkspaceMode
+  : WORKSPACE_MODE.HOME;
+if (initialWorkspaceMode === WORKSPACE_MODE.HOME) {
+  setWorkspaceMode(WORKSPACE_MODE.HOME);
+  refreshView(savedView || "day");
+} else {
+  switchWorkspaceMode(initialWorkspaceMode);
+}
 window.setInterval(() => {
   renderNowPanel();
   updateNowIndicators();

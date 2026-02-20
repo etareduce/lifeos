@@ -1,4 +1,5 @@
 import uuid
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -34,6 +35,8 @@ from engine import Tag
 
 recurrence_router = APIRouter(prefix="/recurrences", tags=["recurrences"])
 occurrence_router = APIRouter(prefix="/occurrences", tags=["occurrences"])
+MAX_OCCURRENCES_RESPONSE = 15000
+logger = logging.getLogger(__name__)
 
 
 async def _mark_schedule_dirty(session: AsyncSession) -> None:
@@ -501,7 +504,16 @@ async def list_occurrences(
             continue
         if end_date and end_date < recurrence_range.end:
             recurrence_range = TimeRange(start=recurrence_range.start, end=end_date)
-        for blob in recurrence_obj.all_occurrences(recurrence_range):
+        try:
+            blobs = recurrence_obj.all_occurrences(recurrence_range)
+        except Exception:
+            logger.exception(
+                "Skipping invalid recurrence during /occurrences: id=%s type=%s",
+                recurrence.id,
+                recurrence_type,
+            )
+            continue
+        for blob in blobs:
             start = blob.get_schedulable_timerange().start
             if end_date and start > end_date:
                 continue
@@ -514,6 +526,10 @@ async def list_occurrences(
                     recurrence.id, recurrence_type, recurrence.payload, blob
                 )
             )
+            if len(occurrences) >= MAX_OCCURRENCES_RESPONSE:
+                break
+        if len(occurrences) >= MAX_OCCURRENCES_RESPONSE:
+            break
     if occurrences:
         occurrence_ids = [occurrence.id for occurrence in occurrences]
         scheduled_result = await session.execute(

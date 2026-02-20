@@ -7,7 +7,6 @@ import {
   getWeekStart,
   overlaps,
   shiftAnchorDate,
-  toLocalInputFromDate,
   toLocalInputValueInTimeZone,
   toProjectIsoFromDate,
   toProjectIsoFromLocalInput,
@@ -17,7 +16,6 @@ import {
   createLLMRecurrenceDraft,
   createRecurrence,
   createRecurrencesBulk,
-  estimateTaskDuration,
   updateRecurrence,
 } from "./api.js";
 import { confirmDialog } from "./popups.js";
@@ -31,7 +29,7 @@ const WEEK_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 const editOnlyElements = document.querySelectorAll(".edit-only");
 const settingsTabs = document.querySelectorAll(".settings-tab");
 const settingsSections = document.querySelectorAll(".settings-section");
-const sidebarLinks = document.querySelectorAll(".sidebar-link");
+const utilityLinks = document.querySelectorAll(".sidebar-icon-link");
 const nonWeeklyField = document.querySelector(".non-weekly-field");
 const primaryDependencyField = document.querySelector(
   ".dependency-field:not(.slot-dependency-field)"
@@ -184,6 +182,12 @@ async function clearLlmPreview() {
   }
 }
 
+function setUtilitySidebarActive(targetId) {
+  utilityLinks.forEach((link) => {
+    link.classList.toggle("active", Boolean(targetId) && link.id === targetId);
+  });
+}
+
 function setActiveSettingsTab(tabName) {
   if (!tabName) return;
   settingsTabs.forEach((tab) => {
@@ -193,10 +197,6 @@ function setActiveSettingsTab(tabName) {
   });
   settingsSections.forEach((section) => {
     section.classList.toggle("active", section.dataset.settingsSection === tabName);
-  });
-  sidebarLinks.forEach((link) => {
-    const isActive = link.getAttribute("id") === "settingsBtn";
-    link.classList.toggle("active", isActive);
   });
 }
 
@@ -264,6 +264,14 @@ function hydrateSettingsForm() {
   }
   if (dom.settingsForm.engineSplitCostWeight) {
     dom.settingsForm.engineSplitCostWeight.value = appConfig.engineSplitCostWeight ?? 1.0;
+  }
+  if (dom.settingsForm.engineConsistencyCostWeight) {
+    dom.settingsForm.engineConsistencyCostWeight.value =
+      appConfig.engineConsistencyCostWeight ?? 1.0;
+  }
+  if (dom.settingsForm.engineGranularityCostWeight) {
+    dom.settingsForm.engineGranularityCostWeight.value =
+      appConfig.engineGranularityCostWeight ?? 1.0;
   }
   settingsHydrating = false;
   setSettingsDirty(false);
@@ -410,18 +418,6 @@ function setBlobTypeOnContainer(container, nextType) {
   const hiddenInput = container.querySelector("[data-blob-type-input]");
   if (hiddenInput) {
     hiddenInput.value = type;
-  }
-  const estimateButton = container.querySelector('[data-action="estimate-duration"]');
-  const estimateStatus = container.querySelector("[data-slot-estimate-status]");
-  if (container === nonWeeklyField && dom.estimateDurationBtn) {
-    dom.estimateDurationBtn.disabled = type === BLOB_TYPES.EVENT;
-    dom.estimateDurationBtn.classList.toggle("is-disabled", type === BLOB_TYPES.EVENT);
-    if (dom.estimateStatus) dom.estimateStatus.textContent = "";
-  }
-  if (estimateButton) {
-    estimateButton.disabled = type === BLOB_TYPES.EVENT;
-    estimateButton.classList.toggle("is-disabled", type === BLOB_TYPES.EVENT);
-    if (estimateStatus) estimateStatus.textContent = "";
   }
   container.querySelectorAll("[data-blob-type]").forEach((button) => {
     const isActive = button.dataset.blobType === type;
@@ -1803,12 +1799,6 @@ function createMultipleSlot(slotData = {}) {
         </div>
       </label>
     </div>
-    <div class="weekly-slot-row estimate-row">
-      <button type="button" class="ghost" data-action="estimate-duration">
-        Estimate task duration
-      </button>
-      <span class="form-status" data-slot-estimate-status></span>
-    </div>
     <div class="weekly-slot-row slot-meta">
       <label>
         Occurrence name
@@ -2172,9 +2162,6 @@ function resetFormMode() {
   createMultipleSlot();
   if (dom.multipleSlotStatus) {
     dom.multipleSlotStatus.textContent = "";
-  }
-  if (dom.estimateStatus) {
-    dom.estimateStatus.textContent = "";
   }
   updateRecurrenceUI();
   setFormMode("create");
@@ -2874,6 +2861,14 @@ function handleSettingsSubmit(event) {
     0,
     Number(formData.get("engineSplitCostWeight") || 0)
   );
+  const engineConsistencyCostWeight = Math.max(
+    0,
+    Number(formData.get("engineConsistencyCostWeight") || 0)
+  );
+  const engineGranularityCostWeight = Math.max(
+    0,
+    Number(formData.get("engineGranularityCostWeight") || 0)
+  );
   if (userTimeZone) {
     try {
       Intl.DateTimeFormat("en-US", { timeZone: userTimeZone });
@@ -2896,6 +2891,8 @@ function handleSettingsSubmit(event) {
   appConfig.engineIllegalScheduleWeight = engineIllegalScheduleWeight;
   appConfig.engineOverlapCostWeight = engineOverlapCostWeight;
   appConfig.engineSplitCostWeight = engineSplitCostWeight;
+  appConfig.engineConsistencyCostWeight = engineConsistencyCostWeight;
+  appConfig.engineGranularityCostWeight = engineGranularityCostWeight;
   if (userTimeZone) {
     appConfig.userTimeZone = userTimeZone;
   }
@@ -2923,9 +2920,7 @@ function openCreateForm(blobType = BLOB_TYPES.TASK) {
 }
 
 function handleSettingsClick() {
-  sidebarLinks.forEach((link) => {
-    link.classList.toggle("active", link.getAttribute("id") === "settingsBtn");
-  });
+  setUtilitySidebarActive("settingsBtn");
   toggleSettings(true);
   toggleHelp(false);
   populateTimeZones();
@@ -2936,9 +2931,7 @@ function handleSettingsClick() {
 }
 
 function handleHelpClick() {
-  sidebarLinks.forEach((link) => {
-    link.classList.toggle("active", link.getAttribute("id") === "helpBtn");
-  });
+  setUtilitySidebarActive("helpBtn");
   applyTheme(appConfig.theme);
   toggleSettings(false);
   setSettingsDirty(false);
@@ -3060,144 +3053,17 @@ function handleCloseSettings() {
   toggleSettings(false);
   dom.settingsStatus.textContent = "";
   setSettingsDirty(false);
-  sidebarLinks.forEach((link) => {
-    link.classList.remove("active");
-  });
+  setUtilitySidebarActive(null);
 }
 
 function handleCloseHelp() {
   toggleHelp(false);
-  sidebarLinks.forEach((link) => {
-    link.classList.remove("active");
-  });
+  setUtilitySidebarActive(null);
 }
 
 function handleCloseForm() {
   toggleForm(false);
   resetFormMode();
-}
-
-function setEstimateStatus(target, message) {
-  if (!target) return;
-  target.textContent = message || "";
-}
-
-function applyEstimatedDuration({
-  schedStartValue,
-  schedEndValue,
-  minutes,
-  defaultStartInput,
-  defaultEndInput,
-  statusTarget,
-}) {
-  const startDate = new Date(schedStartValue);
-  const endDate = new Date(schedEndValue);
-  if ([startDate, endDate].some((dt) => Number.isNaN(dt.getTime()))) {
-    setEstimateStatus(statusTarget, "Select a schedulable range first.");
-    return false;
-  }
-  const rawEnd = new Date(startDate.getTime() + minutes * 60000);
-  const boundedEnd = rawEnd > endDate ? endDate : rawEnd;
-  if (boundedEnd <= startDate) {
-    setEstimateStatus(statusTarget, "Estimated duration exceeds schedulable range.");
-    return false;
-  }
-  if (defaultStartInput) {
-    defaultStartInput.value = schedStartValue;
-    defaultStartInput.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-  if (defaultEndInput) {
-    defaultEndInput.value = toLocalInputFromDate(boundedEnd);
-    defaultEndInput.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-  const clamped = rawEnd > endDate;
-  setEstimateStatus(
-    statusTarget,
-    clamped
-      ? "Estimated duration was clamped to the schedulable end."
-      : "Default range updated from estimate."
-  );
-  syncDateTimeDisplays();
-  return true;
-}
-
-async function handleEstimateDuration() {
-  if (!dom.blobForm || !dom.estimateStatus) return;
-  const blobType = normalizeBlobType(dom.blobForm.blobType?.value);
-  if (blobType === BLOB_TYPES.EVENT) {
-    setEstimateStatus(dom.estimateStatus, "Duration estimates apply to tasks.");
-    return;
-  }
-  const recurrenceType = dom.blobForm.recurrenceType?.value || "single";
-  const isSingle = recurrenceType === "single";
-  const name = isSingle
-    ? dom.blobForm.recurrenceName?.value?.trim()
-    : dom.blobForm.blobName?.value?.trim();
-  const description = isSingle
-    ? dom.blobForm.recurrenceDescription?.value?.trim()
-    : dom.blobForm.blobDescription?.value?.trim();
-  const schedStartValue = dom.blobForm.schedulableStart?.value;
-  const schedEndValue = dom.blobForm.schedulableEnd?.value;
-  if (!schedStartValue || !schedEndValue) {
-    setEstimateStatus(dom.estimateStatus, "Select a schedulable range first.");
-    return;
-  }
-  setEstimateStatus(dom.estimateStatus, "Estimating...");
-  try {
-    const response = await estimateTaskDuration({
-      name: name || "Task",
-      description: description || null,
-      context: getAiContextParts(),
-      granularity_minutes: appConfig.minuteGranularity,
-    });
-    applyEstimatedDuration({
-      schedStartValue,
-      schedEndValue,
-      minutes: response.rounded_minutes,
-      defaultStartInput: dom.blobForm.defaultStart,
-      defaultEndInput: dom.blobForm.defaultEnd,
-      statusTarget: dom.estimateStatus,
-    });
-  } catch (error) {
-    setEstimateStatus(dom.estimateStatus, error?.message || "Estimate failed.");
-  }
-}
-
-async function handleEstimateDurationForSlot(slot) {
-  if (!slot) return;
-  const slotType = normalizeBlobType(slot.dataset.blobType || BLOB_TYPES.TASK);
-  const statusTarget = slot.querySelector("[data-slot-estimate-status]");
-  if (slotType === BLOB_TYPES.EVENT) {
-    setEstimateStatus(statusTarget, "Duration estimates apply to tasks.");
-    return;
-  }
-  const name = slot.querySelector('[name="multiName"]')?.value?.trim();
-  const description = slot.querySelector('[name="multiDescription"]')?.value?.trim();
-  const schedStartValue = slot.querySelector('[name="multiSchedStart"]')?.value;
-  const schedEndValue = slot.querySelector('[name="multiSchedEnd"]')?.value;
-  if (!schedStartValue || !schedEndValue) {
-    setEstimateStatus(statusTarget, "Select a schedulable range first.");
-    return;
-  }
-  setEstimateStatus(statusTarget, "Estimating...");
-  try {
-    const response = await estimateTaskDuration({
-      name: name || "Task",
-      description: description || null,
-      context: getAiContextParts(),
-      granularity_minutes: appConfig.minuteGranularity,
-    });
-    applyEstimatedDuration({
-      schedStartValue,
-      schedEndValue,
-      minutes: response.rounded_minutes,
-      defaultStartInput: slot.querySelector('[name="multiDefaultStart"]'),
-      defaultEndInput: slot.querySelector('[name="multiDefaultEnd"]'),
-      statusTarget,
-    });
-  } catch (error) {
-    setEstimateStatus(statusTarget, error?.message || "Estimate failed.");
-  }
 }
 
 function bindDraggableForm() {
@@ -3331,12 +3197,18 @@ function bindFormHandlers(onRefresh) {
   }
   dom.blobForm.addEventListener("submit", handleBlobSubmit);
   dom.settingsForm.addEventListener("submit", handleSettingsSubmit);
-  dom.settingsForm.addEventListener("input", () => {
+  dom.settingsForm.addEventListener("input", (event) => {
     if (settingsHydrating) return;
+    if (event.target instanceof Element && event.target.closest("[data-settings-ignore='true']")) {
+      return;
+    }
     setSettingsDirty(true);
   });
   dom.settingsForm.addEventListener("change", (event) => {
     if (settingsHydrating) return;
+    if (event.target instanceof Element && event.target.closest("[data-settings-ignore='true']")) {
+      return;
+    }
     setSettingsDirty(true);
     if (!(event.target instanceof Element)) return;
     if (
@@ -3418,17 +3290,6 @@ function bindFormHandlers(onRefresh) {
   if (dom.addMultipleSlotBtn) {
     dom.addMultipleSlotBtn.addEventListener("click", () => {
       createMultipleSlot();
-    });
-  }
-  if (dom.estimateDurationBtn) {
-    dom.estimateDurationBtn.addEventListener("click", handleEstimateDuration);
-  }
-  if (dom.multipleSlots) {
-    dom.multipleSlots.addEventListener("click", (event) => {
-      const button = event.target.closest('[data-action="estimate-duration"]');
-      if (!button) return;
-      const slot = button.closest(".multiple-slot");
-      handleEstimateDurationForSlot(slot);
     });
   }
   if (dom.recurrenceEnd) {

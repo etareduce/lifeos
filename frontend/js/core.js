@@ -29,6 +29,7 @@ const state = {
   previewBlobs: [],
   llmDraftRecurrences: null,
   llmDraftNotes: null,
+  workspaceMode: "home",
 };
 
 const defaultConfig = {
@@ -66,6 +67,14 @@ const defaultConfig = {
   engineSplitCostWeight: Math.max(
     0,
     Number(window.APP_CONFIG?.engineSplitCostWeight || 1.0)
+  ),
+  engineConsistencyCostWeight: Math.max(
+    0,
+    Number(window.APP_CONFIG?.engineConsistencyCostWeight || 1.0)
+  ),
+  engineGranularityCostWeight: Math.max(
+    0,
+    Number(window.APP_CONFIG?.engineGranularityCostWeight || 1.0)
   ),
 };
 
@@ -117,6 +126,22 @@ function loadView() {
   }
 }
 
+function saveWorkspaceMode(mode) {
+  try {
+    window.localStorage.setItem("elastisched:workspace-mode", mode);
+  } catch (error) {
+    // Ignore storage errors.
+  }
+}
+
+function loadWorkspaceMode() {
+  try {
+    return window.localStorage.getItem("elastisched:workspace-mode");
+  } catch (error) {
+    return null;
+  }
+}
+
 function saveSettings(config) {
   try {
     window.localStorage.setItem("elastisched:settings", JSON.stringify(config));
@@ -162,9 +187,11 @@ export {
   appConfig,
   isTypingInField,
   loadView,
+  loadWorkspaceMode,
   minuteGranularity,
   applyTheme,
   saveSettings,
   saveView,
+  saveWorkspaceMode,
   state,
 };

@@ -32,6 +32,16 @@ class RecurrenceModel(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+class IntegrationConnectionModel(Base):
+    __tablename__ = "integration_connections"
+
+    provider: Mapped[str] = mapped_column(String(64), primary_key=True)
+    account_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    access_token: Mapped[str] = mapped_column(String(4096), default="")
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class ScheduledOccurrenceModel(Base):
     __tablename__ = "scheduled_occurrences"
 

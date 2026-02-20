@@ -62,7 +62,15 @@ PYBIND11_MODULE(engine, m) {
 
     // Job
     py::class_<Job>(m, "Job")
-        .def(py::init<sec_t, Interval<sec_t>, Interval<sec_t>, std::string, Policy, std::set<std::string>, std::set<Tag>>())
+        .def(py::init<sec_t, Interval<sec_t>, Interval<sec_t>, std::string, Policy, std::set<std::string>, std::set<Tag>, std::string>(),
+             py::arg("duration"),
+             py::arg("schedulable_time_range"),
+             py::arg("scheduled_time_range"),
+             py::arg("id"),
+             py::arg("policy"),
+             py::arg("dependencies"),
+             py::arg("tags"),
+             py::arg("recurrence_id") = "")
         .def_readwrite("duration", &Job::duration)
         .def_readwrite("schedulable_time_range", &Job::schedulable_time_range)
         .def_readwrite("scheduled_time_range", &Job::scheduled_time_range)
@@ -71,6 +79,7 @@ PYBIND11_MODULE(engine, m) {
         .def_readwrite("policy", &Job::policy)
         .def_readwrite("dependencies", &Job::dependencies)
         .def_readwrite("tags", &Job::tags)
+        .def_readwrite("recurrence_id", &Job::recurrence_id)
         .def("is_rigid", &Job::is_rigid)
         .def("__str__", &Job::to_string);
 
@@ -89,12 +98,16 @@ PYBIND11_MODULE(engine, m) {
     // Cost Function
     py::class_<ScheduleCostFunction>(m, "ScheduleCostFunction")
         .def(py::init<const Schedule&, sec_t>())
-        .def(py::init<const Schedule&, sec_t, double, double, double>(),
+        .def(py::init<const Schedule&, sec_t, double, double, double, double, double>(),
              py::arg("schedule"),
              py::arg("granularity"),
              py::arg("illegal_schedule_weight"),
              py::arg("overlap_cost_weight"),
-             py::arg("split_cost_weight"))
+             py::arg("split_cost_weight"),
+             py::arg("consistency_cost_weight"),
+             py::arg("granularity_cost_weight"))
+        .def("consistency_cost", &ScheduleCostFunction::consistency_cost)
+        .def("granularity_cost", &ScheduleCostFunction::granularity_cost)
         .def("schedule_cost", &ScheduleCostFunction::schedule_cost);
 
     py::class_<EngineConfig>(m, "EngineConfig")
@@ -107,6 +120,8 @@ PYBIND11_MODULE(engine, m) {
         .def_readwrite("illegal_schedule_weight", &EngineConfig::illegal_schedule_weight)
         .def_readwrite("overlap_cost_weight", &EngineConfig::overlap_cost_weight)
         .def_readwrite("split_cost_weight", &EngineConfig::split_cost_weight)
+        .def_readwrite("consistency_cost_weight", &EngineConfig::consistency_cost_weight)
+        .def_readwrite("granularity_cost_weight", &EngineConfig::granularity_cost_weight)
         .def_readwrite("log_engine_run", &EngineConfig::log_engine_run)
         .def_readwrite("output_file", &EngineConfig::output_file);
 

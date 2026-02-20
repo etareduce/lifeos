@@ -51,6 +51,20 @@ def _resolve_user_tz(name: str | None):
         return DEFAULT_TZ
 
 
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return bool(value)
+
+
 def _occurrence_override(payload: dict, occurrence) -> dict | None:
     overrides = payload.get("occurrence_overrides") if isinstance(payload, dict) else None
     if not isinstance(overrides, dict):
@@ -121,10 +135,10 @@ def _policy_from_payload(policy) -> engine.Policy:
         return engine.Policy(0, 0)
     scheduling_policies = policy.get("scheduling_policies")
     if scheduling_policies is None:
-        is_splittable = bool(policy.get("is_splittable"))
-        is_overlappable = bool(policy.get("is_overlappable"))
-        is_invisible = bool(policy.get("is_invisible"))
-        round_to_granularity = bool(policy.get("round_to_granularity") or False)
+        is_splittable = _coerce_bool(policy.get("is_splittable"))
+        is_overlappable = _coerce_bool(policy.get("is_overlappable"))
+        is_invisible = _coerce_bool(policy.get("is_invisible"))
+        round_to_granularity = _coerce_bool(policy.get("round_to_granularity") or False)
     else:
         try:
             scheduling_policies = int(scheduling_policies)
@@ -134,7 +148,7 @@ def _policy_from_payload(policy) -> engine.Policy:
         is_overlappable = bool(scheduling_policies & 2)
         is_invisible = bool(scheduling_policies & 4)
         if "round_to_granularity" in policy:
-            round_to_granularity = bool(policy.get("round_to_granularity"))
+            round_to_granularity = _coerce_bool(policy.get("round_to_granularity"))
         else:
             round_to_granularity = bool(scheduling_policies & 8)
     max_splits = int(policy.get("max_splits") or 0)
@@ -224,18 +238,19 @@ def _validate_schedule(schedule: engine.Schedule) -> str | None:
             if not job.schedulable_time_range.contains(job_range):
                 return f"{job.id} scheduled outside schedulable window."
 
-    non_overlappable = []
-    for job in jobs:
-        if job.policy.is_overlappable():
-            continue
-        for other in non_overlappable:
+    for index, job in enumerate(jobs):
+        for other in jobs[:index]:
             job_ranges = job.scheduled_time_ranges or [job.scheduled_time_range]
             other_ranges = other.scheduled_time_ranges or [other.scheduled_time_range]
             for job_range in job_ranges:
                 for other_range in other_ranges:
                     if job_range.overlaps(other_range):
-                        return f"{job.id} overlaps with {other.id}."
-        non_overlappable.append(job)
+                        overlap_allowed = (
+                            job.policy.is_overlappable()
+                            and other.policy.is_overlappable()
+                        )
+                        if not overlap_allowed:
+                            return f"{job.id} overlaps with {other.id}."
 
     return _dependency_violation_message(jobs)
 
@@ -250,6 +265,8 @@ def _run_engine_schedule(
     illegal_schedule_weight: float,
     overlap_cost_weight: float,
     split_cost_weight: float,
+    consistency_cost_weight: float,
+    granularity_cost_weight: float,
 ):
     engine_config_cls = getattr(engine, "EngineConfig", None)
     schedule_with_config = getattr(engine, "schedule_jobs_with_config", None)
@@ -265,6 +282,10 @@ def _run_engine_schedule(
             config.overlap_cost_weight = overlap_cost_weight
         if hasattr(config, "split_cost_weight"):
             config.split_cost_weight = split_cost_weight
+        if hasattr(config, "consistency_cost_weight"):
+            config.consistency_cost_weight = consistency_cost_weight
+        if hasattr(config, "granularity_cost_weight"):
+            config.granularity_cost_weight = granularity_cost_weight
         return schedule_with_config(jobs, config)
 
     # note: currently we have a backup scheduler which is the legacy scheduler. 
@@ -296,13 +317,20 @@ async def _get_or_create_schedule_state(session: AsyncSession) -> ScheduleStateM
     return state
 
 
+async def _get_schedule_state(session: AsyncSession) -> ScheduleStateModel | None:
+    result = await session.execute(select(ScheduleStateModel))
+    return result.scalar_one_or_none()
+
+
 @schedule_router.get(
     "/status", response_model=ScheduleStatus, operation_id="get_schedule_status"
 )
 async def get_schedule_status(
     session: AsyncSession = Depends(get_session),
 ) -> ScheduleStatus:
-    state = await _get_or_create_schedule_state(session)
+    state = await _get_schedule_state(session)
+    if state is None:
+        return ScheduleStatus(dirty=True, last_run=None)
     return ScheduleStatus(dirty=state.dirty, last_run=state.last_run)
 
 
@@ -357,9 +385,25 @@ async def run_schedule(
     initial_temp = float(payload.initial_temp or 10.0)
     final_temp = float(payload.final_temp or 1e-4)
     num_iters = int(payload.num_iters or 1000000)
-    illegal_schedule_weight = float(payload.illegal_schedule_weight or 1.0)
-    overlap_cost_weight = float(payload.overlap_cost_weight or 1.0)
-    split_cost_weight = float(payload.split_cost_weight or 1.0)
+    illegal_schedule_weight = (
+        1.0 if payload.illegal_schedule_weight is None else float(payload.illegal_schedule_weight)
+    )
+    overlap_cost_weight = (
+        1.0 if payload.overlap_cost_weight is None else float(payload.overlap_cost_weight)
+    )
+    split_cost_weight = (
+        1.0 if payload.split_cost_weight is None else float(payload.split_cost_weight)
+    )
+    consistency_cost_weight = (
+        1.0
+        if payload.consistency_cost_weight is None
+        else float(payload.consistency_cost_weight)
+    )
+    granularity_cost_weight = (
+        1.0
+        if payload.granularity_cost_weight is None
+        else float(payload.granularity_cost_weight)
+    )
     if initial_temp <= 0 or final_temp <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -419,6 +463,7 @@ async def run_schedule(
             _policy_from_payload(occurrence.policy),
             set(occurrence.dependencies or []),
             _tags_from_payload(occurrence.tags),
+            occurrence.recurrence_id,
         )
         jobs.append(job)
 
@@ -432,6 +477,8 @@ async def run_schedule(
             illegal_schedule_weight=illegal_schedule_weight,
             overlap_cost_weight=overlap_cost_weight,
             split_cost_weight=split_cost_weight,
+            consistency_cost_weight=consistency_cost_weight,
+            granularity_cost_weight=granularity_cost_weight,
         )
         if isinstance(result, tuple):
             schedule = result[0]

@@ -14,4 +14,6 @@ window.APP_CONFIG = {
   engineIllegalScheduleWeight: 1.0,
   engineOverlapCostWeight: 1.0,
   engineSplitCostWeight: 1.0,
+  engineConsistencyCostWeight: 1.0,
+  engineGranularityCostWeight: 1.0,
 };

@@ -245,6 +245,19 @@ TEST_CASE("ScheduleCostFunction illegal schedule detection") {
     CHECK_EQ(cost.illegal_schedule_cost(), constants::ILLEGAL_SCHEDULE_COST);
 }
 
+TEST_CASE("ScheduleCostFunction overlap illegal if either job is non-overlappable") {
+    Policy non_overlappable(0, 0, false, false, false, false);
+    Policy overlappable(0, 0, false, true, false, false);
+    TimeRange schedulable(0, 100);
+
+    Job a(10, schedulable, TimeRange(10, 20), "A", non_overlappable, {}, {});
+    Job b(10, schedulable, TimeRange(15, 25), "B", overlappable, {}, {});
+
+    Schedule schedule({a, b});
+    ScheduleCostFunction cost(schedule, 1);
+    CHECK_EQ(cost.illegal_schedule_cost(), constants::ILLEGAL_SCHEDULE_COST);
+}
+
 TEST_CASE("ScheduleCostFunction dependency violation cost") {
     Policy policy;
     TimeRange schedulable(0, 100);

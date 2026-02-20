@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Elastisched</title>
+    <script>
+      (() => {
+        try {
+          const raw = window.localStorage.getItem("elastisched:workspace-mode");
+          const mode = raw === "tasks" || raw === "search" ? raw : "home";
+          document.documentElement.dataset.workspaceMode = mode;
+        } catch (error) {
+          document.documentElement.dataset.workspaceMode = "home";
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="./css/styles.css" />
   </head>
   <body>
@@ -18,14 +29,92 @@
             <div class="subtitle" id="brandSubtitle">Schedule at a glance</div>
           </div>
         </div>
-        <nav class="sidebar-nav" aria-label="Workspace menu">
-          <button class="sidebar-link active" id="settingsBtn" type="button" data-short="S">
-            <span class="sidebar-link-title">Settings</span>
-            <span class="sidebar-link-subtitle">Workspace and schedule defaults</span>
+        <nav class="sidebar-nav sidebar-main-nav" aria-label="Workspace views">
+          <button class="sidebar-link active" id="homeBtn" type="button" data-short="H">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M3.5 10.5L12 3l8.5 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-4v6H4.5a1 1 0 0 1-1-1z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-link-title">Home</span>
+            <span class="sidebar-link-subtitle">Main calendar</span>
           </button>
-          <button class="sidebar-link" id="helpBtn" type="button" data-short="?">
-            <span class="sidebar-link-title">Help menu</span>
-            <span class="sidebar-link-subtitle">Keyboard shortcuts and tips</span>
+          <button class="sidebar-link" id="tasksBtn" type="button" data-short="T">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path
+                  d="M8 10h8M8 14h8M8 18h5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-link-title">Tasks</span>
+            <span class="sidebar-link-subtitle">Upcoming and prioritized</span>
+          </button>
+          <button class="sidebar-link" id="searchBtn" type="button" data-short="/">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path
+                  d="M16 16l4.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-link-title">Search</span>
+            <span class="sidebar-link-subtitle">Find events quickly</span>
+          </button>
+        </nav>
+        <nav class="sidebar-nav sidebar-utility-nav" aria-label="Workspace tools">
+          <button class="sidebar-icon-link" id="settingsBtn" type="button" data-short="S" title="Settings" aria-label="Settings">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M12 8.8A3.2 3.2 0 1 0 12 15.2A3.2 3.2 0 1 0 12 8.8z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M19.2 13.3l1.3-1.1-1.5-2.6-1.7.4a5.8 5.8 0 0 0-1-0.6L16 7.7h-3l-0.3 1.7a5.8 5.8 0 0 0-1 .6L10 9.6 8.5 12.2l1.3 1.1a5.5 5.5 0 0 0 0 1.4l-1.3 1.1L10 18.4l1.7-0.4c0.3 0.2 0.6 0.4 1 0.6l0.3 1.7h3l0.3-1.7c0.3-0.2 0.7-0.4 1-0.6l1.7 0.4 1.5-2.6-1.3-1.1a5.5 5.5 0 0 0 0-1.4z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-icon-label">Settings</span>
+          </button>
+          <button class="sidebar-icon-link" id="helpBtn" type="button" data-short="?" title="Help" aria-label="Help">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M9.7 9.3a2.5 2.5 0 1 1 4.4 1.7c-0.8 0.8-1.6 1.2-1.6 2.3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+                <circle cx="12" cy="17.5" r="0.9" fill="currentColor" />
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </span>
+            <span class="sidebar-icon-label">Help</span>
           </button>
         </nav>
       </aside>
@@ -37,7 +126,6 @@
           <div class="form-header">
             <div>
               <div class="form-title">Settings</div>
-              <div class="form-subtitle">Customize labels and granularity</div>
             </div>
             <div class="settings-header-actions">
               <button class="ghost small" id="closeSettingsBtn">Close</button>
@@ -50,6 +138,9 @@
               </button>
               <button class="settings-tab" type="button" data-settings-tab="scheduling">
                 Scheduling
+              </button>
+              <button class="settings-tab" type="button" data-settings-tab="integrations">
+                Integrations
               </button>
             </div>
             <div class="settings-section active" data-settings-section="general">
@@ -160,6 +251,80 @@
                     Split cost weight
                     <input type="number" name="engineSplitCostWeight" min="0" step="0.01" />
                   </label>
+                  <label>
+                    Consistency cost weight
+                    <input type="number" name="engineConsistencyCostWeight" min="0" step="0.01" />
+                  </label>
+                  <label>
+                    Granularity cost weight
+                    <input type="number" name="engineGranularityCostWeight" min="0" step="0.01" />
+                  </label>
+                </article>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-section="integrations">
+              <div class="settings-section-header">
+                <div class="settings-section-title">Calendar integrations</div>
+                <div class="settings-section-copy">
+                  Connect external calendars, preview merge decisions, then apply a sync.
+                </div>
+              </div>
+              <div class="settings-grid integration-settings" data-settings-ignore="true">
+                <article class="settings-card">
+                  <div class="settings-card-title">Google account</div>
+                  <div class="settings-card-copy">
+                    Connect once, then choose which calendars to import on each sync.
+                  </div>
+                  <div class="integration-status-row">
+                    <span id="googleConnectionStatus" class="integration-status-chip disconnected">
+                      Not connected
+                    </span>
+                    <span id="googleConnectionMeta" class="integration-meta"></span>
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <button type="button" class="primary" id="googleConnectBtn">Sign in with Google</button>
+                    <button type="button" class="ghost danger" id="googleDisconnectBtn">Disconnect</button>
+                  </div>
+                  <details class="integration-manual-auth" data-settings-ignore="true">
+                    <summary>Advanced: paste access token manually</summary>
+                    <label data-settings-ignore="true">
+                      Google access token
+                      <input
+                        type="password"
+                        name="googleAccessToken"
+                        id="googleAccessTokenInput"
+                        placeholder="Paste OAuth access token"
+                        autocomplete="off"
+                        data-settings-ignore="true"
+                      />
+                    </label>
+                    <div class="integration-actions" data-settings-ignore="true">
+                      <button type="button" class="ghost" id="googleManualConnectBtn">
+                        Connect using token
+                      </button>
+                    </div>
+                  </details>
+                  <div class="form-status" id="googleConnectionMessage"></div>
+                </article>
+                <article class="settings-card">
+                  <div class="settings-card-title">Sync preview</div>
+                  <div class="settings-card-copy">
+                    Select calendars, preview merge recommendations, then apply your choices.
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <button type="button" class="ghost" id="googleLoadCalendarsBtn">
+                      Sync with Google Calendar
+                    </button>
+                    <button type="button" class="ghost" id="googlePreviewBtn">
+                      Generate preview
+                    </button>
+                    <button type="button" class="primary" id="googleApplyBtn">
+                      Apply sync
+                    </button>
+                  </div>
+                  <div class="form-status" id="googleSyncMessage"></div>
+                  <div class="integration-calendars" id="googleCalendarList"></div>
+                  <div class="integration-preview" id="googlePreviewList"></div>
                 </article>
               </div>
             </div>
@@ -478,12 +643,6 @@
                 </div>
               </label>
             </div>
-            <div class="weekly-slot-row estimate-row">
-              <button type="button" class="ghost" id="estimateDurationBtn">
-                Estimate task duration
-              </button>
-              <span class="form-status" id="estimateStatus"></span>
-            </div>
             <div class="weekly-slot-row slot-meta">
               <label>
                 Occurrence name
@@ -605,6 +764,42 @@
                 <input type="radio" name="recurrenceColor" value="moss" aria-label="Moss" />
                 <span class="swatch swatch-moss"></span>
               </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="coral" aria-label="Coral" />
+                <span class="swatch swatch-coral"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="sky" aria-label="Sky" />
+                <span class="swatch swatch-sky"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="violet" aria-label="Violet" />
+                <span class="swatch swatch-violet"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="teal" aria-label="Teal" />
+                <span class="swatch swatch-teal"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="lemon" aria-label="Lemon" />
+                <span class="swatch swatch-lemon"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="indigo" aria-label="Indigo" />
+                <span class="swatch swatch-indigo"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="ruby" aria-label="Ruby" />
+                <span class="swatch swatch-ruby"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="mint" aria-label="Mint" />
+                <span class="swatch swatch-mint"></span>
+              </label>
+              <label class="color-swatch">
+                <input type="radio" name="recurrenceColor" value="slate" aria-label="Slate" />
+                <span class="swatch swatch-slate"></span>
+              </label>
             </div>
           </div>
           <div class="form-actions">
@@ -626,7 +821,7 @@
         </form>
       </section>
 
-      <section class="panel calendar-panel">
+      <section class="panel calendar-panel workspace-section active" id="homeSection" aria-hidden="false">
         <div class="tab-row">
           <div class="tabs" role="tablist">
             <button class="tab active" data-view="day">Day</button>
@@ -689,8 +884,37 @@
           </div>
           <div class="legend">
             <div class="schedule-controls">
-              <button class="ghost" id="toggleFormBtn">Add recurrence</button>
-              <button class="ghost" id="llmScheduleBtn">Add with AI</button>
+              <button
+                class="ghost icon action-icon"
+                id="toggleFormBtn"
+                title="Add recurrence"
+                aria-label="Add recurrence"
+              >
+                +
+              </button>
+              <button
+                class="ghost icon action-icon ai"
+                id="llmScheduleBtn"
+                title="Add with AI"
+                aria-label="Add with AI"
+              >
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path
+                    d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M18.5 14l0.9 2.3 2.3 0.7-2.3 0.7-0.9 2.3-0.9-2.3-2.3-0.7 2.3-0.7z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
               <button class="primary schedule-btn" id="runScheduleBtn">Run schedule</button>
               <div class="schedule-status" id="scheduleStatus" role="status" aria-live="polite">
                 <span class="status-dot" aria-hidden="true"></span>
@@ -709,6 +933,118 @@
           <div id="viewMonth" class="view"></div>
           <div id="viewYear" class="view"></div>
         </div>
+      </section>
+      <section class="panel workspace-section tasks-panel" id="tasksSection" aria-hidden="true">
+        <div class="tasks-hero">
+          <div class="tasks-eyebrow">Focus mode</div>
+          <h2 class="tasks-title">Upcoming tasks</h2>
+          <p class="tasks-copy">A clean queue of what is next so you can move with momentum.</p>
+          <form class="task-draft-form" id="taskQuickDraftForm">
+            <div class="task-draft-head">
+              <div class="task-draft-title">Quick Draft</div>
+              <div class="task-draft-subtitle">Capture a task in seconds without leaving this view.</div>
+            </div>
+            <div class="task-draft-grid">
+              <label>
+                Task
+                <input
+                  type="text"
+                  name="quickTaskName"
+                  id="taskQuickDraftName"
+                  maxlength="200"
+                  placeholder="Write project brief"
+                  required
+                />
+              </label>
+              <label>
+                Start (local)
+                <div class="datetime-field">
+                  <input
+                    type="text"
+                    class="datetime-display"
+                    placeholder="Select date/time"
+                    readonly
+                  />
+                  <button type="button" class="ghost small datetime-trigger" aria-label="Pick date">
+                    📅
+                  </button>
+                  <input type="hidden" name="quickTaskStart" id="taskQuickDraftStart" required data-datetime-input />
+                </div>
+              </label>
+              <label>
+                Duration (min)
+                <input
+                  type="number"
+                  name="quickTaskDurationMinutes"
+                  id="taskQuickDraftDuration"
+                  min="5"
+                  step="5"
+                  value="60"
+                  required
+                />
+              </label>
+              <label>
+                Flex window (min)
+                <input
+                  type="number"
+                  name="quickTaskFlexMinutes"
+                  id="taskQuickDraftFlex"
+                  min="5"
+                  step="5"
+                  value="120"
+                  required
+                />
+              </label>
+            </div>
+            <label>
+              Notes (optional)
+              <input
+                type="text"
+                name="quickTaskDescription"
+                id="taskQuickDraftDescription"
+                maxlength="2000"
+                placeholder="Context, acceptance criteria, constraints..."
+              />
+            </label>
+            <div class="task-draft-actions">
+              <button type="submit" class="primary" id="taskQuickDraftCreateBtn">Create task</button>
+              <button type="button" class="ghost" id="taskQuickDraftOpenBtn">Open full form</button>
+              <button type="button" class="ghost" id="taskQuickDraftAiBtn">Draft with AI</button>
+              <span class="form-status" id="taskQuickDraftStatus"></span>
+            </div>
+          </form>
+          <div class="tasks-metrics">
+            <div class="tasks-metric">
+              <div class="tasks-metric-value" id="tasksUpcomingCount">0</div>
+              <div class="tasks-metric-label">Upcoming</div>
+            </div>
+            <div class="tasks-metric">
+              <div class="tasks-metric-value" id="tasksTodayCount">0</div>
+              <div class="tasks-metric-label">Today</div>
+            </div>
+            <div class="tasks-metric">
+              <div class="tasks-metric-value" id="tasksWeekCount">0</div>
+              <div class="tasks-metric-label">This week</div>
+            </div>
+          </div>
+        </div>
+        <div class="tasks-list" id="tasksList"></div>
+      </section>
+      <section class="panel workspace-section search-panel" id="searchSection" aria-hidden="true">
+        <div class="search-header">
+          <h2 class="search-title">Search recurrences</h2>
+          <p class="search-copy">Find recurring plans by recurrence name or description.</p>
+        </div>
+        <label class="search-input-wrap" for="eventSearchInput">
+          <span class="search-input-icon" aria-hidden="true">/</span>
+          <input
+            id="eventSearchInput"
+            type="search"
+            placeholder="Try: deep work, workout, standup..."
+            autocomplete="off"
+          />
+        </label>
+        <div class="search-results" id="eventSearchResults"></div>
       </section>
       </main>
     </div>

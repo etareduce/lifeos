@@ -22,6 +22,7 @@ public:
     Policy policy;
     std::set<ID> dependencies;
     std::set<Tag> tags;
+    ID recurrence_id;
 
     Job(sec_t duration,
         TimeRange schedulable_time_range,
@@ -29,7 +30,8 @@ public:
         ID id,
         Policy policy,
         std::set<ID> dependencies,
-        std::set<Tag> tags);
+        std::set<Tag> tags,
+        ID recurrence_id = "");
 
     bool is_rigid() const;
     const std::vector<TimeRange>& get_scheduled_time_ranges() const;

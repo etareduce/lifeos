@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend.db import init_db
+from backend.integrations.router import integration_router
 from backend.llm_router import llm_router
 from backend.router import router as blob_router
 from backend.recurrence_router import (
@@ -36,3 +37,4 @@ app.include_router(llm_router)
 app.include_router(recurrence_router)
 app.include_router(occurrence_router)
 app.include_router(schedule_router)
+app.include_router(integration_router)
