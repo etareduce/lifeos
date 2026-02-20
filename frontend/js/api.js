@@ -71,6 +71,8 @@ async function runSchedule(granularityMinutes, lookaheadSeconds) {
     illegal_schedule_weight: appConfig.engineIllegalScheduleWeight,
     overlap_cost_weight: appConfig.engineOverlapCostWeight,
     split_cost_weight: appConfig.engineSplitCostWeight,
+    consistency_cost_weight: appConfig.engineConsistencyCostWeight,
+    granularity_cost_weight: appConfig.engineGranularityCostWeight,
   };
   const response = await fetch(`${API_BASE}/schedule`, {
     method: "POST",

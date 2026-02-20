@@ -10,6 +10,7 @@ def _make_job(
     scheduled_high,
     policy=None,
     job_id="job",
+    recurrence_id="",
 ):
     policy = policy or engine.Policy(0, 0)
     tr_schedulable = engine.TimeRange(schedulable_low, schedulable_high)
@@ -23,6 +24,7 @@ def _make_job(
         policy,
         set(),
         set(),
+        recurrence_id,
     )
 
 
@@ -92,6 +94,63 @@ def test_split_cost_counts_number_of_splits():
     cost_function = engine.ScheduleCostFunction(schedule, MINUTE)
 
     assert cost_function.schedule_cost() == 10.0
+
+
+def test_consistency_cost_penalizes_same_recurrence_time_drift():
+    schedulable_low = 0
+    schedulable_high = 2 * WEEK
+    job_a = _make_job(
+        schedulable_low=schedulable_low,
+        schedulable_high=schedulable_high,
+        scheduled_low=Day.MONDAY * DAY + Hour.SIX_PM * HOUR,
+        scheduled_high=Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR,
+        job_id="job_a",
+        recurrence_id="recurrence-1",
+    )
+    job_b = _make_job(
+        schedulable_low=schedulable_low,
+        schedulable_high=schedulable_high,
+        scheduled_low=WEEK + Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR,
+        scheduled_high=WEEK + Day.MONDAY * DAY + Hour.EIGHT_PM * HOUR,
+        job_id="job_b",
+        recurrence_id="recurrence-1",
+    )
+    schedule = engine.Schedule([job_a, job_b])
+
+    cost_function = engine.ScheduleCostFunction(
+        schedule,
+        MINUTE,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    )
+
+    assert cost_function.schedule_cost() == pytest.approx(HOUR / WEEK, rel=1e-6)
+
+
+def test_granularity_cost_penalizes_off_half_hour_starts():
+    job = _make_job(
+        schedulable_low=0,
+        schedulable_high=2 * DAY,
+        scheduled_low=Day.MONDAY * DAY + Hour.THREE_PM * HOUR + 5 * MINUTE,
+        scheduled_high=Day.MONDAY * DAY + Hour.FOUR_PM * HOUR + 5 * MINUTE,
+        job_id="job_granularity",
+    )
+    schedule = engine.Schedule([job])
+
+    cost_function = engine.ScheduleCostFunction(
+        schedule,
+        MINUTE,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+
+    assert cost_function.schedule_cost() == pytest.approx(5.0 / 30.0, rel=1e-6)
 # def test_thursday_no_cost():
 #     # Given
 #     tag = engine.Tag(WORK_TAG)

@@ -67,6 +67,14 @@ const defaultConfig = {
     0,
     Number(window.APP_CONFIG?.engineSplitCostWeight || 1.0)
   ),
+  engineConsistencyCostWeight: Math.max(
+    0,
+    Number(window.APP_CONFIG?.engineConsistencyCostWeight || 1.0)
+  ),
+  engineGranularityCostWeight: Math.max(
+    0,
+    Number(window.APP_CONFIG?.engineGranularityCostWeight || 1.0)
+  ),
 };
 
 const storedConfig = (() => {

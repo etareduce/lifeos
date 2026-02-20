@@ -250,6 +250,8 @@ def _run_engine_schedule(
     illegal_schedule_weight: float,
     overlap_cost_weight: float,
     split_cost_weight: float,
+    consistency_cost_weight: float,
+    granularity_cost_weight: float,
 ):
     engine_config_cls = getattr(engine, "EngineConfig", None)
     schedule_with_config = getattr(engine, "schedule_jobs_with_config", None)
@@ -265,6 +267,10 @@ def _run_engine_schedule(
             config.overlap_cost_weight = overlap_cost_weight
         if hasattr(config, "split_cost_weight"):
             config.split_cost_weight = split_cost_weight
+        if hasattr(config, "consistency_cost_weight"):
+            config.consistency_cost_weight = consistency_cost_weight
+        if hasattr(config, "granularity_cost_weight"):
+            config.granularity_cost_weight = granularity_cost_weight
         return schedule_with_config(jobs, config)
 
     # note: currently we have a backup scheduler which is the legacy scheduler. 
@@ -364,9 +370,25 @@ async def run_schedule(
     initial_temp = float(payload.initial_temp or 10.0)
     final_temp = float(payload.final_temp or 1e-4)
     num_iters = int(payload.num_iters or 1000000)
-    illegal_schedule_weight = float(payload.illegal_schedule_weight or 1.0)
-    overlap_cost_weight = float(payload.overlap_cost_weight or 1.0)
-    split_cost_weight = float(payload.split_cost_weight or 1.0)
+    illegal_schedule_weight = (
+        1.0 if payload.illegal_schedule_weight is None else float(payload.illegal_schedule_weight)
+    )
+    overlap_cost_weight = (
+        1.0 if payload.overlap_cost_weight is None else float(payload.overlap_cost_weight)
+    )
+    split_cost_weight = (
+        1.0 if payload.split_cost_weight is None else float(payload.split_cost_weight)
+    )
+    consistency_cost_weight = (
+        1.0
+        if payload.consistency_cost_weight is None
+        else float(payload.consistency_cost_weight)
+    )
+    granularity_cost_weight = (
+        1.0
+        if payload.granularity_cost_weight is None
+        else float(payload.granularity_cost_weight)
+    )
     if initial_temp <= 0 or final_temp <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -426,6 +448,7 @@ async def run_schedule(
             _policy_from_payload(occurrence.policy),
             set(occurrence.dependencies or []),
             _tags_from_payload(occurrence.tags),
+            occurrence.recurrence_id,
         )
         jobs.append(job)
 
@@ -439,6 +462,8 @@ async def run_schedule(
             illegal_schedule_weight=illegal_schedule_weight,
             overlap_cost_weight=overlap_cost_weight,
             split_cost_weight=split_cost_weight,
+            consistency_cost_weight=consistency_cost_weight,
+            granularity_cost_weight=granularity_cost_weight,
         )
         if isinstance(result, tuple):
             schedule = result[0]

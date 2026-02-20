@@ -1,7 +1,7 @@
 #include "job.hpp"
 
 Job::Job(sec_t duration, TimeRange schedulable_time_range, TimeRange scheduled_time_range,
-        ID id, Policy policy, std::set<ID> dependencies, std::set<Tag> tags) 
+        ID id, Policy policy, std::set<ID> dependencies, std::set<Tag> tags, ID recurrence_id)
 :   duration(duration),
     schedulable_time_range(schedulable_time_range),
     scheduled_time_range(scheduled_time_range),
@@ -9,7 +9,8 @@ Job::Job(sec_t duration, TimeRange schedulable_time_range, TimeRange scheduled_t
     id(id),
     policy(policy),
     dependencies(dependencies),
-    tags(tags)
+    tags(tags),
+    recurrence_id(recurrence_id)
 {
         return;
 };
@@ -32,7 +33,7 @@ void Job::set_scheduled_time_ranges(std::vector<TimeRange> ranges) {
 std::string Job::to_string() const {
     std::ostringstream oss;
     
-    oss << "Job(id=" << id << ")\n";
+    oss << "Job(id=" << id << ", recurrence_id=" << recurrence_id << ")\n";
     oss << "├─ Duration: " << duration << " seconds\n";
     
     // Format schedulable time range

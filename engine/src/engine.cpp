@@ -47,6 +47,45 @@ std::vector<TimeRange> get_job_scheduled_ranges(const Job& job) {
     return {job.scheduled_time_range};
 }
 
+sec_t get_job_anchor_start(const Job& job) {
+    const auto ranges = get_job_scheduled_ranges(job);
+    if (ranges.empty()) {
+        return job.scheduled_time_range.get_low();
+    }
+    sec_t earliest = ranges.front().get_low();
+    for (const auto& range : ranges) {
+        if (range.get_low() < earliest) {
+            earliest = range.get_low();
+        }
+    }
+    return earliest;
+}
+
+double normalized_weekly_distance(sec_t a, sec_t b) {
+    const sec_t week_seconds = static_cast<sec_t>(7) * constants::DAY;
+    if (week_seconds == 0) {
+        return 0.0;
+    }
+    const sec_t phase_a = a % week_seconds;
+    const sec_t phase_b = b % week_seconds;
+    const sec_t direct = (phase_a >= phase_b) ? (phase_a - phase_b) : (phase_b - phase_a);
+    const sec_t wrapped = week_seconds - direct;
+    const sec_t distance = std::min(direct, wrapped);
+    return static_cast<double>(distance) / static_cast<double>(week_seconds);
+}
+
+double normalized_half_hour_distance(sec_t t) {
+    const sec_t half_hour_seconds = static_cast<sec_t>(30) * static_cast<sec_t>(60);
+    if (half_hour_seconds == 0) {
+        return 0.0;
+    }
+    const sec_t phase = t % half_hour_seconds;
+    const sec_t to_prev_mark = phase;
+    const sec_t to_next_mark = half_hour_seconds - phase;
+    const sec_t distance = std::min(to_prev_mark, to_next_mark);
+    return static_cast<double>(distance) / static_cast<double>(half_hour_seconds);
+}
+
 std::vector<std::vector<Job>> get_disjoint_intervals(std::vector<Job> jobs) {
     if (jobs.empty()) {
         return {};
@@ -421,13 +460,17 @@ ScheduleCostFunction::ScheduleCostFunction(
     sec_t granularity,
     double illegal_schedule_weight,
     double overlap_cost_weight,
-    double split_cost_weight)
+    double split_cost_weight,
+    double consistency_cost_weight,
+    double granularity_cost_weight)
     :
 schedule_ref(schedule),
 granularity(granularity),
 illegal_schedule_weight(illegal_schedule_weight),
 overlap_cost_weight(overlap_cost_weight),
-split_cost_weight(split_cost_weight)
+split_cost_weight(split_cost_weight),
+consistency_cost_weight(consistency_cost_weight),
+granularity_cost_weight(granularity_cost_weight)
 {
     if (schedule.scheduled_jobs.size() == 0) {
         return;
@@ -535,11 +578,47 @@ double ScheduleCostFunction::split_cost() const {
     return cost;
 }
 
+double ScheduleCostFunction::consistency_cost() const {
+    std::unordered_map<ID, std::vector<sec_t>> starts_by_recurrence;
+    for (const auto& job : schedule_ref.scheduled_jobs) {
+        if (job.recurrence_id.empty()) {
+            continue;
+        }
+        starts_by_recurrence[job.recurrence_id].push_back(get_job_anchor_start(job));
+    }
+
+    double cost = 0.0;
+    for (const auto& [recurrence_id, starts] : starts_by_recurrence) {
+        (void)recurrence_id;
+        if (starts.size() < 2) {
+            continue;
+        }
+        for (size_t i = 0; i < starts.size(); ++i) {
+            for (size_t j = i + 1; j < starts.size(); ++j) {
+                cost += normalized_weekly_distance(starts[i], starts[j]);
+            }
+        }
+    }
+    return cost;
+}
+
+double ScheduleCostFunction::granularity_cost() const {
+    double cost = 0.0;
+    for (const auto& job : schedule_ref.scheduled_jobs) {
+        for (const auto& range : get_job_scheduled_ranges(job)) {
+            cost += normalized_half_hour_distance(range.get_low());
+        }
+    }
+    return cost;
+}
+
 double ScheduleCostFunction::schedule_cost() const {
     double cost =
         (illegal_schedule_weight * illegal_schedule_cost()) +
         (overlap_cost_weight * overlap_cost()) +
-        (split_cost_weight * split_cost());
+        (split_cost_weight * split_cost()) +
+        (consistency_cost_weight * consistency_cost()) +
+        (granularity_cost_weight * granularity_cost());
     return cost;
 }
 
@@ -593,7 +672,9 @@ std::pair<Schedule, std::vector<double>> schedule_jobs(
         config.granularity,
         config.illegal_schedule_weight,
         config.overlap_cost_weight,
-        config.split_cost_weight
+        config.split_cost_weight,
+        config.consistency_cost_weight,
+        config.granularity_cost_weight
     );
     (void)initial_cost_function;
 
@@ -604,7 +685,9 @@ std::pair<Schedule, std::vector<double>> schedule_jobs(
                 config.granularity,
                 config.illegal_schedule_weight,
                 config.overlap_cost_weight,
-                config.split_cost_weight
+                config.split_cost_weight,
+                config.consistency_cost_weight,
+                config.granularity_cost_weight
             );
             return cost_function.schedule_cost();
         },

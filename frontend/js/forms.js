@@ -265,6 +265,14 @@ function hydrateSettingsForm() {
   if (dom.settingsForm.engineSplitCostWeight) {
     dom.settingsForm.engineSplitCostWeight.value = appConfig.engineSplitCostWeight ?? 1.0;
   }
+  if (dom.settingsForm.engineConsistencyCostWeight) {
+    dom.settingsForm.engineConsistencyCostWeight.value =
+      appConfig.engineConsistencyCostWeight ?? 1.0;
+  }
+  if (dom.settingsForm.engineGranularityCostWeight) {
+    dom.settingsForm.engineGranularityCostWeight.value =
+      appConfig.engineGranularityCostWeight ?? 1.0;
+  }
   settingsHydrating = false;
   setSettingsDirty(false);
 }
@@ -2874,6 +2882,14 @@ function handleSettingsSubmit(event) {
     0,
     Number(formData.get("engineSplitCostWeight") || 0)
   );
+  const engineConsistencyCostWeight = Math.max(
+    0,
+    Number(formData.get("engineConsistencyCostWeight") || 0)
+  );
+  const engineGranularityCostWeight = Math.max(
+    0,
+    Number(formData.get("engineGranularityCostWeight") || 0)
+  );
   if (userTimeZone) {
     try {
       Intl.DateTimeFormat("en-US", { timeZone: userTimeZone });
@@ -2896,6 +2912,8 @@ function handleSettingsSubmit(event) {
   appConfig.engineIllegalScheduleWeight = engineIllegalScheduleWeight;
   appConfig.engineOverlapCostWeight = engineOverlapCostWeight;
   appConfig.engineSplitCostWeight = engineSplitCostWeight;
+  appConfig.engineConsistencyCostWeight = engineConsistencyCostWeight;
+  appConfig.engineGranularityCostWeight = engineGranularityCostWeight;
   if (userTimeZone) {
     appConfig.userTimeZone = userTimeZone;
   }

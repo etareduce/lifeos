@@ -85,6 +85,8 @@ class ScheduleRequest(BaseModel):
     illegal_schedule_weight: float | None = Field(default=None, ge=0)
     overlap_cost_weight: float | None = Field(default=None, ge=0)
     split_cost_weight: float | None = Field(default=None, ge=0)
+    consistency_cost_weight: float | None = Field(default=None, ge=0)
+    granularity_cost_weight: float | None = Field(default=None, ge=0)
 
 
 class ScheduleResponse(ScheduleStatus):
