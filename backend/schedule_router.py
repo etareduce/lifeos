@@ -51,6 +51,20 @@ def _resolve_user_tz(name: str | None):
         return DEFAULT_TZ
 
 
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return bool(value)
+
+
 def _occurrence_override(payload: dict, occurrence) -> dict | None:
     overrides = payload.get("occurrence_overrides") if isinstance(payload, dict) else None
     if not isinstance(overrides, dict):
@@ -121,10 +135,10 @@ def _policy_from_payload(policy) -> engine.Policy:
         return engine.Policy(0, 0)
     scheduling_policies = policy.get("scheduling_policies")
     if scheduling_policies is None:
-        is_splittable = bool(policy.get("is_splittable"))
-        is_overlappable = bool(policy.get("is_overlappable"))
-        is_invisible = bool(policy.get("is_invisible"))
-        round_to_granularity = bool(policy.get("round_to_granularity") or False)
+        is_splittable = _coerce_bool(policy.get("is_splittable"))
+        is_overlappable = _coerce_bool(policy.get("is_overlappable"))
+        is_invisible = _coerce_bool(policy.get("is_invisible"))
+        round_to_granularity = _coerce_bool(policy.get("round_to_granularity") or False)
     else:
         try:
             scheduling_policies = int(scheduling_policies)
@@ -134,7 +148,7 @@ def _policy_from_payload(policy) -> engine.Policy:
         is_overlappable = bool(scheduling_policies & 2)
         is_invisible = bool(scheduling_policies & 4)
         if "round_to_granularity" in policy:
-            round_to_granularity = bool(policy.get("round_to_granularity"))
+            round_to_granularity = _coerce_bool(policy.get("round_to_granularity"))
         else:
             round_to_granularity = bool(scheduling_policies & 8)
     max_splits = int(policy.get("max_splits") or 0)
@@ -224,18 +238,19 @@ def _validate_schedule(schedule: engine.Schedule) -> str | None:
             if not job.schedulable_time_range.contains(job_range):
                 return f"{job.id} scheduled outside schedulable window."
 
-    non_overlappable = []
-    for job in jobs:
-        if job.policy.is_overlappable():
-            continue
-        for other in non_overlappable:
+    for index, job in enumerate(jobs):
+        for other in jobs[:index]:
             job_ranges = job.scheduled_time_ranges or [job.scheduled_time_range]
             other_ranges = other.scheduled_time_ranges or [other.scheduled_time_range]
             for job_range in job_ranges:
                 for other_range in other_ranges:
                     if job_range.overlaps(other_range):
-                        return f"{job.id} overlaps with {other.id}."
-        non_overlappable.append(job)
+                        overlap_allowed = (
+                            job.policy.is_overlappable()
+                            and other.policy.is_overlappable()
+                        )
+                        if not overlap_allowed:
+                            return f"{job.id} overlaps with {other.id}."
 
     return _dependency_violation_message(jobs)
 

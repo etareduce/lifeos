@@ -510,6 +510,7 @@ double ScheduleCostFunction::context_switch_cost() const {
 
 double ScheduleCostFunction::illegal_schedule_cost() const {
     const std::vector<Job>& scheduled_jobs = schedule_ref.scheduled_jobs;
+    IntervalTree<sec_t, size_t> all_scheduled_jobs;
     IntervalTree<sec_t, size_t> non_overlappable_jobs;
 
     for (size_t i = 0; i < scheduled_jobs.size(); ++i) {
@@ -521,20 +522,20 @@ double ScheduleCostFunction::illegal_schedule_cost() const {
                 return constants::ILLEGAL_SCHEDULE_COST;
             }
 
-            if (!curr_policy.is_overlappable()) {
-                auto overlapping_interval = non_overlappable_jobs.search_overlap(
-                    range
-                );
-
-                if (overlapping_interval != nullptr) {
+            if (curr_policy.is_overlappable()) {
+                auto overlapping_non_overlappable = non_overlappable_jobs.search_overlap(range);
+                if (overlapping_non_overlappable != nullptr) {
                     return constants::ILLEGAL_SCHEDULE_COST;
                 }
-
-                non_overlappable_jobs.insert(
-                    range,
-                    i
-                );
+            } else {
+                auto overlapping_any = all_scheduled_jobs.search_overlap(range);
+                if (overlapping_any != nullptr) {
+                    return constants::ILLEGAL_SCHEDULE_COST;
+                }
+                non_overlappable_jobs.insert(range, i);
             }
+
+            all_scheduled_jobs.insert(range, i);
         }
     }
 

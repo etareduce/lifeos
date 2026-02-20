@@ -78,6 +78,31 @@ def test_overlap_cost_counts_overlap_duration():
     assert cost_function.schedule_cost() == 30.0
 
 
+def test_overlap_with_single_non_overlappable_job_is_illegal():
+    non_overlappable_policy = engine.Policy(0, 0, False, False)
+    overlappable_policy = engine.Policy(0, 0, False, True)
+    job_a = _make_job(
+        schedulable_low=0,
+        schedulable_high=4 * HOUR,
+        scheduled_low=0,
+        scheduled_high=HOUR,
+        policy=non_overlappable_policy,
+        job_id="job_a",
+    )
+    job_b = _make_job(
+        schedulable_low=0,
+        schedulable_high=4 * HOUR,
+        scheduled_low=30 * MINUTE,
+        scheduled_high=90 * MINUTE,
+        policy=overlappable_policy,
+        job_id="job_b",
+    )
+    schedule = engine.Schedule([job_a, job_b])
+    cost_function = engine.ScheduleCostFunction(schedule, MINUTE)
+
+    assert cost_function.schedule_cost() == pytest.approx(1e12, rel=1e-6)
+
+
 def test_split_cost_counts_number_of_splits():
     job = _make_job(
         schedulable_low=0,
