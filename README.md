@@ -1,77 +1,62 @@
 # Elastisched
 ![Elastisched UI](docs/ui-preview.png)
 
-Elastisched is a scheduling and time management software built around "blobs": flexible, schedulable blocks of time with constraints.
+Elastisched is an elastic scheduling system for time-constrained tasks and recurring events. It combines deterministic constraints with a C++ optimization engine, an API-first backend, and an interactive calendar UI.
 
-## Core Concepts
+## Highlights
+- Flexible "blob"-based event model with schedulable windows and policy flags.
+- Simulated-annealing scheduler with configurable cost weights and granularity.
+- Recurrence system (`single`, `multiple`, `weekly`, `delta`, `date`).
+- FastAPI backend with integrations and LLM-assisted scheduling flows.
+- Vanilla JS frontend with day/week/month/year views and scheduling controls.
 
-- Blobs represent tasks/events with a schedulable time range and optional policies (which guide the scheduler).
-- Policies can make blobs overlappable, invisible, or splittable to guide scheduling behavior.
-- Scheduling uses simulated annealing and preference learning to search for good local minima under constraints.
+## Architecture
+- `backend/`: FastAPI app, persistence, routing, integrations, and LLM runtime.
+- `core/`: Python scheduling domain primitives (blob, timerange, recurrence).
+- `engine/`: C++ scheduler + `pybind11` Python bindings.
+- `frontend/`: Browser UI served at `/ui`.
+- `learning/`: Preference-learning and embedding scaffolding.
 
-## Features
+## Repository Docs
+Each major folder has its own README:
 
-- Day, week, month, and year views
-- Interactive range selection in the UI
-- Configurable schedule metadata (name, subtitle, minute granularity)
-- JSON-based blob storage with SQLite
-
-## Project Layout
-
-- `backend/backend`: FastAPI backend and models
-- `core`: core scheduling library
-- `engine`: C++ scheduler engine
-- `frontend`: UI (HTML/CSS/JS)
-- `learning`: preference learning and ML models
-- `integrations`: integrations with other calendar apps, i.e., Google Calendar
-- `mcp`: a FastMCP integration for elastisched
-- `tests`: API and recurrence tests
+- [`backend/README.md`](backend/README.md)
+- [`core/README.md`](core/README.md)
+- [`docs/README.md`](docs/README.md)
+- [`electron/README.md`](electron/README.md)
+- [`engine/README.md`](engine/README.md)
+- [`frontend/README.md`](frontend/README.md)
+- [`landing/README.md`](landing/README.md)
+- [`learning/README.md`](learning/README.md)
+- [`mcp/README.md`](mcp/README.md)
+- [`tests/README.md`](tests/README.md)
+- [`bin/README.md`](bin/README.md)
 
 ## Quick Start
-
 ### Docker
-
 1. `docker compose up --build`
-2. Open `http://localhost:8000/ui`
+2. Open the app at `http://localhost:8000/ui` (or the frontend proxy at `http://localhost:8080`).
 
-### Local (no Docker)
+### Local Development
+1. `python3 -m venv .venv`
+2. `source .venv/bin/activate`
+3. `pip install -r requirements.txt`
+4. `uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000`
+5. Open `http://localhost:8000/ui`
 
-1. Install dependencies.
-2. Run the API.
-3. Open the UI at `/ui` or open `frontend/index.html` directly.
+## Configuration
+Common environment variables:
+- `DATABASE_URL` (default: `sqlite+aiosqlite:///./core.db`)
+- `ELASTISCHED_PROJECT_TZ` (default: `UTC`)
+- `GEMINI_API_KEY`, `GEMINI_MODEL`
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_OAUTH_SCOPES`
 
-## Troubleshooting
+## Testing
+- Python tests: `pytest -q`
+- C++ engine tests:
+  1. `cmake -S engine -B engine/build_tests -DELASTISCHED_BUILD_TESTS=ON`
+  2. `cmake --build engine/build_tests`
+  3. `ctest --test-dir engine/build_tests --output-on-failure`
 
-- If you see a GLIB/GCC mismatch in native builds, align your Conda GCC/G++ with the version used to compile the library.
-
-## Miscellaneous
-
-### Scheduler Algorithm
-The scheduler algorithm uses simulated annealing, which is a form of stochastic optimization for often discrete, non-differentiable cost functions. 
-It will not always find the global minima, but tends to find good local minima. However, for calendars with not as many events, it will find the global
-minima with high probability. 
-
-#### Lookahead
-Lookahead is an important concept since it determines how many events the scheduler will have to work with at a time, affecting efficiency and solution
-quality. The default is set to 2 weeks, but can be changed in settings. Whenever a blob or recurrence is added or edited, the scheduler marks the old schedule
-as "dirty", prompting the user to run the scheduling algorithm.
-
-#### Preference Learning
-Apart from some the most primitive cost functions, the simulated annealer won't be able to truly capture a user's intent only through code, since 
-our preferences for what a good schedule might look like depends on the user and can't simply be hard coded in. Hence, elastisched also implements
-preference learning. The most primitive cost functions currently implemented are: illegal schedule cost (which may be deprecated to prevent illegal
-schedules entirely via simulated annealer), overlapping event cost (reduce the amount of overlap for overlappable events), and split count cost
-(reduce the amount of times that we split a splittable event). Naturally, most schedules conditioned by the simulated annealer are "optimal", which
-implies there are many potential global optima and requires tie-breaking.
-
-Preference learning helps to break ties by slowly learning the user's preferences over what schedules should be chosen when multiple global optima
-exists. 
-
-We can view the simulated annealer as a generative algorithm which generates optimal schedules. Preference learning then runs the learned cost function
-against multiple samples generated by the annealer and tries to learn the following distribution: P(U(A) > U(B)), where A and B are schedules returned by the
-annealer and U is some utility function implicitly learned by the preference learning model. We can then use this learned preference function to return 
-the most suitable schedule in O(S) time, where S is the number of samples discovered by the simulated annealer. 
-
-#### Semantic Preference Learning
-To help the preference learning algorithm, we utilize all information about an event including the description and recurrence name. 
-In the backend, we use a sentence-transformer model which can be optionally GPU accelerated if the user has a GPU. 
+## License
+MIT. See [`LICENSE`](LICENSE).
