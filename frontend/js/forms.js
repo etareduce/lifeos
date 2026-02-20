@@ -31,7 +31,7 @@ const WEEK_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 const editOnlyElements = document.querySelectorAll(".edit-only");
 const settingsTabs = document.querySelectorAll(".settings-tab");
 const settingsSections = document.querySelectorAll(".settings-section");
-const sidebarLinks = document.querySelectorAll(".sidebar-link");
+const utilityLinks = document.querySelectorAll(".sidebar-icon-link");
 const nonWeeklyField = document.querySelector(".non-weekly-field");
 const primaryDependencyField = document.querySelector(
   ".dependency-field:not(.slot-dependency-field)"
@@ -184,6 +184,12 @@ async function clearLlmPreview() {
   }
 }
 
+function setUtilitySidebarActive(targetId) {
+  utilityLinks.forEach((link) => {
+    link.classList.toggle("active", Boolean(targetId) && link.id === targetId);
+  });
+}
+
 function setActiveSettingsTab(tabName) {
   if (!tabName) return;
   settingsTabs.forEach((tab) => {
@@ -193,10 +199,6 @@ function setActiveSettingsTab(tabName) {
   });
   settingsSections.forEach((section) => {
     section.classList.toggle("active", section.dataset.settingsSection === tabName);
-  });
-  sidebarLinks.forEach((link) => {
-    const isActive = link.getAttribute("id") === "settingsBtn";
-    link.classList.toggle("active", isActive);
   });
 }
 
@@ -2941,9 +2943,7 @@ function openCreateForm(blobType = BLOB_TYPES.TASK) {
 }
 
 function handleSettingsClick() {
-  sidebarLinks.forEach((link) => {
-    link.classList.toggle("active", link.getAttribute("id") === "settingsBtn");
-  });
+  setUtilitySidebarActive("settingsBtn");
   toggleSettings(true);
   toggleHelp(false);
   populateTimeZones();
@@ -2954,9 +2954,7 @@ function handleSettingsClick() {
 }
 
 function handleHelpClick() {
-  sidebarLinks.forEach((link) => {
-    link.classList.toggle("active", link.getAttribute("id") === "helpBtn");
-  });
+  setUtilitySidebarActive("helpBtn");
   applyTheme(appConfig.theme);
   toggleSettings(false);
   setSettingsDirty(false);
@@ -3078,16 +3076,12 @@ function handleCloseSettings() {
   toggleSettings(false);
   dom.settingsStatus.textContent = "";
   setSettingsDirty(false);
-  sidebarLinks.forEach((link) => {
-    link.classList.remove("active");
-  });
+  setUtilitySidebarActive(null);
 }
 
 function handleCloseHelp() {
   toggleHelp(false);
-  sidebarLinks.forEach((link) => {
-    link.classList.remove("active");
-  });
+  setUtilitySidebarActive(null);
 }
 
 function handleCloseForm() {

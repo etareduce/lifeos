@@ -29,6 +29,7 @@ const state = {
   previewBlobs: [],
   llmDraftRecurrences: null,
   llmDraftNotes: null,
+  workspaceMode: "home",
 };
 
 const defaultConfig = {

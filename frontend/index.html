@@ -18,14 +18,92 @@
             <div class="subtitle" id="brandSubtitle">Schedule at a glance</div>
           </div>
         </div>
-        <nav class="sidebar-nav" aria-label="Workspace menu">
-          <button class="sidebar-link active" id="settingsBtn" type="button" data-short="S">
-            <span class="sidebar-link-title">Settings</span>
-            <span class="sidebar-link-subtitle">Workspace and schedule defaults</span>
+        <nav class="sidebar-nav sidebar-main-nav" aria-label="Workspace views">
+          <button class="sidebar-link active" id="homeBtn" type="button" data-short="H">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M3.5 10.5L12 3l8.5 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-4v6H4.5a1 1 0 0 1-1-1z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-link-title">Home</span>
+            <span class="sidebar-link-subtitle">Main calendar</span>
           </button>
-          <button class="sidebar-link" id="helpBtn" type="button" data-short="?">
-            <span class="sidebar-link-title">Help menu</span>
-            <span class="sidebar-link-subtitle">Keyboard shortcuts and tips</span>
+          <button class="sidebar-link" id="tasksBtn" type="button" data-short="T">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path
+                  d="M8 10h8M8 14h8M8 18h5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-link-title">Tasks</span>
+            <span class="sidebar-link-subtitle">Upcoming and prioritized</span>
+          </button>
+          <button class="sidebar-link" id="searchBtn" type="button" data-short="/">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path
+                  d="M16 16l4.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-link-title">Search</span>
+            <span class="sidebar-link-subtitle">Find events quickly</span>
+          </button>
+        </nav>
+        <nav class="sidebar-nav sidebar-utility-nav" aria-label="Workspace tools">
+          <button class="sidebar-icon-link" id="settingsBtn" type="button" data-short="S" title="Settings" aria-label="Settings">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M12 8.8A3.2 3.2 0 1 0 12 15.2A3.2 3.2 0 1 0 12 8.8z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M19.2 13.3l1.3-1.1-1.5-2.6-1.7.4a5.8 5.8 0 0 0-1-0.6L16 7.7h-3l-0.3 1.7a5.8 5.8 0 0 0-1 .6L10 9.6 8.5 12.2l1.3 1.1a5.5 5.5 0 0 0 0 1.4l-1.3 1.1L10 18.4l1.7-0.4c0.3 0.2 0.6 0.4 1 0.6l0.3 1.7h3l0.3-1.7c0.3-0.2 0.7-0.4 1-0.6l1.7 0.4 1.5-2.6-1.3-1.1a5.5 5.5 0 0 0 0-1.4z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span class="sidebar-icon-label">Settings</span>
+          </button>
+          <button class="sidebar-icon-link" id="helpBtn" type="button" data-short="?" title="Help" aria-label="Help">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M9.7 9.3a2.5 2.5 0 1 1 4.4 1.7c-0.8 0.8-1.6 1.2-1.6 2.3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+                <circle cx="12" cy="17.5" r="0.9" fill="currentColor" />
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </span>
+            <span class="sidebar-icon-label">Help</span>
           </button>
         </nav>
       </aside>
@@ -738,7 +816,7 @@
         </form>
       </section>
 
-      <section class="panel calendar-panel">
+      <section class="panel calendar-panel workspace-section active" id="homeSection" aria-hidden="false">
         <div class="tab-row">
           <div class="tabs" role="tablist">
             <button class="tab active" data-view="day">Day</button>
@@ -801,9 +879,37 @@
           </div>
           <div class="legend">
             <div class="schedule-controls">
-              <button class="ghost" id="toggleFormBtn">Add recurrence</button>
-              <button class="ghost" id="llmScheduleBtn">Add with AI</button>
-              <button class="ghost" id="googleSyncBtn">Sync Google</button>
+              <button
+                class="ghost icon action-icon"
+                id="toggleFormBtn"
+                title="Add recurrence"
+                aria-label="Add recurrence"
+              >
+                +
+              </button>
+              <button
+                class="ghost icon action-icon ai"
+                id="llmScheduleBtn"
+                title="Add with AI"
+                aria-label="Add with AI"
+              >
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path
+                    d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M18.5 14l0.9 2.3 2.3 0.7-2.3 0.7-0.9 2.3-0.9-2.3-2.3-0.7 2.3-0.7z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
               <button class="primary schedule-btn" id="runScheduleBtn">Run schedule</button>
               <div class="schedule-status" id="scheduleStatus" role="status" aria-live="polite">
                 <span class="status-dot" aria-hidden="true"></span>
@@ -822,6 +928,44 @@
           <div id="viewMonth" class="view"></div>
           <div id="viewYear" class="view"></div>
         </div>
+      </section>
+      <section class="panel workspace-section tasks-panel" id="tasksSection" aria-hidden="true">
+        <div class="tasks-hero">
+          <div class="tasks-eyebrow">Focus mode</div>
+          <h2 class="tasks-title">Upcoming tasks</h2>
+          <p class="tasks-copy">A clean queue of what is next so you can move with momentum.</p>
+          <div class="tasks-metrics">
+            <div class="tasks-metric">
+              <div class="tasks-metric-value" id="tasksUpcomingCount">0</div>
+              <div class="tasks-metric-label">Upcoming</div>
+            </div>
+            <div class="tasks-metric">
+              <div class="tasks-metric-value" id="tasksTodayCount">0</div>
+              <div class="tasks-metric-label">Today</div>
+            </div>
+            <div class="tasks-metric">
+              <div class="tasks-metric-value" id="tasksWeekCount">0</div>
+              <div class="tasks-metric-label">This week</div>
+            </div>
+          </div>
+        </div>
+        <div class="tasks-list" id="tasksList"></div>
+      </section>
+      <section class="panel workspace-section search-panel" id="searchSection" aria-hidden="true">
+        <div class="search-header">
+          <h2 class="search-title">Search recurrences</h2>
+          <p class="search-copy">Find recurring plans by recurrence name or description.</p>
+        </div>
+        <label class="search-input-wrap" for="eventSearchInput">
+          <span class="search-input-icon" aria-hidden="true">/</span>
+          <input
+            id="eventSearchInput"
+            type="search"
+            placeholder="Try: deep work, workout, standup..."
+            autocomplete="off"
+          />
+        </label>
+        <div class="search-results" id="eventSearchResults"></div>
       </section>
       </main>
     </div>
