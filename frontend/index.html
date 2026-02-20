@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Elastisched</title>
+    <script>
+      (() => {
+        try {
+          const raw = window.localStorage.getItem("elastisched:workspace-mode");
+          const mode = raw === "tasks" || raw === "search" ? raw : "home";
+          document.documentElement.dataset.workspaceMode = mode;
+        } catch (error) {
+          document.documentElement.dataset.workspaceMode = "home";
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="./css/styles.css" />
   </head>
   <body>
@@ -632,12 +643,6 @@
                 </div>
               </label>
             </div>
-            <div class="weekly-slot-row estimate-row">
-              <button type="button" class="ghost" id="estimateDurationBtn">
-                Estimate task duration
-              </button>
-              <span class="form-status" id="estimateStatus"></span>
-            </div>
             <div class="weekly-slot-row slot-meta">
               <label>
                 Occurrence name
@@ -934,6 +939,80 @@
           <div class="tasks-eyebrow">Focus mode</div>
           <h2 class="tasks-title">Upcoming tasks</h2>
           <p class="tasks-copy">A clean queue of what is next so you can move with momentum.</p>
+          <form class="task-draft-form" id="taskQuickDraftForm">
+            <div class="task-draft-head">
+              <div class="task-draft-title">Quick Draft</div>
+              <div class="task-draft-subtitle">Capture a task in seconds without leaving this view.</div>
+            </div>
+            <div class="task-draft-grid">
+              <label>
+                Task
+                <input
+                  type="text"
+                  name="quickTaskName"
+                  id="taskQuickDraftName"
+                  maxlength="200"
+                  placeholder="Write project brief"
+                  required
+                />
+              </label>
+              <label>
+                Start (local)
+                <div class="datetime-field">
+                  <input
+                    type="text"
+                    class="datetime-display"
+                    placeholder="Select date/time"
+                    readonly
+                  />
+                  <button type="button" class="ghost small datetime-trigger" aria-label="Pick date">
+                    📅
+                  </button>
+                  <input type="hidden" name="quickTaskStart" id="taskQuickDraftStart" required data-datetime-input />
+                </div>
+              </label>
+              <label>
+                Duration (min)
+                <input
+                  type="number"
+                  name="quickTaskDurationMinutes"
+                  id="taskQuickDraftDuration"
+                  min="5"
+                  step="5"
+                  value="60"
+                  required
+                />
+              </label>
+              <label>
+                Flex window (min)
+                <input
+                  type="number"
+                  name="quickTaskFlexMinutes"
+                  id="taskQuickDraftFlex"
+                  min="5"
+                  step="5"
+                  value="120"
+                  required
+                />
+              </label>
+            </div>
+            <label>
+              Notes (optional)
+              <input
+                type="text"
+                name="quickTaskDescription"
+                id="taskQuickDraftDescription"
+                maxlength="2000"
+                placeholder="Context, acceptance criteria, constraints..."
+              />
+            </label>
+            <div class="task-draft-actions">
+              <button type="submit" class="primary" id="taskQuickDraftCreateBtn">Create task</button>
+              <button type="button" class="ghost" id="taskQuickDraftOpenBtn">Open full form</button>
+              <button type="button" class="ghost" id="taskQuickDraftAiBtn">Draft with AI</button>
+              <span class="form-status" id="taskQuickDraftStatus"></span>
+            </div>
+          </form>
           <div class="tasks-metrics">
             <div class="tasks-metric">
               <div class="tasks-metric-value" id="tasksUpcomingCount">0</div>

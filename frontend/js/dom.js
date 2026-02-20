@@ -105,8 +105,6 @@ const dom = {
   addTagBtn: document.getElementById("addTagBtn"),
   tagList: document.getElementById("tagList"),
   tagSuggestions: document.getElementById("tagSuggestions"),
-  estimateDurationBtn: document.getElementById("estimateDurationBtn"),
-  estimateStatus: document.getElementById("estimateStatus"),
   googleAccessTokenInput: document.getElementById("googleAccessTokenInput"),
   googleConnectBtn: document.getElementById("googleConnectBtn"),
   googleManualConnectBtn: document.getElementById("googleManualConnectBtn"),

@@ -126,6 +126,22 @@ function loadView() {
   }
 }
 
+function saveWorkspaceMode(mode) {
+  try {
+    window.localStorage.setItem("elastisched:workspace-mode", mode);
+  } catch (error) {
+    // Ignore storage errors.
+  }
+}
+
+function loadWorkspaceMode() {
+  try {
+    return window.localStorage.getItem("elastisched:workspace-mode");
+  } catch (error) {
+    return null;
+  }
+}
+
 function saveSettings(config) {
   try {
     window.localStorage.setItem("elastisched:settings", JSON.stringify(config));
@@ -171,9 +187,11 @@ export {
   appConfig,
   isTypingInField,
   loadView,
+  loadWorkspaceMode,
   minuteGranularity,
   applyTheme,
   saveSettings,
   saveView,
+  saveWorkspaceMode,
   state,
 };

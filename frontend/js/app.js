@@ -1,4 +1,12 @@
-import { appConfig, applyTheme, isTypingInField, loadView, state } from "./core.js";
+import {
+  appConfig,
+  applyTheme,
+  isTypingInField,
+  loadView,
+  loadWorkspaceMode,
+  saveWorkspaceMode,
+  state,
+} from "./core.js";
 import { dom } from "./dom.js";
 import {
   ensureOccurrences,
@@ -59,6 +67,8 @@ function getWorkspaceDataRange() {
 function setWorkspaceMode(mode) {
   const nextMode = Object.values(WORKSPACE_MODE).includes(mode) ? mode : WORKSPACE_MODE.HOME;
   state.workspaceMode = nextMode;
+  document.documentElement.dataset.workspaceMode = nextMode;
+  saveWorkspaceMode(nextMode);
   if (dom.homeBtn) dom.homeBtn.classList.toggle("active", nextMode === WORKSPACE_MODE.HOME);
   if (dom.tasksBtn) dom.tasksBtn.classList.toggle("active", nextMode === WORKSPACE_MODE.TASKS);
   if (dom.searchBtn) dom.searchBtn.classList.toggle("active", nextMode === WORKSPACE_MODE.SEARCH);
@@ -806,7 +816,6 @@ window.addEventListener("keydown", (event) => {
 
 resetFormMode();
 bindDialogEvents();
-setWorkspaceMode(WORKSPACE_MODE.HOME);
 window.elastischedRefresh = () => {
   state.loadedRange = null;
   refreshView(state.view);
@@ -815,7 +824,16 @@ window.addEventListener("elastisched:refresh", () => {
   window.elastischedRefresh?.();
 });
 const savedView = loadView();
-refreshView(savedView || "day");
+const savedWorkspaceMode = loadWorkspaceMode();
+const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspaceMode)
+  ? savedWorkspaceMode
+  : WORKSPACE_MODE.HOME;
+if (initialWorkspaceMode === WORKSPACE_MODE.HOME) {
+  setWorkspaceMode(WORKSPACE_MODE.HOME);
+  refreshView(savedView || "day");
+} else {
+  switchWorkspaceMode(initialWorkspaceMode);
+}
 window.setInterval(() => {
   renderNowPanel();
   updateNowIndicators();
