@@ -88,12 +88,23 @@ function setRefreshHandler(handler) {
 function applySidebarState() {
   if (!dom.page) return;
   dom.page.classList.toggle("sidebar-collapsed", Boolean(appConfig.sidebarCollapsed));
+  dom.page.classList.toggle("sidebar-wide", Boolean(appConfig.sidebarWide));
+  if (dom.sidebarWidthBtn) {
+    dom.sidebarWidthBtn.textContent = appConfig.sidebarWide ? "Narrow" : "Widen";
+  }
 }
 
 function toggleSidebarCollapsed(force) {
   const next =
     typeof force === "boolean" ? force : !Boolean(appConfig.sidebarCollapsed);
   appConfig.sidebarCollapsed = next;
+  applySidebarState();
+  saveSettings(appConfig);
+}
+
+function toggleSidebarWidth(force) {
+  const next = typeof force === "boolean" ? force : !Boolean(appConfig.sidebarWide);
+  appConfig.sidebarWide = next;
   applySidebarState();
   saveSettings(appConfig);
 }
@@ -3247,6 +3258,11 @@ function bindFormHandlers(onRefresh) {
   if (dom.sidebarToggleBtn) {
     dom.sidebarToggleBtn.addEventListener("click", () => {
       toggleSidebarCollapsed();
+    });
+  }
+  if (dom.sidebarWidthBtn) {
+    dom.sidebarWidthBtn.addEventListener("click", () => {
+      toggleSidebarWidth();
     });
   }
   if (dom.helpBtn) {

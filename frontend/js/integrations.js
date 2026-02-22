@@ -1,16 +1,17 @@
 import { appConfig, state } from "./core.js";
 import { dom } from "./dom.js";
 import {
+  applyCopyCalendarToMain,
   applyGoogleSync,
   buildGoogleOAuthStartUrl,
   connectGoogleAccount,
-  copyCalendarToMain,
   createCustomCalendar,
   deleteCalendarView,
   disconnectGoogleAccount,
   getGoogleIntegrationStatus,
   listCalendarViews,
   listGoogleCalendars,
+  previewCopyCalendarToMain,
   previewGoogleSync,
   setCalendarVisibility,
   setGoogleCalendarSelection,
@@ -22,6 +23,11 @@ const googleState = {
   calendars: [],
   preview: null,
   calendarViews: [],
+};
+const copyMergeState = {
+  calendarViewId: null,
+  calendarViewName: "",
+  items: [],
 };
 const MAX_PREVIEW_DAYS = 90;
 
@@ -57,6 +63,7 @@ function setConnectionStatus(status) {
       : "No Google accounts connected";
   }
   renderAccountList();
+  renderCalendarList();
 }
 
 function setConnectionMessage(message = "", error = false) {
@@ -128,10 +135,12 @@ function groupEntriesByAccount(entries, keySelector) {
   return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
 }
 
-function renderSidebarAccountGroups(groups, renderItem) {
+function renderSidebarAccountGroups(groups, renderItem, options = {}) {
   if (!groups.length) {
     return "";
   }
+  const showDisconnect = Boolean(options.showDisconnect);
+  const countLabel = options.countLabel || "calendar";
   const accountMetaByKey = new Map(
     googleState.accounts.map((account) => [account.id, account])
   );
@@ -148,14 +157,26 @@ function renderSidebarAccountGroups(groups, renderItem) {
         "";
       const label = accountDisplayName(accountKey, inferredName, inferredId);
       const subtitle = accountSubtitle(inferredName, inferredId);
-      const countLabel = `${items.length} calendar${items.length === 1 ? "" : "s"}`;
+      const countText = `${items.length} ${countLabel}${items.length === 1 ? "" : "s"}`;
+      const disconnectButton = showDisconnect
+        ? `
+            <button
+              type="button"
+              class="ghost danger small"
+              data-disconnect-account-key="${accountKey}"
+            >
+              Disconnect
+            </button>
+          `
+        : "";
       return `
         <details class="sidebar-account-group" open>
           <summary>
             <span>${label}</span>
-            <span class="sidebar-calendar-summary">${countLabel}</span>
+            <span class="sidebar-calendar-summary">${countText}</span>
           </summary>
           ${subtitle ? `<div class="sidebar-account-subtitle">${subtitle}</div>` : ""}
+          ${disconnectButton}
           <div class="sidebar-account-list">
             ${items.map((item) => renderItem(item)).join("")}
           </div>
@@ -168,9 +189,12 @@ function renderSidebarAccountGroups(groups, renderItem) {
 function renderCalendarList() {
   const targets = calendarListTargets();
   if (!targets.length) return;
-  const rowHtml = (calendar, includeAccountLabel) => {
+  const rowHtml = (calendar, includeAccountLabel, showBadge = true) => {
     const selected = calendar.selected !== false;
-    const badge = calendar.primary ? '<span class="integration-calendar-badge">Primary</span>' : "";
+    const badge =
+      showBadge && calendar.primary
+        ? '<span class="integration-calendar-badge">Primary</span>'
+        : "";
     const accountLabel = accountDisplayName(
       calendar.account_key,
       calendar.account_name,
@@ -197,15 +221,20 @@ function renderCalendarList() {
 
   const settingsHtml = !googleState.calendars.length
     ? ""
-    : googleState.calendars.map((calendar) => rowHtml(calendar, true)).join("");
+    : googleState.calendars.map((calendar) => rowHtml(calendar, true, true)).join("");
   if (dom.googleCalendarList) {
     dom.googleCalendarList.innerHTML = settingsHtml;
   }
 
   if (dom.sidebarGoogleCalendarList) {
-    const groups = groupEntriesByAccount(googleState.calendars, (calendar) => calendar.account_key);
-    dom.sidebarGoogleCalendarList.innerHTML = renderSidebarAccountGroups(groups, (calendar) =>
-      rowHtml(calendar, false)
+    let groups = groupEntriesByAccount(googleState.calendars, (calendar) => calendar.account_key);
+    if (!groups.length && googleState.accounts.length) {
+      groups = googleState.accounts.map((account) => [account.id, []]);
+    }
+    dom.sidebarGoogleCalendarList.innerHTML = renderSidebarAccountGroups(
+      groups,
+      (calendar) => rowHtml(calendar, false, false),
+      { showDisconnect: true, countLabel: "source calendar" }
     );
   }
 }
@@ -238,19 +267,31 @@ function renderCalendarViews() {
           ${badge}
           <button
             type="button"
-            class="ghost small"
+            class="ghost small integration-icon-btn"
             data-copy-calendar-view-id="${view.id}"
+            title="Copy to main"
+            aria-label="Copy calendar to main"
             ${copyDisabled ? "disabled" : ""}
           >
-            Copy to main
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <rect x="8" y="8" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+              <rect x="5" y="5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+            </svg>
           </button>
           <button
             type="button"
-            class="ghost small danger"
+            class="ghost small danger integration-icon-btn"
             data-delete-calendar-view-id="${view.id}"
+            title="Delete calendar"
+            aria-label="Delete calendar"
             ${deleteDisabled ? "disabled" : ""}
           >
-            Delete
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M5 7h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M9 7V5.8A1.8 1.8 0 0 1 10.8 4h2.4A1.8 1.8 0 0 1 15 5.8V7" fill="none" stroke="currentColor" stroke-width="1.8" />
+              <path d="M8 9.5v8.7A1.8 1.8 0 0 0 9.8 20h4.4A1.8 1.8 0 0 0 16 18.2V9.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+              <path d="M11 11.5v6M13 11.5v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
           </button>
         </div>
       </div>
@@ -261,16 +302,8 @@ function renderCalendarViews() {
   if (dom.calendarViewList) {
     dom.calendarViewList.innerHTML = renderRows(allViews, { showSourceBadge: true });
   }
-  if (dom.sidebarGoogleViewList) {
-    const googleViews = allViews.filter((view) => String(view.source || "").toLowerCase() === "google");
-    const groups = groupEntriesByAccount(googleViews, (view) => view.account_key);
-    dom.sidebarGoogleViewList.innerHTML = renderSidebarAccountGroups(groups, (view) =>
-      renderViewRow(view, { showSourceBadge: false })
-    );
-  }
   if (dom.sidebarCalendarViewList) {
-    const ownViews = allViews.filter((view) => String(view.source || "").toLowerCase() !== "google");
-    dom.sidebarCalendarViewList.innerHTML = renderRows(ownViews, { showSourceBadge: true });
+    dom.sidebarCalendarViewList.innerHTML = renderRows(allViews, { showSourceBadge: true });
   }
 }
 
@@ -595,23 +628,203 @@ async function updateCalendarSelectionFromCheckbox(input) {
   }
 }
 
-async function handleCopyCalendarToMain(button) {
-  if (!(button instanceof HTMLButtonElement)) return;
-  const calendarViewId = button.getAttribute("data-copy-calendar-view-id");
-  if (!calendarViewId) return;
-  setSyncMessage("Copying calendar to main...");
+async function setAllGoogleCalendarSelections(selected) {
+  const nextValue = Boolean(selected);
+  const changed = googleState.calendars.filter((calendar) => (calendar.selected !== false) !== nextValue);
+  if (!changed.length) {
+    return;
+  }
+  const previousById = new Map(
+    changed.map((calendar) => [calendar.id, calendar.selected !== false])
+  );
+  googleState.calendars = googleState.calendars.map((calendar) =>
+    previousById.has(calendar.id) ? { ...calendar, selected: nextValue } : calendar
+  );
+  renderCalendarList();
+  setSyncMessage(nextValue ? "Checking source calendars..." : "Unchecking source calendars...");
   try {
-    const result = await copyCalendarToMain(calendarViewId);
-    setSyncMessage(
-      `Copied to main. Created ${result.created_count}, merged ${result.merged_count}.`
+    const updates = await Promise.all(
+      changed.map((calendar) => setGoogleCalendarSelection(calendar.id, nextValue))
     );
+    const updatesById = new Map(updates.map((item) => [item.id, item]));
+    googleState.calendars = googleState.calendars.map((calendar) => {
+      const updated = updatesById.get(calendar.id);
+      if (!updated) return calendar;
+      return {
+        ...calendar,
+        ...updated,
+        selected: updated.selected !== false,
+      };
+    });
+    renderCalendarList();
+    setSyncMessage(
+      nextValue
+        ? "All source calendars checked."
+        : "All source calendars unchecked."
+    );
+  } catch (error) {
+    googleState.calendars = googleState.calendars.map((calendar) =>
+      previousById.has(calendar.id)
+        ? { ...calendar, selected: previousById.get(calendar.id) }
+        : calendar
+    );
+    renderCalendarList();
+    setSyncMessage(error?.message || "Unable to update source calendar selections.", true);
+  }
+}
+
+function setCopyMergeStatus(message = "", error = false) {
+  if (!dom.copyMergeStatus) return;
+  dom.copyMergeStatus.textContent = message;
+  dom.copyMergeStatus.classList.toggle("error", Boolean(error));
+}
+
+function toggleCopyMergeModal(show) {
+  if (!dom.copyMergeModal) return;
+  const isActive = Boolean(show);
+  dom.copyMergeModal.classList.toggle("active", isActive);
+  dom.copyMergeModal.setAttribute("aria-hidden", (!isActive).toString());
+  document.body.classList.toggle("modal-open", isActive);
+  if (!isActive) {
+    copyMergeState.calendarViewId = null;
+    copyMergeState.calendarViewName = "";
+    copyMergeState.items = [];
+    if (dom.copyMergeList) dom.copyMergeList.innerHTML = "";
+    setCopyMergeStatus("");
+  }
+}
+
+function renderCopyMergePreview() {
+  if (!dom.copyMergeList) return;
+  if (!copyMergeState.items.length) {
+    dom.copyMergeList.innerHTML = "";
+    return;
+  }
+  dom.copyMergeList.innerHTML = copyMergeState.items
+    .map((item) => {
+      const suggested = item.suggested_action || "create";
+      const candidateOptions = (item.match_candidates || [])
+        .map(
+          (candidate) =>
+            `<option value="${candidate.recurrence_id}">${candidate.recurrence_name} (${candidate.event_count} events)</option>`
+        )
+        .join("");
+      const actionOptions = [
+        { value: "create", label: "Create in main" },
+        { value: "merge", label: "Merge with existing" },
+        { value: "skip", label: "Skip" },
+      ]
+        .map(
+          (entry) =>
+            `<option value="${entry.value}" ${entry.value === suggested ? "selected" : ""}>${entry.label}</option>`
+        )
+        .join("");
+      const showMergeTargets = suggested === "merge";
+      return `
+        <article class="copy-merge-item" data-recurrence-id="${item.recurrence_id}">
+          <div class="integration-preview-header">
+            <div>
+              <div class="integration-preview-title">${item.recurrence_name}</div>
+              <div class="integration-preview-subtitle">${item.event_count || 0} event(s)</div>
+            </div>
+            <span class="integration-suggestion">Recommended: ${suggested}</span>
+          </div>
+          <div class="copy-merge-controls">
+            <label>
+              Action
+              <select data-copy-action>
+                ${actionOptions}
+              </select>
+            </label>
+            <label data-copy-target-wrap ${showMergeTargets ? "" : 'class="integration-merge-target is-hidden"'}>
+              Merge target
+              <select data-copy-target>
+                <option value="">Auto-select recommended</option>
+                ${candidateOptions}
+              </select>
+            </label>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function collectCopyMergeDecisions() {
+  if (!dom.copyMergeList) return [];
+  const rows = Array.from(dom.copyMergeList.querySelectorAll("[data-recurrence-id]"));
+  return rows.map((row) => {
+    const recurrenceId = row.getAttribute("data-recurrence-id");
+    const action = row.querySelector("[data-copy-action]")?.value || "skip";
+    const mergeRecurrenceId = row.querySelector("[data-copy-target]")?.value?.trim() || null;
+    return {
+      recurrence_id: recurrenceId,
+      action,
+      merge_recurrence_id: action === "merge" ? mergeRecurrenceId : null,
+    };
+  });
+}
+
+async function openCopyMergeFlow(calendarViewId) {
+  copyMergeState.calendarViewId = calendarViewId;
+  setCopyMergeStatus("Loading recommended deduplications...");
+  if (dom.copyMergeApplyBtn) {
+    dom.copyMergeApplyBtn.disabled = true;
+  }
+  toggleCopyMergeModal(true);
+  try {
+    const preview = await previewCopyCalendarToMain(calendarViewId);
+    copyMergeState.calendarViewName = preview.calendar_view_name || calendarViewId;
+    copyMergeState.items = Array.isArray(preview.items) ? preview.items : [];
+    if (dom.copyMergeSummary) {
+      dom.copyMergeSummary.textContent = `Calendar: ${copyMergeState.calendarViewName}`;
+    }
+    renderCopyMergePreview();
+    setCopyMergeStatus(
+      `Loaded ${copyMergeState.items.length} recurrence(s). Review recommended deduplications before applying.`
+    );
+    if (dom.copyMergeApplyBtn) {
+      dom.copyMergeApplyBtn.disabled = !copyMergeState.items.length;
+    }
+  } catch (error) {
+    setCopyMergeStatus(error?.message || "Unable to load copy-to-main preview.", true);
+    if (dom.copyMergeApplyBtn) {
+      dom.copyMergeApplyBtn.disabled = true;
+    }
+  }
+}
+
+async function applyCopyMergeFlow() {
+  const calendarViewId = copyMergeState.calendarViewId;
+  if (!calendarViewId) return;
+  const decisions = collectCopyMergeDecisions();
+  setCopyMergeStatus("Applying copy to main...");
+  if (dom.copyMergeApplyBtn) {
+    dom.copyMergeApplyBtn.disabled = true;
+  }
+  try {
+    const result = await applyCopyCalendarToMain(calendarViewId, decisions);
+    setSyncMessage(
+      `Copied to main. Created ${result.created_count}, merged ${result.merged_count}, skipped ${result.skipped_count || 0}.`
+    );
+    toggleCopyMergeModal(false);
     await hydrateCalendarViews();
     if (refreshHandler) {
       await refreshHandler(state.view);
     }
   } catch (error) {
-    setSyncMessage(error?.message || "Unable to copy calendar to main.", true);
+    setCopyMergeStatus(error?.message || "Unable to copy calendar to main.", true);
+    if (dom.copyMergeApplyBtn) {
+      dom.copyMergeApplyBtn.disabled = false;
+    }
   }
+}
+
+async function handleCopyCalendarToMain(button) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  const calendarViewId = button.getAttribute("data-copy-calendar-view-id");
+  if (!calendarViewId) return;
+  await openCopyMergeFlow(calendarViewId);
 }
 
 async function handleDeleteCalendarView(button) {
@@ -727,7 +940,12 @@ function bindIntegrationHandlers(onRefresh) {
   dom.googleManualConnectBtn?.addEventListener("click", handleManualConnectGoogle);
 
   dom.googleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
-  dom.sidebarGoogleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
+  dom.sidebarGoogleSelectAllBtn?.addEventListener("click", () =>
+    setAllGoogleCalendarSelections(true)
+  );
+  dom.sidebarGoogleClearAllBtn?.addEventListener("click", () =>
+    setAllGoogleCalendarSelections(false)
+  );
 
   dom.googleLoadCalendarsBtn?.addEventListener("click", () => handleLoadCalendars());
   dom.sidebarCalendarsRefreshBtn?.addEventListener("click", async () => {
@@ -760,12 +978,39 @@ function bindIntegrationHandlers(onRefresh) {
       handleDisconnectGoogle(accountKey);
     }
   });
+  dom.sidebarGoogleCalendarList?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest("[data-disconnect-account-key]");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const accountKey = button.getAttribute("data-disconnect-account-key");
+    if (accountKey) {
+      handleDisconnectGoogle(accountKey);
+    }
+  });
 
   bindCalendarListHandlers(dom.googleCalendarList);
   bindCalendarListHandlers(dom.sidebarGoogleCalendarList);
   bindCalendarViewHandlers(dom.calendarViewList);
-  bindCalendarViewHandlers(dom.sidebarGoogleViewList);
   bindCalendarViewHandlers(dom.sidebarCalendarViewList);
+
+  dom.copyMergeApplyBtn?.addEventListener("click", applyCopyMergeFlow);
+  dom.copyMergeCancelBtn?.addEventListener("click", () => toggleCopyMergeModal(false));
+  dom.copyMergeCloseBtn?.addEventListener("click", () => toggleCopyMergeModal(false));
+  dom.copyMergeBackdrop?.addEventListener("click", () => toggleCopyMergeModal(false));
+  dom.copyMergeList?.addEventListener("change", (event) => {
+    const element = event.target;
+    if (!(element instanceof Element)) return;
+    if (!element.matches("select[data-copy-action]")) return;
+    const row = element.closest("[data-recurrence-id]");
+    const targetWrap = row?.querySelector("[data-copy-target-wrap]");
+    targetWrap?.classList.toggle("is-hidden", element.value !== "merge");
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!dom.copyMergeModal?.classList.contains("active")) return;
+    toggleCopyMergeModal(false);
+  });
 
   dom.settingsBtn?.addEventListener("click", () => {
     hydrateConnectionStatus();

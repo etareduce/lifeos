@@ -52,6 +52,7 @@ const defaultConfig = {
   userTimeZone: window.APP_CONFIG?.userTimeZone || null,
   theme: window.APP_CONFIG?.theme || "sand",
   sidebarCollapsed: Boolean(window.APP_CONFIG?.sidebarCollapsed || false),
+  sidebarWide: Boolean(window.APP_CONFIG?.sidebarWide || false),
   engineInitialTemp: Math.max(0.0001, Number(window.APP_CONFIG?.engineInitialTemp || 10.0)),
   engineFinalTemp: Math.max(0.000001, Number(window.APP_CONFIG?.engineFinalTemp || 0.0001)),
   engineNumIters: Math.max(1, Number(window.APP_CONFIG?.engineNumIters || 1000000)),

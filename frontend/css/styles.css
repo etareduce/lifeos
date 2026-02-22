@@ -142,6 +142,10 @@ body[data-theme="ember"] {
   overflow: hidden;
 }
 
+.page.sidebar-wide {
+  --sidebar-width: 360px;
+}
+
 .page.sidebar-collapsed {
   --sidebar-width: 82px;
 }
@@ -185,6 +189,12 @@ body[data-theme="ember"] {
 .sidebar-toggle {
   justify-self: start;
   padding: 4px 10px;
+}
+
+.sidebar-top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .sidebar-nav {
@@ -324,10 +334,22 @@ body[data-theme="ember"] {
   gap: 6px;
 }
 
+.sidebar-account-group > .ghost {
+  margin: 6px 2px 2px;
+}
+
 .sidebar-calendar-list .integration-calendar-item {
   padding: 6px 8px;
   border-radius: 8px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
+.sidebar-calendar-list .integration-calendar-actions {
+  grid-column: 1 / -1;
+  margin-left: 24px;
+  justify-content: flex-start;
+  gap: 4px;
 }
 
 .sidebar-calendar-list .integration-calendar-name {
@@ -458,6 +480,10 @@ body[data-theme="ember"] {
 
 .page.sidebar-collapsed .sidebar-toggle {
   justify-self: center;
+}
+
+.page.sidebar-collapsed #sidebarWidthBtn {
+  display: none;
 }
 
 .ghost {
@@ -1408,6 +1434,53 @@ body.modal-open .info-card {
   gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.integration-icon-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.integration-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.copy-merge-panel {
+  width: min(760px, 94vw);
+  display: grid;
+  gap: 10px;
+}
+
+.copy-merge-list {
+  max-height: 52vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.copy-merge-item {
+  border: 1px solid #e0d3c1;
+  border-radius: 10px;
+  background: #fffaf2;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.copy-merge-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.copy-merge-controls label {
+  display: grid;
+  gap: 4px;
 }
 
 .integration-preview {

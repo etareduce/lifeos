@@ -20,9 +20,14 @@
   <body>
     <div class="page">
       <aside class="panel sidebar">
-        <button class="ghost small sidebar-toggle" id="sidebarToggleBtn" type="button" aria-label="Collapse sidebar">
-          ☰
-        </button>
+        <div class="sidebar-top-actions">
+          <button class="ghost small sidebar-toggle" id="sidebarToggleBtn" type="button" aria-label="Collapse sidebar">
+            ☰
+          </button>
+          <button class="ghost small sidebar-toggle" id="sidebarWidthBtn" type="button" aria-label="Toggle wider sidebar">
+            Widen
+          </button>
+        </div>
         <div class="brand">
           <div>
             <div class="title" id="brandTitle">Elastisched</div>
@@ -92,22 +97,21 @@
               </summary>
               <div class="sidebar-calendar-actions">
                 <button type="button" class="ghost small" id="sidebarGoogleConnectBtn">Connect</button>
-                <button type="button" class="ghost small danger" id="sidebarGoogleDisconnectBtn">
-                  Disconnect
-                </button>
                 <button type="button" class="primary small" id="sidebarGoogleQuickSyncBtn">
                   Quick sync
                 </button>
               </div>
               <div class="sidebar-calendar-subtitle">Source calendars</div>
+              <div class="sidebar-calendar-actions">
+                <button type="button" class="ghost small" id="sidebarGoogleSelectAllBtn">Check all</button>
+                <button type="button" class="ghost small" id="sidebarGoogleClearAllBtn">Uncheck all</button>
+              </div>
               <div class="sidebar-calendar-list" id="sidebarGoogleCalendarList"></div>
-              <div class="sidebar-calendar-subtitle">Imported subcalendars</div>
-              <div class="sidebar-calendar-list" id="sidebarGoogleViewList"></div>
             </details>
             <details class="sidebar-calendar-group" open>
               <summary>
                 <span>Your calendars</span>
-                <span class="sidebar-calendar-summary">Main + custom</span>
+                <span class="sidebar-calendar-summary">Main + synced + local</span>
               </summary>
               <div class="sidebar-calendar-actions">
                 <input
@@ -334,9 +338,6 @@
                   <div class="integration-account-list" id="googleAccountsList"></div>
                   <div class="integration-actions" data-settings-ignore="true">
                     <button type="button" class="primary" id="googleConnectBtn">Add Google account</button>
-                    <button type="button" class="ghost danger" id="googleDisconnectBtn">
-                      Disconnect all
-                    </button>
                   </div>
                   <details class="integration-manual-auth" data-settings-ignore="true">
                     <summary>Advanced: paste access token manually</summary>
@@ -482,6 +483,25 @@
           </div>
         </form>
       </section>
+
+      <div class="modal" id="copyMergeModal" aria-hidden="true">
+        <div class="modal-backdrop" id="copyMergeBackdrop"></div>
+        <section class="panel form-panel modal-panel copy-merge-panel" id="copyMergePanel" role="dialog" aria-modal="true">
+          <div class="form-header">
+            <div>
+              <div class="form-title">Copy To Main</div>
+              <div class="form-subtitle" id="copyMergeSummary">Review deduplication recommendations.</div>
+            </div>
+            <button type="button" class="ghost small" id="copyMergeCloseBtn">Close</button>
+          </div>
+          <div class="integration-preview copy-merge-list" id="copyMergeList"></div>
+          <div class="form-actions">
+            <button type="button" class="ghost" id="copyMergeCancelBtn">Cancel</button>
+            <button type="button" class="primary" id="copyMergeApplyBtn">Apply copy to main</button>
+            <span class="form-status" id="copyMergeStatus"></span>
+          </div>
+        </section>
+      </div>
 
       <div class="modal" id="alertModal" aria-hidden="true">
         <div class="modal-backdrop" id="alertBackdrop"></div>

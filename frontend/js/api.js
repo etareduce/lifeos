@@ -395,6 +395,50 @@ async function setGoogleCalendarSelection(calendarViewId, selected) {
   return response.json();
 }
 
+async function previewCopyCalendarToMain(calendarViewId) {
+  const response = await fetch(
+    `${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/copy-to-main/preview`,
+    {
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    let detail = "Failed to preview copy-to-main merge";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function applyCopyCalendarToMain(calendarViewId, decisions) {
+  const response = await fetch(
+    `${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/copy-to-main/apply`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decisions: Array.isArray(decisions) ? decisions : [] }),
+    }
+  );
+  if (!response.ok) {
+    let detail = "Failed to copy calendar to main";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 async function copyCalendarToMain(calendarViewId) {
   const response = await fetch(
     `${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/copy-to-main`,
@@ -473,6 +517,8 @@ export {
   listCalendarViews,
   setCalendarVisibility,
   setGoogleCalendarSelection,
+  previewCopyCalendarToMain,
+  applyCopyCalendarToMain,
   copyCalendarToMain,
   createCustomCalendar,
   deleteCalendarView,
