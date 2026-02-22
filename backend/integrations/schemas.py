@@ -24,6 +24,10 @@ class GoogleConnectRequest(BaseModel):
     access_token: str = Field(min_length=1)
 
 
+class GoogleCalendarSelectionUpdateRequest(BaseModel):
+    selected: bool
+
+
 class IntegrationCalendarRead(BaseModel):
     id: str
     calendar_id: str

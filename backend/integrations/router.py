@@ -29,6 +29,7 @@ from .schemas import (
     CalendarViewCreateRequest,
     CalendarVisibilityUpdateRequest,
     CopyToMainResponse,
+    GoogleCalendarSelectionUpdateRequest,
     GoogleConnectRequest,
     GoogleConnectedAccountRead,
     GoogleConnectionStatus,
@@ -474,6 +475,14 @@ async def disconnect_google_account(
             if _calendar_view_account_key(key) not in removed_ids
         }
         metadata_json["calendar_visibility"] = filtered
+    selection_map = _get_google_calendar_selection_map(connection)
+    if selection_map:
+        filtered_selection = {
+            key: value
+            for key, value in selection_map.items()
+            if _calendar_view_account_key(key) not in removed_ids
+        }
+        metadata_json["google_calendar_selection"] = filtered_selection
     custom_calendars = _get_custom_calendars(connection)
     keep_connection = bool(accounts or custom_calendars)
     if keep_connection:
@@ -500,7 +509,7 @@ async def list_google_calendars(
 ) -> list[IntegrationCalendarRead]:
     connection = await _require_google_connection(session)
     accounts = _get_google_accounts(connection)
-    visibility = _get_calendar_visibility_map(connection)
+    selection_map = _get_google_calendar_selection_map(connection)
     calendars: list[IntegrationCalendarRead] = []
     for account in accounts:
         access_token = str(account.get("access_token") or "").strip()
@@ -542,7 +551,7 @@ async def list_google_calendars(
                     description=item.get("description"),
                     time_zone=str(item.get("time_zone") or "UTC"),
                     primary=bool(item.get("primary")),
-                    selected=visibility.get(view_id, True),
+                    selected=selection_map.get(view_id, True),
                     access_role=str(item.get("access_role") or "reader"),
                 )
             )
@@ -554,6 +563,51 @@ async def list_google_calendars(
         )
     )
     return calendars
+
+
+@integration_router.put(
+    "/google/calendars/{calendar_view_id}/selection",
+    response_model=IntegrationCalendarRead,
+    operation_id="google_set_calendar_selection",
+)
+async def set_google_calendar_selection(
+    calendar_view_id: str,
+    payload: GoogleCalendarSelectionUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> IntegrationCalendarRead:
+    selector = _parse_calendar_view_id(calendar_view_id)
+    if not selector:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid calendar id.",
+        )
+    provider, _, _ = selector
+    if provider != GOOGLE_PROVIDER:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selection is only supported for Google calendars.",
+        )
+
+    connection = await _ensure_google_connection(session)
+    metadata_json = dict(connection.metadata_json or {})
+    selection_map = _get_google_calendar_selection_map(connection)
+    selection_map[calendar_view_id] = bool(payload.selected)
+    metadata_json["google_calendar_selection"] = selection_map
+    _set_google_connection_fields(
+        connection,
+        accounts=_get_google_accounts(connection),
+        metadata_json=metadata_json,
+    )
+    await session.commit()
+
+    calendars = await list_google_calendars(session)
+    for item in calendars:
+        if item.id == calendar_view_id:
+            return item
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Google calendar not found.",
+    )
 
 
 @integration_router.get(
@@ -746,6 +800,7 @@ async def delete_calendar_view(
         deleted_count += 1
 
     had_visibility = False
+    had_selection = False
     if connection is not None:
         metadata_json = dict(connection.metadata_json or {})
         visibility = _get_calendar_visibility_map(connection)
@@ -753,6 +808,11 @@ async def delete_calendar_view(
             had_visibility = True
             visibility.pop(calendar_view_id, None)
             metadata_json["calendar_visibility"] = visibility
+        selection_map = _get_google_calendar_selection_map(connection)
+        if calendar_view_id in selection_map:
+            had_selection = True
+            selection_map.pop(calendar_view_id, None)
+            metadata_json["google_calendar_selection"] = selection_map
         metadata_json["custom_calendars"] = next_custom_calendars
         accounts = _get_google_accounts(connection)
         if accounts or next_custom_calendars:
@@ -764,7 +824,7 @@ async def delete_calendar_view(
         else:
             await session.delete(connection)
 
-    if not (deleted_count or custom_removed or had_visibility):
+    if not (deleted_count or custom_removed or had_visibility or had_selection):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Calendar view not found.",
@@ -1239,6 +1299,18 @@ def _get_calendar_visibility_map(connection: IntegrationConnectionModel | None) 
         return {}
     metadata = dict(connection.metadata_json or {})
     raw = metadata.get("calendar_visibility")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): bool(value) for key, value in raw.items()}
+
+
+def _get_google_calendar_selection_map(
+    connection: IntegrationConnectionModel | None,
+) -> dict[str, bool]:
+    if connection is None:
+        return {}
+    metadata = dict(connection.metadata_json or {})
+    raw = metadata.get("google_calendar_selection")
     if not isinstance(raw, dict):
         return {}
     return {str(key): bool(value) for key, value in raw.items()}
