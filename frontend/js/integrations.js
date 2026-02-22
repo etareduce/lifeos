@@ -267,7 +267,7 @@ function renderCalendarViews() {
           ${badge}
           <button
             type="button"
-            class="ghost small integration-icon-btn"
+            class="ghost integration-icon-btn"
             data-copy-calendar-view-id="${view.id}"
             title="Copy to main"
             aria-label="Copy calendar to main"
@@ -280,7 +280,7 @@ function renderCalendarViews() {
           </button>
           <button
             type="button"
-            class="ghost small danger integration-icon-btn"
+            class="ghost danger integration-icon-btn"
             data-delete-calendar-view-id="${view.id}"
             title="Delete calendar"
             aria-label="Delete calendar"

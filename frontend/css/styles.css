@@ -1439,16 +1439,27 @@ body.modal-open .info-card {
 .integration-icon-btn {
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border-radius: 8px;
+  line-height: 1;
 }
 
 .integration-icon-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  display: block;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+}
+
+.integration-icon-btn svg * {
+  stroke: currentColor;
 }
 
 .copy-merge-panel {
