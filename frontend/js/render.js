@@ -130,6 +130,61 @@ function getBlobTimeZone(blob) {
   return blob?.tz || appConfig.userTimeZone;
 }
 
+function calendarSourceLabel(source) {
+  const normalized = String(source || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "main") return "Main";
+  if (normalized === "google") return "Google";
+  if (normalized === "custom") return "Custom";
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+}
+
+function resolveBlobCalendarInfo(blob) {
+  const payload = blob?.recurrence_payload;
+  const recurrencePayload =
+    payload && typeof payload === "object" ? payload : {};
+  const calendarView =
+    recurrencePayload.calendar_view &&
+    typeof recurrencePayload.calendar_view === "object"
+      ? recurrencePayload.calendar_view
+      : null;
+  const integrationSource =
+    recurrencePayload.integration_source &&
+    typeof recurrencePayload.integration_source === "object"
+      ? recurrencePayload.integration_source
+      : null;
+  const calendarViewId = String(calendarView?.id || "").trim();
+  const isMain =
+    Boolean(calendarView?.is_main) ||
+    calendarViewId === "main" ||
+    (!calendarView && !integrationSource);
+  const name = String(
+    isMain
+      ? "Main"
+      : calendarView?.name ||
+          integrationSource?.calendar_name ||
+          calendarViewId ||
+          integrationSource?.calendar_id ||
+          "Unknown calendar"
+  ).trim();
+  const source = String(
+    isMain ? "main" : calendarView?.source || integrationSource?.provider || ""
+  )
+    .trim()
+    .toLowerCase();
+  const account = String(
+    calendarView?.account_name ||
+      integrationSource?.account_name ||
+      integrationSource?.account_id ||
+      ""
+  ).trim();
+  return {
+    name: name || "Unknown calendar",
+    sourceLabel: calendarSourceLabel(source),
+    account,
+  };
+}
+
 function getZonedParts(value, timeZone) {
   if (!value) return null;
   const date = value instanceof Date ? value : toDate(value);
@@ -311,6 +366,10 @@ function showInfoCard(blob, anchorRect) {
   const starred = isOccurrenceStarred(blob);
   const blobName = blob.name || "Untitled";
   const blobDescription = blob.description || recurrenceDescription;
+  const calendarInfo = resolveBlobCalendarInfo(blob);
+  const calendarMeta = [calendarInfo.sourceLabel, calendarInfo.account]
+    .filter(Boolean)
+    .join(" · ");
   const blobId = blob.id;
   const isPreview = Boolean(blob.preview);
   const effectiveRange = getEffectiveOccurrenceRange(blob);
@@ -377,7 +436,13 @@ function showInfoCard(blob, anchorRect) {
           ${tags.map((tag) => `<span class="info-tag">${tag}</span>`).join("")}
         </div>
       `
-      : "";
+    : "";
+  const calendarBlock = `
+      <div class="info-divider"></div>
+      <div class="info-label">Calendar</div>
+      <div class="info-text">${calendarInfo.name}</div>
+      ${calendarMeta ? `<div class="info-text">${calendarMeta}</div>` : ""}
+    `;
   const idBlock = blobId
     ? `
         <div class="info-divider"></div>
@@ -449,6 +514,7 @@ function showInfoCard(blob, anchorRect) {
       ${actions}
     </div>
     ${blobDescription ? `<div class="info-text">${blobDescription}</div>` : ""}
+    ${calendarBlock}
     ${recurrenceTypeBlock}
     ${recurrenceBlock}
     ${recurrenceEndBlock}
