@@ -32,9 +32,39 @@ const copyMergeState = {
 const MAX_PREVIEW_DAYS = 90;
 
 let refreshHandler = null;
+let forceReloadTimerId = null;
+const calendarViewMutationVersions = new Map();
+const sourceCalendarMutationVersions = new Map();
 
 function setRefreshHandler(handler) {
   refreshHandler = handler;
+}
+
+function refreshCalendarNow() {
+  if (!refreshHandler) return;
+  void refreshHandler(state.view).catch(() => {});
+}
+
+function scheduleCalendarForceReload(delayMs = 180) {
+  if (!refreshHandler) return;
+  if (forceReloadTimerId !== null) {
+    window.clearTimeout(forceReloadTimerId);
+  }
+  forceReloadTimerId = window.setTimeout(() => {
+    forceReloadTimerId = null;
+    void refreshHandler(state.view, { forceReload: true }).catch(() => {});
+  }, delayMs);
+}
+
+function nextMutationVersion(store, id) {
+  const key = String(id || "");
+  const next = (store.get(key) || 0) + 1;
+  store.set(key, next);
+  return next;
+}
+
+function isMutationVersionCurrent(store, id, version) {
+  return (store.get(String(id || "")) || 0) === version;
 }
 
 function calendarListTargets() {
@@ -283,8 +313,19 @@ function renderCalendarList() {
   }
 }
 
+function syncCalendarVisibilityState() {
+  const visibilityById = {};
+  for (const view of Array.isArray(googleState.calendarViews) ? googleState.calendarViews : []) {
+    const viewId = String(view?.id || "").trim();
+    if (!viewId) continue;
+    visibilityById[viewId] = view.visible !== false;
+  }
+  state.calendarVisibilityByViewId = visibilityById;
+}
+
 function renderCalendarViews() {
   const allViews = Array.isArray(googleState.calendarViews) ? googleState.calendarViews : [];
+  syncCalendarVisibilityState();
   const renderViewRow = (view, options = {}) => {
     const checked = view.visible !== false;
     const showSourceBadge = options.showSourceBadge !== false;
@@ -659,26 +700,33 @@ async function handleCalendarVisibilityChange(input) {
   if (!(input instanceof HTMLInputElement)) return;
   const calendarViewId = input.getAttribute("data-calendar-view-id");
   if (!calendarViewId) return;
+  const mutationVersion = nextMutationVersion(calendarViewMutationVersions, calendarViewId);
   const previous = googleState.calendarViews.find((view) => view.id === calendarViewId);
   const previousVisible = previous ? previous.visible !== false : !input.checked;
   googleState.calendarViews = googleState.calendarViews.map((view) =>
     view.id === calendarViewId ? { ...view, visible: input.checked } : view
   );
   renderCalendarViews();
+  refreshCalendarNow();
   try {
     const updated = await setCalendarVisibility(calendarViewId, input.checked);
+    if (!isMutationVersionCurrent(calendarViewMutationVersions, calendarViewId, mutationVersion)) {
+      return;
+    }
     googleState.calendarViews = googleState.calendarViews.map((view) =>
       view.id === calendarViewId ? { ...view, ...updated, visible: updated.visible !== false } : view
     );
     renderCalendarViews();
-    if (refreshHandler) {
-      await refreshHandler(state.view, { forceReload: true });
-    }
+    scheduleCalendarForceReload();
   } catch (error) {
+    if (!isMutationVersionCurrent(calendarViewMutationVersions, calendarViewId, mutationVersion)) {
+      return;
+    }
     googleState.calendarViews = googleState.calendarViews.map((view) =>
       view.id === calendarViewId ? { ...view, visible: previousVisible } : view
     );
     renderCalendarViews();
+    refreshCalendarNow();
     setSyncMessage(error?.message || "Unable to update calendar visibility.", true);
   }
 }
@@ -690,6 +738,13 @@ async function updateCalendarSelectionFromCheckbox(input) {
   const previous = findSourceCalendarById(calendarId);
   const previousSelected = previous ? previous.selected !== false : !input.checked;
   const targetViewIds = matchingGoogleViewIdsForSourceCalendar(previous);
+  const sourceMutationVersion = nextMutationVersion(sourceCalendarMutationVersions, calendarId);
+  const viewMutationVersions = new Map(
+    targetViewIds.map((viewId) => [
+      viewId,
+      nextMutationVersion(calendarViewMutationVersions, viewId),
+    ])
+  );
   const previousVisibleById = new Map(
     googleState.calendarViews
       .filter((view) => targetViewIds.includes(view.id))
@@ -700,47 +755,78 @@ async function updateCalendarSelectionFromCheckbox(input) {
   );
   applyCalendarViewVisibilityToState(targetViewIds, input.checked);
   renderCalendarList();
+  refreshCalendarNow();
   try {
     const [updated, ...visibilityResults] = await Promise.all([
       setGoogleCalendarSelection(calendarId, input.checked),
       ...targetViewIds.map((viewId) => setCalendarVisibility(viewId, input.checked)),
     ]);
-    googleState.calendars = googleState.calendars.map((calendar) =>
-      calendar.id === calendarId
-        ? {
-            ...calendar,
-            ...updated,
-            selected: updated.selected !== false,
-          }
-        : calendar
-    );
+    let sourceApplied = false;
+    if (isMutationVersionCurrent(sourceCalendarMutationVersions, calendarId, sourceMutationVersion)) {
+      googleState.calendars = googleState.calendars.map((calendar) =>
+        calendar.id === calendarId
+          ? {
+              ...calendar,
+              ...updated,
+              selected: updated.selected !== false,
+            }
+          : calendar
+      );
+      sourceApplied = true;
+    }
     const updatesById = new Map(visibilityResults.map((item) => [item.id, item]));
+    let viewApplied = false;
     googleState.calendarViews = googleState.calendarViews.map((view) => {
       const update = updatesById.get(view.id);
       if (!update) return view;
+      const expectedVersion = viewMutationVersions.get(view.id);
+      if (
+        typeof expectedVersion === "number" &&
+        !isMutationVersionCurrent(calendarViewMutationVersions, view.id, expectedVersion)
+      ) {
+        return view;
+      }
+      viewApplied = true;
       return {
         ...view,
         ...update,
         visible: update.visible !== false,
       };
     });
-    renderCalendarViews();
-    renderCalendarList();
-    if (refreshHandler && targetViewIds.length) {
-      await refreshHandler(state.view, { forceReload: true });
+    if (sourceApplied || viewApplied) {
+      renderCalendarViews();
+      renderCalendarList();
+    }
+    if (targetViewIds.length && (sourceApplied || viewApplied)) {
+      scheduleCalendarForceReload();
     }
   } catch (error) {
-    googleState.calendars = googleState.calendars.map((calendar) =>
-      calendar.id === calendarId ? { ...calendar, selected: previousSelected } : calendar
-    );
-    googleState.calendarViews = googleState.calendarViews.map((view) =>
-      previousVisibleById.has(view.id)
-        ? { ...view, visible: previousVisibleById.get(view.id) }
-        : view
-    );
-    renderCalendarViews();
-    renderCalendarList();
-    setSyncMessage(error?.message || "Unable to update Google calendar selection.", true);
+    let sourceRolledBack = false;
+    if (isMutationVersionCurrent(sourceCalendarMutationVersions, calendarId, sourceMutationVersion)) {
+      googleState.calendars = googleState.calendars.map((calendar) =>
+        calendar.id === calendarId ? { ...calendar, selected: previousSelected } : calendar
+      );
+      sourceRolledBack = true;
+    }
+    let viewRolledBack = false;
+    googleState.calendarViews = googleState.calendarViews.map((view) => {
+      if (!previousVisibleById.has(view.id)) return view;
+      const expectedVersion = viewMutationVersions.get(view.id);
+      if (
+        typeof expectedVersion === "number" &&
+        !isMutationVersionCurrent(calendarViewMutationVersions, view.id, expectedVersion)
+      ) {
+        return view;
+      }
+      viewRolledBack = true;
+      return { ...view, visible: previousVisibleById.get(view.id) };
+    });
+    if (sourceRolledBack || viewRolledBack) {
+      renderCalendarViews();
+      renderCalendarList();
+      refreshCalendarNow();
+      setSyncMessage(error?.message || "Unable to update Google calendar selection.", true);
+    }
   }
 }
 
@@ -750,6 +836,12 @@ async function setAllGoogleCalendarSelections(selected) {
   if (!changed.length) {
     return;
   }
+  const sourceMutationVersions = new Map(
+    changed.map((calendar) => [
+      calendar.id,
+      nextMutationVersion(sourceCalendarMutationVersions, calendar.id),
+    ])
+  );
   const previousById = new Map(
     changed.map((calendar) => [calendar.id, calendar.selected !== false])
   );
@@ -766,11 +858,18 @@ async function setAllGoogleCalendarSelections(selected) {
     }
   }
   const uniqueVisibilityUpdates = Array.from(new Set(visibilityUpdates));
+  const viewMutationVersions = new Map(
+    uniqueVisibilityUpdates.map((viewId) => [
+      viewId,
+      nextMutationVersion(calendarViewMutationVersions, viewId),
+    ])
+  );
   googleState.calendars = googleState.calendars.map((calendar) =>
     previousById.has(calendar.id) ? { ...calendar, selected: nextValue } : calendar
   );
   applyCalendarViewVisibilityToState(uniqueVisibilityUpdates, nextValue);
   renderCalendarList();
+  refreshCalendarNow();
   setSyncMessage(nextValue ? "Checking source calendars..." : "Unchecking source calendars...");
   try {
     const sourceSelectionPromise = Promise.all(
@@ -785,48 +884,87 @@ async function setAllGoogleCalendarSelections(selected) {
     ]);
     const updatesById = new Map(selectionUpdates.map((item) => [item.id, item]));
     const viewUpdatesById = new Map(viewUpdates.map((item) => [item.id, item]));
+    let sourceApplied = false;
     googleState.calendars = googleState.calendars.map((calendar) => {
       const updated = updatesById.get(calendar.id);
       if (!updated) return calendar;
+      const expectedVersion = sourceMutationVersions.get(calendar.id);
+      if (
+        typeof expectedVersion === "number" &&
+        !isMutationVersionCurrent(sourceCalendarMutationVersions, calendar.id, expectedVersion)
+      ) {
+        return calendar;
+      }
+      sourceApplied = true;
       return {
         ...calendar,
         ...updated,
         selected: updated.selected !== false,
       };
     });
+    let viewApplied = false;
     googleState.calendarViews = googleState.calendarViews.map((view) => {
       const updated = viewUpdatesById.get(view.id);
       if (!updated) return view;
+      const expectedVersion = viewMutationVersions.get(view.id);
+      if (
+        typeof expectedVersion === "number" &&
+        !isMutationVersionCurrent(calendarViewMutationVersions, view.id, expectedVersion)
+      ) {
+        return view;
+      }
+      viewApplied = true;
       return {
         ...view,
         ...updated,
         visible: updated.visible !== false,
       };
     });
-    renderCalendarViews();
-    renderCalendarList();
-    setSyncMessage(
-      nextValue
-        ? "All source calendars checked."
-        : "All source calendars unchecked."
-    );
-    if (refreshHandler && uniqueVisibilityUpdates.length) {
-      await refreshHandler(state.view, { forceReload: true });
+    if (sourceApplied || viewApplied) {
+      renderCalendarViews();
+      renderCalendarList();
+      setSyncMessage(
+        nextValue
+          ? "All source calendars checked."
+          : "All source calendars unchecked."
+      );
+    }
+    if (uniqueVisibilityUpdates.length && (sourceApplied || viewApplied)) {
+      scheduleCalendarForceReload();
     }
   } catch (error) {
-    googleState.calendars = googleState.calendars.map((calendar) =>
-      previousById.has(calendar.id)
-        ? { ...calendar, selected: previousById.get(calendar.id) }
-        : calendar
-    );
-    googleState.calendarViews = googleState.calendarViews.map((view) =>
-      previousVisibilityByViewId.has(view.id)
-        ? { ...view, visible: previousVisibilityByViewId.get(view.id) }
-        : view
-    );
-    renderCalendarViews();
-    renderCalendarList();
-    setSyncMessage(error?.message || "Unable to update source calendar selections.", true);
+    let sourceRolledBack = false;
+    googleState.calendars = googleState.calendars.map((calendar) => {
+      if (!previousById.has(calendar.id)) return calendar;
+      const expectedVersion = sourceMutationVersions.get(calendar.id);
+      if (
+        typeof expectedVersion === "number" &&
+        !isMutationVersionCurrent(sourceCalendarMutationVersions, calendar.id, expectedVersion)
+      ) {
+        return calendar;
+      }
+      sourceRolledBack = true;
+      return { ...calendar, selected: previousById.get(calendar.id) };
+    });
+    let viewRolledBack = false;
+    googleState.calendarViews = googleState.calendarViews.map((view) => {
+      if (!previousVisibilityByViewId.has(view.id)) return view;
+      const expectedVersion = viewMutationVersions.get(view.id);
+      if (
+        typeof expectedVersion === "number" &&
+        !isMutationVersionCurrent(calendarViewMutationVersions, view.id, expectedVersion)
+      ) {
+        return view;
+      }
+      viewRolledBack = true;
+      return { ...view, visible: previousVisibilityByViewId.get(view.id) };
+    });
+    if (sourceRolledBack || viewRolledBack) {
+      renderCalendarViews();
+      renderCalendarList();
+      refreshCalendarNow();
+      setSyncMessage(error?.message || "Unable to update source calendar selections.", true);
+    }
   }
 }
 

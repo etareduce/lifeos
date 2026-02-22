@@ -27,6 +27,7 @@ const state = {
   scheduleRunning: false,
   currentOccurrenceId: null,
   previewBlobs: [],
+  calendarVisibilityByViewId: {},
   llmDraftRecurrences: null,
   llmDraftNotes: null,
   workspaceMode: "home",

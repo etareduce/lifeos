@@ -35,9 +35,31 @@ function getPolicyFlags(policy = {}) {
   return { splittable, overlappable, invisible };
 }
 
+function getCalendarViewIdFromBlob(blob) {
+  const payload = blob?.recurrence_payload;
+  if (!payload || typeof payload !== "object") return "";
+  const calendarView = payload.calendar_view;
+  if (!calendarView || typeof calendarView !== "object") return "";
+  return String(calendarView.id || "").trim();
+}
+
+function isBlobVisible(blob) {
+  const calendarViewId = getCalendarViewIdFromBlob(blob);
+  if (!calendarViewId || calendarViewId === "main") {
+    return true;
+  }
+  const visibility = state.calendarVisibilityByViewId || {};
+  if (!Object.prototype.hasOwnProperty.call(visibility, calendarViewId)) {
+    return true;
+  }
+  return visibility[calendarViewId] !== false;
+}
+
 function getCalendarBlobs() {
+  const visiblePrimary = state.blobs.filter(isBlobVisible);
   const preview = Array.isArray(state.previewBlobs) ? state.previewBlobs : [];
-  return preview.length ? state.blobs.concat(preview) : state.blobs;
+  const visiblePreview = preview.filter(isBlobVisible);
+  return visiblePreview.length ? visiblePrimary.concat(visiblePreview) : visiblePrimary;
 }
 
 function getBlobById(blobId) {
@@ -1780,7 +1802,8 @@ function renderMonth() {
   };
 
   const starredKeys = new Set();
-  state.blobs.forEach((blob) => {
+  const calendarBlobs = getCalendarBlobs();
+  calendarBlobs.forEach((blob) => {
     if (!isOccurrenceStarred(blob)) return;
     const blobTimeZone = getBlobTimeZone(blob);
     const effectiveRange = getEffectiveOccurrenceRange(blob);
@@ -1877,11 +1900,12 @@ function renderMonth() {
 
 function renderYear() {
   const year = state.anchorDate.getFullYear();
+  const calendarBlobs = getCalendarBlobs();
   const months = Array.from({ length: 12 }, (_, idx) => new Date(year, idx, 1));
   const cards = months
     .map((monthStart) => {
       const monthEnd = new Date(year, monthStart.getMonth() + 1, 1);
-      const events = state.blobs.filter((blob) => {
+      const events = calendarBlobs.filter((blob) => {
         if (!isOccurrenceStarred(blob)) return false;
         const blobTimeZone = getBlobTimeZone(blob);
         const effectiveRange = getEffectiveOccurrenceRange(blob);
