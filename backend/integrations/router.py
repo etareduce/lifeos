@@ -464,17 +464,19 @@ async def disconnect_google_account(
             await session.delete(recurrence)
             removed_count += 1
 
-    if accounts:
-        metadata_json = dict(connection.metadata_json or {})
-        metadata_json["accounts"] = accounts
-        visibility = _get_calendar_visibility_map(connection)
-        if visibility:
-            filtered = {
-                key: value
-                for key, value in visibility.items()
-                if _calendar_view_account_key(key) not in removed_ids
-            }
-            metadata_json["calendar_visibility"] = filtered
+    metadata_json = dict(connection.metadata_json or {})
+    metadata_json["accounts"] = accounts
+    visibility = _get_calendar_visibility_map(connection)
+    if visibility:
+        filtered = {
+            key: value
+            for key, value in visibility.items()
+            if _calendar_view_account_key(key) not in removed_ids
+        }
+        metadata_json["calendar_visibility"] = filtered
+    custom_calendars = _get_custom_calendars(connection)
+    keep_connection = bool(accounts or custom_calendars)
+    if keep_connection:
         _set_google_connection_fields(
             connection,
             accounts=accounts,
