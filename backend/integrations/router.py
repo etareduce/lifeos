@@ -1459,7 +1459,7 @@ def _build_recurrence_payload(
             "is_main": False,
         },
     }
-    if len(imported.events) == 1:
+    if len(imported.events) == 1 and not imported.is_recurring:
         event = imported.events[0]
         return "single", {**common_payload, "blob": _blob_payload_from_event(event)}
     return "multiple", {

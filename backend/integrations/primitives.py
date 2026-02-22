@@ -22,6 +22,7 @@ class RecurrencePrimitive:
     calendar_name: str
     title: str
     description: str | None = None
+    is_recurring: bool = False
     events: list[EventPrimitive] = field(default_factory=list)
 
     def sort_events(self) -> None:

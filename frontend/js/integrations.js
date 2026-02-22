@@ -13,7 +13,7 @@ import {
   previewGoogleSync,
   setCalendarVisibility,
 } from "./api.js";
-import { getViewRange, toProjectIsoFromDate } from "./utils.js";
+import { addDays, toProjectIsoFromDate } from "./utils.js";
 
 const googleState = {
   accounts: [],
@@ -346,13 +346,11 @@ async function handleLoadCalendars(options = {}) {
 }
 
 function buildPreviewRange() {
-  const range = getViewRange(state.view, state.anchorDate);
-  const maxEnd = new Date(range.start.getTime() + MAX_PREVIEW_DAYS * 24 * 60 * 60 * 1000);
-  const boundedEnd = range.end > maxEnd ? maxEnd : range.end;
+  const rangeStart = new Date();
+  const boundedEnd = addDays(rangeStart, MAX_PREVIEW_DAYS);
   return {
-    range,
     boundedEnd,
-    range_start: toProjectIsoFromDate(range.start, appConfig.projectTimeZone),
+    range_start: toProjectIsoFromDate(rangeStart, appConfig.projectTimeZone),
     range_end: toProjectIsoFromDate(boundedEnd, appConfig.projectTimeZone),
   };
 }
@@ -363,7 +361,7 @@ async function handlePreviewSync() {
     setSyncMessage("Select at least one calendar first.", true);
     return;
   }
-  const { range, boundedEnd, range_start, range_end } = buildPreviewRange();
+  const { boundedEnd, range_start, range_end } = buildPreviewRange();
   setSyncMessage("Generating preview...");
   try {
     const preview = await previewGoogleSync({
@@ -373,8 +371,7 @@ async function handlePreviewSync() {
     });
     googleState.preview = preview;
     renderPreview();
-    const truncated = boundedEnd < range.end;
-    const suffix = truncated ? ` (limited to ${MAX_PREVIEW_DAYS} days)` : "";
+    const suffix = ` (${MAX_PREVIEW_DAYS}-day import window)`;
     setSyncMessage(`Preview ready (${preview.items?.length || 0} recurrence group(s))${suffix}.`);
   } catch (error) {
     setSyncMessage(error?.message || "Unable to generate preview.", true);

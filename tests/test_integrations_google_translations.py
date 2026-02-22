@@ -48,8 +48,10 @@ def test_google_translations_group_instances_by_series_and_keep_single_events():
     solo = next(item for item in recurrences if item.key.endswith("solo-1"))
     assert len(series.events) == 2
     assert series.title == "Team sync"
+    assert series.is_recurring is True
     assert len(solo.events) == 1
     assert solo.events[0].name == "Dentist"
+    assert solo.is_recurring is False
 
 
 def test_google_translations_support_all_day_events():

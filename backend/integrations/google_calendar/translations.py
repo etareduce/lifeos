@@ -41,6 +41,7 @@ def translate_google_events_to_primitives(
         first = members[0]
         title = str(first.get("summary") or primitives[0].name or "Untitled event").strip()
         description = str(first.get("description") or "").strip() or None
+        is_recurring = any(str(item.get("recurringEventId") or "").strip() for item in members)
         recurrence = RecurrencePrimitive(
             key=f"{calendar_id}:{key}",
             provider="google",
@@ -48,6 +49,7 @@ def translate_google_events_to_primitives(
             calendar_name=calendar_name,
             title=title,
             description=description,
+            is_recurring=is_recurring,
             events=primitives,
         )
         recurrences.append(recurrence)
