@@ -25,7 +25,12 @@ from .google_calendar.client import GoogleCalendarAPIError, exchange_oauth_code_
 from .merge import find_recurrence_matches
 from .primitives import EventPrimitive, RecurrencePrimitive
 from .schemas import (
+    CalendarViewRead,
+    CalendarViewCreateRequest,
+    CalendarVisibilityUpdateRequest,
+    CopyToMainResponse,
     GoogleConnectRequest,
+    GoogleConnectedAccountRead,
     GoogleConnectionStatus,
     GoogleSyncApplyRequest,
     GoogleSyncApplyResponse,
@@ -38,6 +43,7 @@ from .schemas import (
 )
 from .utils import DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD
 from backend.models import IntegrationConnectionModel, RecurrenceModel
+from backend.schemas import RecurrenceRead
 from backend.recurrence_router import (
     _coerce_timerange,
     _exclusion_set,
@@ -70,11 +76,19 @@ SYNC_COLOR_SEQUENCE = [
     "mint",
     "slate",
 ]
+MAIN_CALENDAR_VIEW_ID = "main"
+MAIN_CALENDAR_NAME = "Main calendar"
+GOOGLE_PROVIDER = "google"
+CUSTOM_PROVIDER = "custom"
 
 
 @dataclass(slots=True)
 class _PreviewItem:
     imported: RecurrencePrimitive
+    account_key: str
+    account_id: str | None
+    account_name: str | None
+    calendar_view_id: str
     candidate_ids: list[str] = field(default_factory=list)
 
 
@@ -105,12 +119,22 @@ async def google_status(
     session: AsyncSession = Depends(get_session),
 ) -> GoogleConnectionStatus:
     connection = await _get_google_connection(session)
-    if connection is None:
+    accounts = _get_google_accounts(connection)
+    if not accounts:
         return GoogleConnectionStatus(connected=False)
+    primary = accounts[0]
     return GoogleConnectionStatus(
         connected=True,
-        account_id=connection.account_id,
-        account_name=connection.account_name,
+        account_id=primary.get("account_id"),
+        account_name=primary.get("account_name"),
+        accounts=[
+            GoogleConnectedAccountRead(
+                id=account["id"],
+                account_id=account.get("account_id"),
+                account_name=account.get("account_name"),
+            )
+            for account in accounts
+        ],
     )
 
 
@@ -279,40 +303,46 @@ async def google_oauth_callback(
         else None
     )
 
-    connection = await _get_google_connection(session)
-    existing_metadata = dict(connection.metadata_json or {}) if connection else {}
-    existing_oauth = (
-        dict(existing_metadata.get("oauth") or {})
-        if isinstance(existing_metadata.get("oauth"), dict)
-        else {}
-    )
+    connection = await _ensure_google_connection(session)
+    metadata_json = dict(connection.metadata_json or {})
+    accounts = _get_google_accounts(connection)
+    target = None
+    if account_id:
+        for item in accounts:
+            if item.get("account_id") == account_id:
+                target = item
+                break
+    if target is None:
+        target = {
+            "id": str(uuid.uuid4()),
+            "account_id": account_id,
+            "account_name": account_name,
+        }
+        accounts.append(target)
+    oauth_payload = dict(target.get("oauth") or {})
     if not refresh_token:
-        refresh_token = str(existing_oauth.get("refresh_token") or "").strip() or None
-
-    metadata_json = {
-        **existing_metadata,
-        "account": account,
-        "oauth": {
+        refresh_token = str(oauth_payload.get("refresh_token") or "").strip() or None
+    oauth_payload.update(
+        {
             "refresh_token": refresh_token,
             "token_type": token_payload.get("token_type"),
             "scope": token_payload.get("scope"),
             "expires_at": expires_at,
-        },
-    }
-    if connection is None:
-        connection = IntegrationConnectionModel(
-            provider="google",
-            account_id=account_id,
-            account_name=account_name,
-            access_token=access_token,
-            metadata_json=metadata_json,
-        )
-        session.add(connection)
-    else:
-        connection.account_id = account_id
-        connection.account_name = account_name
-        connection.access_token = access_token
-        connection.metadata_json = metadata_json
+        }
+    )
+    target.update(
+        {
+            "account_id": account_id,
+            "account_name": account_name,
+            "access_token": access_token,
+            "oauth": oauth_payload,
+            "account": account,
+            "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+        }
+    )
+    metadata_json["accounts"] = accounts
+    metadata_json["account"] = account
+    _set_google_connection_fields(connection, accounts=accounts, metadata_json=metadata_json)
     await session.commit()
 
     return RedirectResponse(
@@ -348,26 +378,49 @@ async def connect_google_account(
         await adapter.aclose()
     account_id = str(account.get("email") or account.get("id") or "").strip() or None
     account_name = str(account.get("name") or "").strip() or account_id
-    connection = await _get_google_connection(session)
-    if connection is None:
-        connection = IntegrationConnectionModel(
-            provider="google",
-            account_id=account_id,
-            account_name=account_name,
-            access_token=token,
-            metadata_json={"account": account},
-        )
-        session.add(connection)
-    else:
-        connection.account_id = account_id
-        connection.account_name = account_name
-        connection.access_token = token
-        connection.metadata_json = {"account": account}
+    connection = await _ensure_google_connection(session)
+    metadata_json = dict(connection.metadata_json or {})
+    accounts = _get_google_accounts(connection)
+    target = None
+    if account_id:
+        for item in accounts:
+            if item.get("account_id") == account_id:
+                target = item
+                break
+    if target is None:
+        target = {
+            "id": str(uuid.uuid4()),
+            "account_id": account_id,
+            "account_name": account_name,
+        }
+        accounts.append(target)
+    target.update(
+        {
+            "account_id": account_id,
+            "account_name": account_name,
+            "access_token": token,
+            "oauth": dict(target.get("oauth") or {}),
+            "account": account,
+            "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+        }
+    )
+    metadata_json["accounts"] = accounts
+    metadata_json["account"] = account
+    _set_google_connection_fields(connection, accounts=accounts, metadata_json=metadata_json)
     await session.commit()
+    primary = accounts[0]
     return GoogleConnectionStatus(
         connected=True,
-        account_id=connection.account_id,
-        account_name=connection.account_name,
+        account_id=primary.get("account_id"),
+        account_name=primary.get("account_name"),
+        accounts=[
+            GoogleConnectedAccountRead(
+                id=account_item["id"],
+                account_id=account_item.get("account_id"),
+                account_name=account_item.get("account_name"),
+            )
+            for account_item in accounts
+        ],
     )
 
 
@@ -378,13 +431,60 @@ async def connect_google_account(
     operation_id="google_disconnect_account",
 )
 async def disconnect_google_account(
+    account_key: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     connection = await _get_google_connection(session)
     if connection is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    await session.delete(connection)
+    accounts = _get_google_accounts(connection)
+    if not accounts:
+        await session.delete(connection)
+        await session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if account_key:
+        removed_ids = {account_key}
+        accounts = [item for item in accounts if item["id"] != account_key]
+    else:
+        removed_ids = {item["id"] for item in accounts}
+        accounts = []
+
+    removed_count = 0
+    if removed_ids:
+        result = await session.execute(select(RecurrenceModel))
+        for recurrence in result.scalars().all():
+            source = _integration_source(recurrence.payload)
+            if not source:
+                continue
+            if source.get("provider") != GOOGLE_PROVIDER:
+                continue
+            if source.get("account_key") not in removed_ids:
+                continue
+            await session.delete(recurrence)
+            removed_count += 1
+
+    if accounts:
+        metadata_json = dict(connection.metadata_json or {})
+        metadata_json["accounts"] = accounts
+        visibility = _get_calendar_visibility_map(connection)
+        if visibility:
+            filtered = {
+                key: value
+                for key, value in visibility.items()
+                if _calendar_view_account_key(key) not in removed_ids
+            }
+            metadata_json["calendar_visibility"] = filtered
+        _set_google_connection_fields(
+            connection,
+            accounts=accounts,
+            metadata_json=metadata_json,
+        )
+    else:
+        await session.delete(connection)
     await session.commit()
+    if removed_count:
+        await _mark_schedule_dirty(session)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -397,22 +497,222 @@ async def list_google_calendars(
     session: AsyncSession = Depends(get_session),
 ) -> list[IntegrationCalendarRead]:
     connection = await _require_google_connection(session)
-    adapter = GoogleCalendarAdapter(connection.access_token)
-    try:
-        calendars = await adapter.list_calendars()
-    except GoogleCalendarAPIError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unable to list Google calendars: {exc}",
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Google calendar request failed: {exc}",
-        ) from exc
-    finally:
-        await adapter.aclose()
-    return [IntegrationCalendarRead.model_validate(item) for item in calendars]
+    accounts = _get_google_accounts(connection)
+    visibility = _get_calendar_visibility_map(connection)
+    calendars: list[IntegrationCalendarRead] = []
+    for account in accounts:
+        access_token = str(account.get("access_token") or "").strip()
+        account_key = account["id"]
+        if not access_token:
+            continue
+        adapter = GoogleCalendarAdapter(access_token)
+        try:
+            account_calendars = await adapter.list_calendars()
+        except GoogleCalendarAPIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unable to list Google calendars: {exc}",
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Google calendar request failed: {exc}",
+            ) from exc
+        finally:
+            await adapter.aclose()
+        for item in account_calendars:
+            calendar_id = str(item.get("id") or "").strip()
+            if not calendar_id:
+                continue
+            view_id = _calendar_view_id(
+                provider=GOOGLE_PROVIDER,
+                account_key=account_key,
+                calendar_id=calendar_id,
+            )
+            calendars.append(
+                IntegrationCalendarRead(
+                    id=view_id,
+                    calendar_id=calendar_id,
+                    account_key=account_key,
+                    account_id=account.get("account_id"),
+                    account_name=account.get("account_name"),
+                    name=str(item.get("name") or calendar_id),
+                    description=item.get("description"),
+                    time_zone=str(item.get("time_zone") or "UTC"),
+                    primary=bool(item.get("primary")),
+                    selected=visibility.get(view_id, True),
+                    access_role=str(item.get("access_role") or "reader"),
+                )
+            )
+    calendars.sort(
+        key=lambda item: (
+            (item.account_name or "").lower(),
+            item.name.lower(),
+            item.calendar_id.lower(),
+        )
+    )
+    return calendars
+
+
+@integration_router.get(
+    "/calendars",
+    response_model=list[CalendarViewRead],
+    operation_id="list_calendar_views",
+)
+async def list_calendar_views(
+    session: AsyncSession = Depends(get_session),
+) -> list[CalendarViewRead]:
+    result = await session.execute(select(RecurrenceModel))
+    recurrences = result.scalars().all()
+    google_connection = await _get_google_connection(session)
+    visibility = _get_calendar_visibility_map(google_connection)
+    custom_calendars = _get_custom_calendars(google_connection)
+
+    views: dict[str, CalendarViewRead] = {
+        MAIN_CALENDAR_VIEW_ID: CalendarViewRead(
+            id=MAIN_CALENDAR_VIEW_ID,
+            name=MAIN_CALENDAR_NAME,
+            source="main",
+            is_main=True,
+            visible=True,
+            recurrence_count=0,
+        )
+    }
+    for recurrence in recurrences:
+        payload = recurrence.payload or {}
+        if _is_main_calendar_payload(payload):
+            views[MAIN_CALENDAR_VIEW_ID].recurrence_count += 1
+            continue
+        calendar_view = _calendar_view_from_payload(payload)
+        if not calendar_view:
+            continue
+        view_id = str(calendar_view.get("id") or "").strip()
+        if not view_id:
+            continue
+        if view_id not in views:
+            views[view_id] = CalendarViewRead(
+                id=view_id,
+                name=str(calendar_view.get("name") or view_id),
+                source=str(calendar_view.get("source") or GOOGLE_PROVIDER),
+                is_main=False,
+                visible=visibility.get(view_id, True),
+                account_key=calendar_view.get("account_key"),
+                account_name=calendar_view.get("account_name"),
+                calendar_id=calendar_view.get("calendar_id"),
+                recurrence_count=0,
+            )
+        views[view_id].recurrence_count += 1
+    for calendar in custom_calendars:
+        calendar_id = calendar["id"]
+        if calendar_id in views:
+            continue
+        views[calendar_id] = CalendarViewRead(
+            id=calendar_id,
+            name=calendar["name"],
+            source=CUSTOM_PROVIDER,
+            is_main=False,
+            visible=visibility.get(calendar_id, True),
+            recurrence_count=0,
+        )
+
+    ordered = [views[MAIN_CALENDAR_VIEW_ID]]
+    ordered.extend(
+        sorted(
+            (item for key, item in views.items() if key != MAIN_CALENDAR_VIEW_ID),
+            key=lambda item: ((item.account_name or "").lower(), item.name.lower(), item.id),
+        )
+    )
+    return ordered
+
+
+@integration_router.post(
+    "/calendars/custom",
+    response_model=CalendarViewRead,
+    operation_id="create_custom_calendar_view",
+)
+async def create_custom_calendar_view(
+    payload: CalendarViewCreateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CalendarViewRead:
+    connection = await _ensure_google_connection(session)
+    metadata_json = dict(connection.metadata_json or {})
+    calendars = _get_custom_calendars(connection)
+    base_name = payload.name.strip()
+    duplicate = next((item for item in calendars if item["name"].lower() == base_name.lower()), None)
+    if duplicate:
+        return CalendarViewRead(
+            id=duplicate["id"],
+            name=duplicate["name"],
+            source=CUSTOM_PROVIDER,
+            is_main=False,
+            visible=True,
+        )
+    calendar_id = f"{CUSTOM_PROVIDER}:{uuid.uuid4()}"
+    calendars.append({"id": calendar_id, "name": base_name})
+    metadata_json["custom_calendars"] = calendars
+    visibility = _get_calendar_visibility_map(connection)
+    visibility.setdefault(calendar_id, True)
+    metadata_json["calendar_visibility"] = visibility
+    _set_google_connection_fields(
+        connection,
+        accounts=_get_google_accounts(connection),
+        metadata_json=metadata_json,
+    )
+    await session.commit()
+    return CalendarViewRead(
+        id=calendar_id,
+        name=base_name,
+        source=CUSTOM_PROVIDER,
+        is_main=False,
+        visible=True,
+        recurrence_count=0,
+    )
+
+
+@integration_router.put(
+    "/calendars/{calendar_view_id}/visibility",
+    response_model=CalendarViewRead,
+    operation_id="set_calendar_visibility",
+)
+async def set_calendar_visibility(
+    calendar_view_id: str,
+    payload: CalendarVisibilityUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CalendarViewRead:
+    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
+        if not payload.visible:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Main calendar visibility cannot be disabled.",
+            )
+        return CalendarViewRead(
+            id=MAIN_CALENDAR_VIEW_ID,
+            name=MAIN_CALENDAR_NAME,
+            source="main",
+            is_main=True,
+            visible=True,
+        )
+    connection = await _ensure_google_connection(session)
+    metadata_json = dict(connection.metadata_json or {})
+    visibility = _get_calendar_visibility_map(connection)
+    visibility[calendar_view_id] = bool(payload.visible)
+    metadata_json["calendar_visibility"] = visibility
+    _set_google_connection_fields(
+        connection,
+        accounts=_get_google_accounts(connection),
+        metadata_json=metadata_json,
+    )
+    await session.commit()
+    views = await list_calendar_views(session)
+    for item in views:
+        if item.id == calendar_view_id:
+            return item
+    return CalendarViewRead(
+        id=calendar_view_id,
+        name=calendar_view_id,
+        source="unknown",
+        visible=bool(payload.visible),
+    )
 
 
 @integration_router.post(
@@ -432,34 +732,68 @@ async def preview_google_sync(
     max_end = payload.range_start + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
     bounded_end = payload.range_end if payload.range_end <= max_end else max_end
     connection = await _require_google_connection(session)
-    adapter = GoogleCalendarAdapter(connection.access_token)
-    try:
-        imported = await adapter.list_recurrence_primitives(
-            calendar_ids=payload.calendar_ids,
-            start=payload.range_start,
-            end=bounded_end,
-        )
-    except GoogleCalendarAPIError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unable to preview Google sync: {exc}",
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Google sync preview failed: {exc}",
-        ) from exc
-    finally:
-        await adapter.aclose()
+    accounts = _get_google_accounts(connection)
+    accounts_by_id = {account["id"]: account for account in accounts}
+    calendar_ids = payload.calendar_ids or []
+    account_calendar_ids: dict[str, list[str]] = {}
+    for calendar_view_id in calendar_ids:
+        selector = _parse_calendar_view_id(calendar_view_id)
+        if not selector:
+            continue
+        provider, account_key, calendar_id = selector
+        if provider != GOOGLE_PROVIDER:
+            continue
+        if account_key not in accounts_by_id:
+            continue
+        account_calendar_ids.setdefault(account_key, []).append(calendar_id)
+
+    imported_items: list[tuple[dict, str, RecurrencePrimitive]] = []
+    for account_key, selected_calendar_ids in account_calendar_ids.items():
+        account = accounts_by_id[account_key]
+        access_token = str(account.get("access_token") or "").strip()
+        if not access_token or not selected_calendar_ids:
+            continue
+        adapter = GoogleCalendarAdapter(access_token)
+        try:
+            imported = await adapter.list_recurrence_primitives(
+                calendar_ids=selected_calendar_ids,
+                start=payload.range_start,
+                end=bounded_end,
+            )
+        except GoogleCalendarAPIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unable to preview Google sync: {exc}",
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Google sync preview failed: {exc}",
+            ) from exc
+        finally:
+            await adapter.aclose()
+        for recurrence in imported:
+            imported_items.append(
+                (
+                    account,
+                    _calendar_view_id(
+                        provider=GOOGLE_PROVIDER,
+                        account_key=account_key,
+                        calendar_id=recurrence.calendar_id,
+                    ),
+                    recurrence,
+                )
+            )
 
     existing = await _build_local_recurrence_primitives(
         session=session,
         range_start=payload.range_start,
         range_end=bounded_end,
+        include_imported=False,
     )
     preview_items: list[GoogleSyncPreviewItem] = []
     session_items: dict[str, _PreviewItem] = {}
-    for imported_recurrence in imported:
+    for account, calendar_view_id, imported_recurrence in imported_items:
         matches = find_recurrence_matches(
             imported_recurrence,
             existing,
@@ -470,7 +804,8 @@ async def preview_google_sync(
             suggested_action = "merge"
         elif len(matches) > 1:
             suggested_action = "review"
-        item_id = imported_recurrence.key
+        account_key = str(account.get("id") or "")
+        item_id = f"{account_key}:{imported_recurrence.key}"
         candidate_items = [
             MergeCandidatePreview(
                 recurrence_id=match.key,
@@ -483,6 +818,9 @@ async def preview_google_sync(
             GoogleSyncPreviewItem(
                 item_id=item_id,
                 provider="google",
+                account_key=account_key,
+                account_name=account.get("account_name"),
+                calendar_view_id=calendar_view_id,
                 calendar_id=imported_recurrence.calendar_id,
                 calendar_name=imported_recurrence.calendar_name,
                 recurrence_name=imported_recurrence.title,
@@ -502,6 +840,10 @@ async def preview_google_sync(
         )
         session_items[item_id] = _PreviewItem(
             imported=imported_recurrence,
+            account_key=account_key,
+            account_id=account.get("account_id"),
+            account_name=account.get("account_name"),
+            calendar_view_id=calendar_view_id,
             candidate_ids=[candidate.recurrence_id for candidate in candidate_items],
         )
     preview_id = str(uuid.uuid4())
@@ -509,12 +851,12 @@ async def preview_google_sync(
     _PREVIEW_SESSIONS[preview_id] = _PreviewSession(
         created_at=datetime.now(tz=timezone.utc),
         items=session_items,
-        calendar_ids=payload.calendar_ids,
+        calendar_ids=calendar_ids,
     )
     return GoogleSyncPreviewResponse(
         preview_id=preview_id,
         name_distance_threshold=DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
-        calendar_ids=payload.calendar_ids,
+        calendar_ids=calendar_ids,
         items=preview_items,
     )
 
@@ -537,18 +879,18 @@ async def apply_google_sync(
     created_count = 0
     merged_count = 0
     skipped_count = 0
-    merge_ids = {
-        decision.merge_recurrence_id
-        for decision in payload.decisions
-        if decision.action == "merge" and decision.merge_recurrence_id
+    deleted_count = 0
+    selected_calendar_ids = set(preview.calendar_ids or [])
+    result = await session.execute(select(RecurrenceModel))
+    existing_rows = result.scalars().all()
+    existing_imported = {
+        _integration_source_key(_integration_source(row.payload)): row
+        for row in existing_rows
+        if _is_imported_google_recurrence(row.payload)
+        and _calendar_view_id_from_payload(row.payload) in selected_calendar_ids
+        and _integration_source_key(_integration_source(row.payload)) is not None
     }
-    existing_rows = []
-    if merge_ids:
-        result = await session.execute(
-            select(RecurrenceModel).where(RecurrenceModel.id.in_(merge_ids))
-        )
-        existing_rows = result.scalars().all()
-    existing_by_id = {row.id: row for row in existing_rows}
+    touched_source_keys: set[tuple[str, str, str, str]] = set()
 
     for decision in payload.decisions:
         item = preview.items.get(decision.item_id)
@@ -558,27 +900,20 @@ async def apply_google_sync(
         if decision.action == "skip":
             skipped_count += 1
             continue
-        if decision.action == "merge":
-            target_id = decision.merge_recurrence_id or ""
-            if target_id not in item.candidate_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Invalid merge target for item {decision.item_id}.",
-                )
-            recurrence = existing_by_id.get(target_id)
-            if recurrence is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Recurrence {target_id} no longer exists.",
-                )
-            recurrence.payload = _append_integration_link(
-                recurrence.payload,
-                imported=item.imported,
-            )
-            merged_count += 1
+        recurrence_type, recurrence_payload = _build_recurrence_payload(
+            item.imported,
+            account_key=item.account_key,
+            account_id=item.account_id,
+            account_name=item.account_name,
+            calendar_view_id=item.calendar_view_id,
+        )
+        source_key = _integration_source_key(_integration_source(recurrence_payload))
+        if source_key is None:
+            skipped_count += 1
             continue
-        if decision.action == "create":
-            recurrence_type, recurrence_payload = _build_recurrence_payload(item.imported)
+        touched_source_keys.add(source_key)
+        existing = existing_imported.get(source_key)
+        if existing is None:
             session.add(
                 RecurrenceModel(
                     id=str(uuid.uuid4()),
@@ -588,18 +923,135 @@ async def apply_google_sync(
             )
             created_count += 1
             continue
-        skipped_count += 1
+        existing.type = recurrence_type
+        existing.payload = recurrence_payload
+        merged_count += 1
 
-    if created_count or merged_count:
+    for source_key, recurrence in existing_imported.items():
+        if source_key in touched_source_keys:
+            continue
+        await session.delete(recurrence)
+        deleted_count += 1
+
+    if created_count or merged_count or deleted_count:
         await session.commit()
-    if created_count:
-        await _mark_schedule_dirty(session)
     _PREVIEW_SESSIONS.pop(payload.preview_id, None)
     return GoogleSyncApplyResponse(
         created_count=created_count,
         merged_count=merged_count,
         skipped_count=skipped_count,
+        deleted_count=deleted_count,
     )
+
+
+@integration_router.post(
+    "/calendars/{calendar_view_id}/copy-to-main",
+    response_model=CopyToMainResponse,
+    operation_id="copy_calendar_to_main",
+)
+async def copy_calendar_to_main(
+    calendar_view_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> CopyToMainResponse:
+    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Main calendar is already the ground-truth calendar.",
+        )
+    result = await session.execute(select(RecurrenceModel))
+    rows = [
+        row
+        for row in result.scalars().all()
+        if _is_non_main_calendar_payload(row.payload)
+        and _calendar_view_id_from_payload(row.payload) == calendar_view_id
+    ]
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No imported recurrences found for that calendar.",
+        )
+    outcome = await _copy_imported_rows_to_main(session=session, rows=rows)
+    if outcome["created_count"] or outcome["merged_count"]:
+        await _mark_schedule_dirty(session)
+    return CopyToMainResponse(**outcome)
+
+
+@integration_router.post(
+    "/recurrences/{recurrence_id}/copy-to-main",
+    response_model=CopyToMainResponse,
+    operation_id="copy_recurrence_to_main",
+)
+async def copy_recurrence_to_main(
+    recurrence_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> CopyToMainResponse:
+    result = await session.execute(
+        select(RecurrenceModel).where(RecurrenceModel.id == recurrence_id)
+    )
+    recurrence = result.scalar_one_or_none()
+    if recurrence is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recurrence not found.",
+        )
+    if not _is_non_main_calendar_payload(recurrence.payload):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only non-main recurrences can be copied to main.",
+        )
+    outcome = await _copy_imported_rows_to_main(session=session, rows=[recurrence])
+    if outcome["created_count"] or outcome["merged_count"]:
+        await _mark_schedule_dirty(session)
+    return CopyToMainResponse(**outcome)
+
+
+@integration_router.post(
+    "/recurrences/{recurrence_id}/copy-to-calendar/{calendar_view_id}",
+    response_model=RecurrenceRead,
+    operation_id="copy_recurrence_to_calendar",
+)
+async def copy_recurrence_to_calendar(
+    recurrence_id: str,
+    calendar_view_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> RecurrenceRead:
+    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Use copy-to-main for the main calendar.",
+        )
+    connection = await _get_google_connection(session)
+    custom_calendar = _custom_calendar_by_id(connection, calendar_view_id)
+    if custom_calendar is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Calendar view not found. Create a custom calendar first.",
+        )
+    result = await session.execute(
+        select(RecurrenceModel).where(RecurrenceModel.id == recurrence_id)
+    )
+    recurrence = result.scalar_one_or_none()
+    if recurrence is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recurrence not found.",
+        )
+    next_payload = dict(recurrence.payload or {})
+    next_payload.pop("integration_source", None)
+    next_payload["calendar_view"] = {
+        "id": custom_calendar["id"],
+        "name": custom_calendar["name"],
+        "source": CUSTOM_PROVIDER,
+        "is_main": False,
+    }
+    copied = RecurrenceModel(
+        id=str(uuid.uuid4()),
+        type=recurrence.type,
+        payload=next_payload,
+    )
+    session.add(copied)
+    await session.commit()
+    return RecurrenceRead(id=copied.id, type=copied.type, payload=copied.payload)
 
 
 async def _get_google_connection(
@@ -607,20 +1059,230 @@ async def _get_google_connection(
 ) -> IntegrationConnectionModel | None:
     result = await session.execute(
         select(IntegrationConnectionModel).where(
-            IntegrationConnectionModel.provider == "google"
+            IntegrationConnectionModel.provider == GOOGLE_PROVIDER
         )
     )
     return result.scalar_one_or_none()
 
 
+async def _ensure_google_connection(session: AsyncSession) -> IntegrationConnectionModel:
+    connection = await _get_google_connection(session)
+    if connection is not None:
+        return connection
+    connection = IntegrationConnectionModel(
+        provider=GOOGLE_PROVIDER,
+        account_id=None,
+        account_name=None,
+        access_token="",
+        metadata_json={},
+    )
+    session.add(connection)
+    return connection
+
+
 async def _require_google_connection(session: AsyncSession) -> IntegrationConnectionModel:
     connection = await _get_google_connection(session)
-    if connection is None or not connection.access_token:
+    if connection is None or not _get_google_accounts(connection):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Google account is not connected.",
         )
     return connection
+
+
+def _set_google_connection_fields(
+    connection: IntegrationConnectionModel,
+    *,
+    accounts: list[dict],
+    metadata_json: dict,
+) -> None:
+    metadata = dict(metadata_json or {})
+    metadata["accounts"] = accounts
+    connection.metadata_json = metadata
+    if not accounts:
+        connection.account_id = None
+        connection.account_name = None
+        connection.access_token = ""
+        return
+    primary = accounts[0]
+    connection.account_id = primary.get("account_id")
+    connection.account_name = primary.get("account_name")
+    connection.access_token = str(primary.get("access_token") or "")
+
+
+def _get_google_accounts(connection: IntegrationConnectionModel | None) -> list[dict]:
+    if connection is None:
+        return []
+    metadata = dict(connection.metadata_json or {})
+    raw_accounts = metadata.get("accounts")
+    normalized: list[dict] = []
+    if isinstance(raw_accounts, list):
+        for raw in raw_accounts:
+            if not isinstance(raw, dict):
+                continue
+            account_key = str(raw.get("id") or "").strip()
+            if not account_key:
+                account_key = str(uuid.uuid4())
+            normalized.append(
+                {
+                    "id": account_key,
+                    "account_id": str(raw.get("account_id") or "").strip() or None,
+                    "account_name": str(raw.get("account_name") or "").strip() or None,
+                    "access_token": str(raw.get("access_token") or "").strip(),
+                    "oauth": dict(raw.get("oauth") or {}),
+                    "account": dict(raw.get("account") or {}),
+                    "updated_at": raw.get("updated_at"),
+                }
+            )
+    if normalized:
+        return normalized
+    # Backward-compatible single-account record.
+    legacy_token = str(connection.access_token or "").strip()
+    if not legacy_token:
+        return []
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "account_id": connection.account_id,
+            "account_name": connection.account_name,
+            "access_token": legacy_token,
+            "oauth": dict(metadata.get("oauth") or {}),
+            "account": dict(metadata.get("account") or {}),
+            "updated_at": None,
+        }
+    ]
+
+
+def _calendar_view_id(*, provider: str, account_key: str, calendar_id: str) -> str:
+    return f"{provider}:{account_key}:{calendar_id}"
+
+
+def _parse_calendar_view_id(value: str) -> tuple[str, str, str] | None:
+    raw = (value or "").strip()
+    parts = raw.split(":", 2)
+    if len(parts) != 3:
+        return None
+    provider, account_key, calendar_id = (part.strip() for part in parts)
+    if not provider or not account_key or not calendar_id:
+        return None
+    return provider, account_key, calendar_id
+
+
+def _calendar_view_account_key(calendar_view_id: str) -> str | None:
+    selector = _parse_calendar_view_id(calendar_view_id)
+    if not selector:
+        return None
+    return selector[1]
+
+
+def _get_calendar_visibility_map(connection: IntegrationConnectionModel | None) -> dict[str, bool]:
+    if connection is None:
+        return {}
+    metadata = dict(connection.metadata_json or {})
+    raw = metadata.get("calendar_visibility")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): bool(value) for key, value in raw.items()}
+
+
+def _get_custom_calendars(connection: IntegrationConnectionModel | None) -> list[dict]:
+    if connection is None:
+        return []
+    metadata = dict(connection.metadata_json or {})
+    raw = metadata.get("custom_calendars")
+    if not isinstance(raw, list):
+        return []
+    calendars: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        calendar_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not calendar_id or not name:
+            continue
+        calendars.append({"id": calendar_id, "name": name})
+    return calendars
+
+
+def _custom_calendar_by_id(
+    connection: IntegrationConnectionModel | None, calendar_id: str
+) -> dict | None:
+    for item in _get_custom_calendars(connection):
+        if item["id"] == calendar_id:
+            return item
+    return None
+
+
+def _calendar_view_from_payload(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("calendar_view")
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def _calendar_view_id_from_payload(payload: dict | None) -> str | None:
+    calendar_view = _calendar_view_from_payload(payload)
+    if not calendar_view:
+        return None
+    value = str(calendar_view.get("id") or "").strip()
+    return value or None
+
+
+def _integration_source(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("integration_source")
+    if not isinstance(raw, dict):
+        return None
+    provider = str(raw.get("provider") or "").strip().lower()
+    if provider != GOOGLE_PROVIDER:
+        return None
+    account_key = str(raw.get("account_key") or "").strip()
+    calendar_id = str(raw.get("calendar_id") or "").strip()
+    external_recurrence_id = str(raw.get("external_recurrence_id") or "").strip()
+    if not account_key or not calendar_id or not external_recurrence_id:
+        return None
+    return {
+        "provider": GOOGLE_PROVIDER,
+        "account_key": account_key,
+        "calendar_id": calendar_id,
+        "external_recurrence_id": external_recurrence_id,
+        "account_id": raw.get("account_id"),
+        "account_name": raw.get("account_name"),
+        "calendar_name": raw.get("calendar_name"),
+    }
+
+
+def _integration_source_key(source: dict | None) -> tuple[str, str, str, str] | None:
+    if not source:
+        return None
+    return (
+        str(source.get("provider") or ""),
+        str(source.get("account_key") or ""),
+        str(source.get("calendar_id") or ""),
+        str(source.get("external_recurrence_id") or ""),
+    )
+
+
+def _is_imported_google_recurrence(payload: dict | None) -> bool:
+    return _integration_source(payload) is not None
+
+
+def _is_main_calendar_payload(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return True
+    calendar_view = payload.get("calendar_view")
+    if isinstance(calendar_view, dict):
+        if "is_main" in calendar_view:
+            return bool(calendar_view.get("is_main"))
+        return False
+    return _integration_source(payload) is None
+
+
+def _is_non_main_calendar_payload(payload: dict | None) -> bool:
+    return not _is_main_calendar_payload(payload)
 
 
 def _resolve_oauth_redirect_uri(request: Request) -> str:
@@ -698,11 +1360,14 @@ async def _build_local_recurrence_primitives(
     session: AsyncSession,
     range_start: datetime,
     range_end: datetime,
+    include_imported: bool = True,
 ) -> list[RecurrencePrimitive]:
     result = await session.execute(select(RecurrenceModel))
     recurrences: list[RecurrencePrimitive] = []
     for row in result.scalars().all():
         payload = row.payload or {}
+        if not include_imported and _is_imported_google_recurrence(payload):
+            continue
         recurrence_type = _normalize_recurrence_type(row.type)
         try:
             recurrence_obj = _recurrence_from_payload(recurrence_type, payload)
@@ -749,25 +1414,54 @@ async def _build_local_recurrence_primitives(
     return recurrences
 
 
-def _build_recurrence_payload(imported: RecurrencePrimitive) -> tuple[str, dict]:
-    link = _integration_link(imported)
+def _build_recurrence_payload(
+    imported: RecurrencePrimitive,
+    *,
+    account_key: str,
+    account_id: str | None,
+    account_name: str | None,
+    calendar_view_id: str,
+) -> tuple[str, dict]:
+    link = _integration_link(
+        imported,
+        account_key=account_key,
+        account_id=account_id,
+        account_name=account_name,
+    )
     color = _color_for_key(imported.key)
-    if len(imported.events) == 1:
-        event = imported.events[0]
-        return "single", {
-            "recurrence_name": imported.title,
-            "recurrence_description": imported.description,
-            "end_date": None,
-            "color": color,
-            "integration_links": [link],
-            "blob": _blob_payload_from_event(event),
-        }
-    return "multiple", {
+    common_payload = {
         "recurrence_name": imported.title,
         "recurrence_description": imported.description,
         "end_date": None,
         "color": color,
         "integration_links": [link],
+        "integration_source": {
+            "provider": GOOGLE_PROVIDER,
+            "account_key": account_key,
+            "account_id": account_id,
+            "account_name": account_name,
+            "calendar_id": imported.calendar_id,
+            "calendar_name": imported.calendar_name,
+            "external_recurrence_id": _external_recurrence_id(imported.key),
+            "external_key": imported.key,
+            "synced_at": datetime.now(tz=timezone.utc).isoformat(),
+        },
+        "calendar_view": {
+            "id": calendar_view_id,
+            "name": f"{account_name or account_id or 'Google'} · {imported.calendar_name}",
+            "source": GOOGLE_PROVIDER,
+            "account_key": account_key,
+            "account_id": account_id,
+            "account_name": account_name,
+            "calendar_id": imported.calendar_id,
+            "is_main": False,
+        },
+    }
+    if len(imported.events) == 1:
+        event = imported.events[0]
+        return "single", {**common_payload, "blob": _blob_payload_from_event(event)}
+    return "multiple", {
+        **common_payload,
         "blobs": [_blob_payload_from_event(event) for event in imported.events],
     }
 
@@ -793,11 +1487,23 @@ def _blob_payload_from_event(event: EventPrimitive) -> dict:
 
 def _append_integration_link(payload: dict | None, *, imported: RecurrencePrimitive) -> dict:
     next_payload = dict(payload or {})
+    if imported.provider != GOOGLE_PROVIDER:
+        return next_payload
     links = list(next_payload.get("integration_links") or [])
-    link = _integration_link(imported)
+    source = _integration_source(payload)
+    link = _integration_link(
+        imported,
+        account_key=(source or {}).get("account_key"),
+        account_id=(source or {}).get("account_id"),
+        account_name=(source or {}).get("account_name"),
+    )
     exists = any(
         isinstance(item, dict)
         and item.get("provider") == link["provider"]
+        and (
+            not link.get("account_key")
+            or item.get("account_key") == link.get("account_key")
+        )
         and item.get("calendar_id") == link["calendar_id"]
         and item.get("external_recurrence_id") == link["external_recurrence_id"]
         for item in links
@@ -808,14 +1514,161 @@ def _append_integration_link(payload: dict | None, *, imported: RecurrencePrimit
     return next_payload
 
 
-def _integration_link(imported: RecurrencePrimitive) -> dict:
-    return {
+async def _copy_imported_rows_to_main(
+    *,
+    session: AsyncSession,
+    rows: list[RecurrenceModel],
+) -> dict[str, int]:
+    if not rows:
+        return {"created_count": 0, "merged_count": 0}
+    now = datetime.now(tz=timezone.utc)
+    range_start = now - timedelta(days=1)
+    range_end = now + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
+    existing_main = await _build_local_recurrence_primitives(
+        session=session,
+        range_start=range_start,
+        range_end=range_end,
+        include_imported=False,
+    )
+    existing_main_by_id = {
+        item.key: item
+        for item in existing_main
+    }
+    created_count = 0
+    merged_count = 0
+    for row in rows:
+        source_payload = dict(row.payload or {})
+        imported_primitive = _stored_recurrence_to_primitive(
+            recurrence_id=row.id,
+            recurrence_type=row.type,
+            payload=source_payload,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        if imported_primitive is None:
+            continue
+        matches = find_recurrence_matches(
+            imported_primitive,
+            list(existing_main_by_id.values()),
+            DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
+        )
+        if len(matches) == 1:
+            target = matches[0]
+            target_id = target.key
+            target_row_result = await session.execute(
+                select(RecurrenceModel).where(RecurrenceModel.id == target_id)
+            )
+            target_row = target_row_result.scalar_one_or_none()
+            if target_row is None:
+                continue
+            target_row.payload = _append_integration_link(
+                target_row.payload,
+                imported=imported_primitive,
+            )
+            merged_count += 1
+            continue
+        new_payload = _main_payload_from_imported_payload(source_payload)
+        session.add(
+            RecurrenceModel(
+                id=str(uuid.uuid4()),
+                type=row.type,
+                payload=new_payload,
+            )
+        )
+        created_count += 1
+    if created_count or merged_count:
+        await session.commit()
+    return {"created_count": created_count, "merged_count": merged_count}
+
+
+def _stored_recurrence_to_primitive(
+    *,
+    recurrence_id: str,
+    recurrence_type: str,
+    payload: dict,
+    range_start: datetime,
+    range_end: datetime,
+) -> RecurrencePrimitive | None:
+    try:
+        recurrence_obj = _recurrence_from_payload(recurrence_type, payload)
+    except HTTPException:
+        return None
+    recurrence_tz = _recurrence_tzinfo(recurrence_obj)
+    recurrence_range = _coerce_timerange(TimeRange(start=range_start, end=range_end), recurrence_tz)
+    exclusions = _exclusion_set(payload)
+    events: list[EventPrimitive] = []
+    for blob in recurrence_obj.all_occurrences(recurrence_range):
+        sched_start = blob.get_schedulable_timerange().start
+        if sched_start.tzinfo is None:
+            sched_start = sched_start.replace(tzinfo=timezone.utc)
+        if int(sched_start.timestamp()) in exclusions:
+            continue
+        default_range = blob.get_default_scheduled_timerange()
+        tz_name = blob.tz.key if hasattr(blob.tz, "key") else str(blob.tz or "UTC")
+        events.append(
+            EventPrimitive(
+                name=blob.name or str(payload.get("recurrence_name") or "Untitled event"),
+                description=blob.description or payload.get("recurrence_description"),
+                default_start=default_range.start,
+                default_end=default_range.end,
+                timezone=tz_name,
+            )
+        )
+    if not events:
+        return None
+    source = _integration_source(payload)
+    calendar_name = (
+        str(source.get("calendar_name") or "").strip()
+        if source
+        else str((payload.get("calendar_view") or {}).get("name") or "")
+    )
+    primitive_key = recurrence_id
+    if source:
+        primitive_key = f"{source['calendar_id']}:{source['external_recurrence_id']}"
+    primitive = RecurrencePrimitive(
+        key=primitive_key,
+        provider=GOOGLE_PROVIDER if source else "local",
+        calendar_id=str((source or {}).get("calendar_id") or recurrence_id),
+        calendar_name=calendar_name or MAIN_CALENDAR_NAME,
+        title=str(payload.get("recurrence_name") or events[0].name or recurrence_id),
+        description=payload.get("recurrence_description"),
+        events=events,
+    )
+    primitive.sort_events()
+    return primitive
+
+
+def _main_payload_from_imported_payload(payload: dict) -> dict:
+    result = dict(payload or {})
+    result.pop("integration_source", None)
+    result.pop("calendar_view", None)
+    links = [item for item in (result.get("integration_links") or []) if isinstance(item, dict)]
+    if links:
+        result["integration_links"] = links
+    return result
+
+
+def _integration_link(
+    imported: RecurrencePrimitive,
+    *,
+    account_key: str | None = None,
+    account_id: str | None = None,
+    account_name: str | None = None,
+) -> dict:
+    link = {
         "provider": imported.provider,
         "calendar_id": imported.calendar_id,
         "calendar_name": imported.calendar_name,
         "external_recurrence_id": _external_recurrence_id(imported.key),
         "linked_at": datetime.now(tz=timezone.utc).isoformat(),
     }
+    if account_key:
+        link["account_key"] = account_key
+    if account_id:
+        link["account_id"] = account_id
+    if account_name:
+        link["account_name"] = account_name
+    return link
 
 
 def _external_recurrence_id(value: str) -> str:

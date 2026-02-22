@@ -65,6 +65,21 @@ def _coerce_bool(value) -> bool:
     return bool(value)
 
 
+def _is_main_recurrence(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return True
+    calendar_view = payload.get("calendar_view")
+    if isinstance(calendar_view, dict):
+        if "is_main" in calendar_view:
+            return bool(calendar_view.get("is_main"))
+        return False
+    source = payload.get("integration_source")
+    if not isinstance(source, dict):
+        return True
+    provider = str(source.get("provider") or "").strip().lower()
+    return provider not in {"google", "custom"}
+
+
 def _occurrence_override(payload: dict, occurrence) -> dict | None:
     overrides = payload.get("occurrence_overrides") if isinstance(payload, dict) else None
     if not isinstance(overrides, dict):
@@ -354,6 +369,8 @@ async def run_schedule(
     result = await session.execute(select(RecurrenceModel))
     occurrences = []
     for recurrence in result.scalars().all():
+        if not _is_main_recurrence(recurrence.payload or {}):
+            continue
         exclusions = _exclusion_set(recurrence.payload or {})
         recurrence_obj = _recurrence_from_payload(recurrence.type, recurrence.payload)
         recurrence_tz = _recurrence_tzinfo(recurrence_obj)

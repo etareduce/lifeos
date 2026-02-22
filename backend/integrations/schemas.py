@@ -6,10 +6,17 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class GoogleConnectedAccountRead(BaseModel):
+    id: str
+    account_id: str | None = None
+    account_name: str | None = None
+
+
 class GoogleConnectionStatus(BaseModel):
     connected: bool
     account_id: str | None = None
     account_name: str | None = None
+    accounts: list[GoogleConnectedAccountRead] = Field(default_factory=list)
     provider: str = "google"
 
 
@@ -19,6 +26,10 @@ class GoogleConnectRequest(BaseModel):
 
 class IntegrationCalendarRead(BaseModel):
     id: str
+    calendar_id: str
+    account_key: str
+    account_id: str | None = None
+    account_name: str | None = None
     name: str
     description: str | None = None
     time_zone: str
@@ -48,6 +59,9 @@ class MergeCandidatePreview(BaseModel):
 class GoogleSyncPreviewItem(BaseModel):
     item_id: str
     provider: str
+    account_key: str
+    account_name: str | None = None
+    calendar_view_id: str
     calendar_id: str
     calendar_name: str
     recurrence_name: str
@@ -80,3 +94,29 @@ class GoogleSyncApplyResponse(BaseModel):
     created_count: int
     merged_count: int
     skipped_count: int
+    deleted_count: int = 0
+
+
+class CalendarViewRead(BaseModel):
+    id: str
+    name: str
+    source: str
+    is_main: bool = False
+    visible: bool = True
+    account_key: str | None = None
+    account_name: str | None = None
+    calendar_id: str | None = None
+    recurrence_count: int = 0
+
+
+class CalendarVisibilityUpdateRequest(BaseModel):
+    visible: bool
+
+
+class CalendarViewCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class CopyToMainResponse(BaseModel):
+    created_count: int
+    merged_count: int
