@@ -179,6 +179,7 @@ function resolveBlobCalendarInfo(blob) {
       ""
   ).trim();
   return {
+    isMain,
     name: name || "Unknown calendar",
     sourceLabel: calendarSourceLabel(source),
     account,
@@ -443,7 +444,8 @@ function showInfoCard(blob, anchorRect) {
       <div class="info-text">${calendarInfo.name}</div>
       ${calendarMeta ? `<div class="info-text">${calendarMeta}</div>` : ""}
     `;
-  const idBlock = blobId
+  const showBlobId = Boolean(blobId) && calendarInfo.isMain;
+  const idBlock = showBlobId
     ? `
         <div class="info-divider"></div>
         <div class="info-label">Blob id</div>
