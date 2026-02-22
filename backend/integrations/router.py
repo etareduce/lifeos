@@ -1427,7 +1427,11 @@ def _get_google_accounts(connection: IntegrationConnectionModel | None) -> list[
                 continue
             account_key = str(raw.get("id") or "").strip()
             if not account_key:
-                account_key = str(uuid.uuid4())
+                account_key = _stable_google_account_key(
+                    account_id=raw.get("account_id"),
+                    account_name=raw.get("account_name"),
+                    access_token=raw.get("access_token"),
+                )
             normalized.append(
                 {
                     "id": account_key,
@@ -1447,7 +1451,11 @@ def _get_google_accounts(connection: IntegrationConnectionModel | None) -> list[
         return []
     return [
         {
-            "id": str(uuid.uuid4()),
+            "id": _stable_google_account_key(
+                account_id=connection.account_id,
+                account_name=connection.account_name,
+                access_token=legacy_token,
+            ),
             "account_id": connection.account_id,
             "account_name": connection.account_name,
             "access_token": legacy_token,
@@ -1456,6 +1464,19 @@ def _get_google_accounts(connection: IntegrationConnectionModel | None) -> list[
             "updated_at": None,
         }
     ]
+
+
+def _stable_google_account_key(
+    *,
+    account_id: str | None,
+    account_name: str | None,
+    access_token: str | None,
+) -> str:
+    seed_account_id = str(account_id or "").strip().lower()
+    seed_account_name = str(account_name or "").strip().lower()
+    seed_token = str(access_token or "").strip()
+    seed = seed_account_id or seed_account_name or seed_token[:32] or "primary"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"google-account:{seed}"))
 
 
 def _calendar_view_id(*, provider: str, account_key: str, calendar_id: str) -> str:

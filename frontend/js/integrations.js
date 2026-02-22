@@ -123,6 +123,32 @@ function accountSubtitle(accountName, accountId) {
   return accountId;
 }
 
+function resolveAccountGroupKey(accountKey, accountId, accountName) {
+  const directKey = String(accountKey || "").trim();
+  if (directKey && googleState.accounts.some((account) => account.id === directKey)) {
+    return directKey;
+  }
+  const normalizedAccountId = String(accountId || "").trim().toLowerCase();
+  if (normalizedAccountId) {
+    const byId = googleState.accounts.find(
+      (account) => String(account.account_id || "").trim().toLowerCase() === normalizedAccountId
+    );
+    if (byId?.id) {
+      return byId.id;
+    }
+  }
+  const normalizedAccountName = String(accountName || "").trim().toLowerCase();
+  if (normalizedAccountName) {
+    const byName = googleState.accounts.find(
+      (account) => String(account.account_name || "").trim().toLowerCase() === normalizedAccountName
+    );
+    if (byName?.id) {
+      return byName.id;
+    }
+  }
+  return directKey || "unassigned";
+}
+
 function groupEntriesByAccount(entries, keySelector) {
   const groups = new Map();
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -231,7 +257,9 @@ function renderCalendarList() {
   }
 
   if (dom.sidebarGoogleCalendarList) {
-    let groups = groupEntriesByAccount(googleState.calendars, (calendar) => calendar.account_key);
+    let groups = groupEntriesByAccount(googleState.calendars, (calendar) =>
+      resolveAccountGroupKey(calendar.account_key, calendar.account_id, calendar.account_name)
+    );
     if (!groups.length && googleState.accounts.length) {
       groups = googleState.accounts.map((account) => [account.id, []]);
     }
@@ -246,7 +274,7 @@ function renderCalendarList() {
           const syncedCount = googleState.calendarViews.filter(
             (view) =>
               String(view.source || "").toLowerCase() === "google" &&
-              view.account_key === accountKey
+              resolveAccountGroupKey(view.account_key, null, view.account_name) === accountKey
           ).length;
           return `${sourceCount} source${sourceCount === 1 ? "" : "s"} · ${syncedCount} synced`;
         },
