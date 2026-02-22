@@ -271,9 +271,10 @@
               </div>
               <div class="settings-grid integration-settings" data-settings-ignore="true">
                 <article class="settings-card">
-                  <div class="settings-card-title">Google account</div>
+                  <div class="settings-card-title">Google accounts</div>
                   <div class="settings-card-copy">
-                    Connect once, then choose which calendars to import on each sync.
+                    Connect one or more Google accounts. Disconnecting an account only removes its
+                    imported calendars and leaves your main calendar untouched.
                   </div>
                   <div class="integration-status-row">
                     <span id="googleConnectionStatus" class="integration-status-chip disconnected">
@@ -281,9 +282,12 @@
                     </span>
                     <span id="googleConnectionMeta" class="integration-meta"></span>
                   </div>
+                  <div class="integration-account-list" id="googleAccountsList"></div>
                   <div class="integration-actions" data-settings-ignore="true">
-                    <button type="button" class="primary" id="googleConnectBtn">Sign in with Google</button>
-                    <button type="button" class="ghost danger" id="googleDisconnectBtn">Disconnect</button>
+                    <button type="button" class="primary" id="googleConnectBtn">Add Google account</button>
+                    <button type="button" class="ghost danger" id="googleDisconnectBtn">
+                      Disconnect all
+                    </button>
                   </div>
                   <details class="integration-manual-auth" data-settings-ignore="true">
                     <summary>Advanced: paste access token manually</summary>
@@ -309,11 +313,12 @@
                 <article class="settings-card">
                   <div class="settings-card-title">Sync preview</div>
                   <div class="settings-card-copy">
-                    Select calendars, preview merge recommendations, then apply your choices.
+                    Sync selected Google calendars into imported calendar views. This does not edit
+                    your main calendar.
                   </div>
                   <div class="integration-actions" data-settings-ignore="true">
                     <button type="button" class="ghost" id="googleLoadCalendarsBtn">
-                      Sync with Google Calendar
+                      Load Google calendars
                     </button>
                     <button type="button" class="ghost" id="googlePreviewBtn">
                       Generate preview
@@ -325,6 +330,27 @@
                   <div class="form-status" id="googleSyncMessage"></div>
                   <div class="integration-calendars" id="googleCalendarList"></div>
                   <div class="integration-preview" id="googlePreviewList"></div>
+                  <div class="settings-card-title">Displayed calendar views</div>
+                  <div class="settings-card-copy">
+                    Toggle which calendars appear in the UI and copy imported calendars into main.
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <button type="button" class="ghost" id="googleRefreshViewsBtn">
+                      Refresh calendar views
+                    </button>
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <input
+                      type="text"
+                      id="customCalendarNameInput"
+                      placeholder="New calendar name"
+                      data-settings-ignore="true"
+                    />
+                    <button type="button" class="ghost" id="createCustomCalendarBtn">
+                      Create calendar
+                    </button>
+                  </div>
+                  <div class="integration-calendars" id="calendarViewList"></div>
                 </article>
               </div>
             </div>

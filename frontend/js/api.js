@@ -266,8 +266,13 @@ async function connectGoogleAccount(accessToken) {
   return response.json();
 }
 
-async function disconnectGoogleAccount() {
-  const response = await fetch(`${API_BASE}/integrations/google/connect`, {
+async function disconnectGoogleAccount(accountKey = null) {
+  const params = new URLSearchParams();
+  if (accountKey) {
+    params.set("account_key", accountKey);
+  }
+  const query = params.toString();
+  const response = await fetch(`${API_BASE}/integrations/google/connect${query ? `?${query}` : ""}`, {
     method: "DELETE",
   });
   if (!response.ok && response.status !== 404) {
@@ -331,6 +336,81 @@ async function applyGoogleSync(payload) {
   return response.json();
 }
 
+async function listCalendarViews() {
+  const response = await fetch(`${API_BASE}/integrations/calendars`);
+  if (!response.ok) {
+    let detail = "Failed to load calendar views";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function setCalendarVisibility(calendarViewId, visible) {
+  const response = await fetch(`${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/visibility`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visible: Boolean(visible) }),
+  });
+  if (!response.ok) {
+    let detail = "Failed to update calendar visibility";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function copyCalendarToMain(calendarViewId) {
+  const response = await fetch(
+    `${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/copy-to-main`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    let detail = "Failed to copy calendar to main";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function createCustomCalendar(name) {
+  const response = await fetch(`${API_BASE}/integrations/calendars/custom`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    let detail = "Failed to create calendar";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 export {
   ensureOccurrences,
   fetchOccurrences,
@@ -350,4 +430,8 @@ export {
   listGoogleCalendars,
   previewGoogleSync,
   applyGoogleSync,
+  listCalendarViews,
+  setCalendarVisibility,
+  copyCalendarToMain,
+  createCustomCalendar,
 };

@@ -1167,6 +1167,43 @@ body.modal-open .info-card {
   flex-wrap: wrap;
 }
 
+.integration-actions input[type="text"] {
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.integration-account-list {
+  display: grid;
+  gap: 8px;
+}
+
+.integration-account-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #e0d3c1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fffaf2;
+}
+
+.integration-account-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.integration-account-name {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.integration-account-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .integration-manual-auth {
   border: 1px solid #e6d9c8;
   border-radius: 10px;
@@ -1226,6 +1263,12 @@ body.modal-open .info-card {
   border-radius: 999px;
   padding: 2px 8px;
   color: var(--ocean);
+}
+
+.integration-calendar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .integration-preview {

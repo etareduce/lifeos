@@ -114,10 +114,15 @@ const dom = {
   googleApplyBtn: document.getElementById("googleApplyBtn"),
   googleConnectionStatus: document.getElementById("googleConnectionStatus"),
   googleConnectionMeta: document.getElementById("googleConnectionMeta"),
+  googleAccountsList: document.getElementById("googleAccountsList"),
   googleConnectionMessage: document.getElementById("googleConnectionMessage"),
   googleSyncMessage: document.getElementById("googleSyncMessage"),
   googleCalendarList: document.getElementById("googleCalendarList"),
   googlePreviewList: document.getElementById("googlePreviewList"),
+  googleRefreshViewsBtn: document.getElementById("googleRefreshViewsBtn"),
+  calendarViewList: document.getElementById("calendarViewList"),
+  createCustomCalendarBtn: document.getElementById("createCustomCalendarBtn"),
+  customCalendarNameInput: document.getElementById("customCalendarNameInput"),
 };
 
 export { dom };
