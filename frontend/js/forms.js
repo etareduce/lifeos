@@ -47,6 +47,11 @@ let llmDragOffset = { x: 0, y: 0 };
 let llmPosition = null;
 let settingsHydrating = false;
 let settingsDirty = false;
+let sidebarResizeSession = null;
+
+const DEFAULT_SIDEBAR_WIDTH = 280;
+const MIN_SIDEBAR_WIDTH = 240;
+const MAX_SIDEBAR_WIDTH = 520;
 
 const weeklyFieldPlacement = {
   dependency: {
@@ -85,12 +90,21 @@ function setRefreshHandler(handler) {
   refreshView = handler;
 }
 
+function clampSidebarWidth(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(numeric)));
+}
+
 function applySidebarState() {
   if (!dom.page) return;
+  appConfig.sidebarWidth = clampSidebarWidth(appConfig.sidebarWidth);
+  dom.page.style.setProperty("--sidebar-width", `${appConfig.sidebarWidth}px`);
   dom.page.classList.toggle("sidebar-collapsed", Boolean(appConfig.sidebarCollapsed));
-  dom.page.classList.toggle("sidebar-wide", Boolean(appConfig.sidebarWide));
   if (dom.sidebarWidthBtn) {
-    dom.sidebarWidthBtn.textContent = appConfig.sidebarWide ? "Narrow" : "Widen";
+    dom.sidebarWidthBtn.textContent = "Reset";
   }
 }
 
@@ -103,10 +117,63 @@ function toggleSidebarCollapsed(force) {
 }
 
 function toggleSidebarWidth(force) {
-  const next = typeof force === "boolean" ? force : !Boolean(appConfig.sidebarWide);
-  appConfig.sidebarWide = next;
+  const next =
+    typeof force === "number" ? force : DEFAULT_SIDEBAR_WIDTH;
+  appConfig.sidebarWidth = clampSidebarWidth(next);
   applySidebarState();
   saveSettings(appConfig);
+}
+
+function beginSidebarResize(event) {
+  if (!(event instanceof PointerEvent)) return;
+  if (!dom.page || !dom.sidebar || !dom.sidebarResizer) return;
+  if (window.matchMedia("(max-width: 720px)").matches) return;
+  if (appConfig.sidebarCollapsed) return;
+  event.preventDefault();
+  const sidebarWidth = dom.sidebar.getBoundingClientRect().width;
+  sidebarResizeSession = {
+    pointerId: event.pointerId,
+    originX: event.clientX,
+    originWidth: clampSidebarWidth(sidebarWidth),
+  };
+  dom.page.classList.add("sidebar-resizing");
+  dom.sidebarResizer.classList.add("active");
+  try {
+    dom.sidebarResizer.setPointerCapture(event.pointerId);
+  } catch (error) {
+    // Ignore pointer capture failures.
+  }
+}
+
+function updateSidebarResize(event) {
+  if (!(event instanceof PointerEvent)) return;
+  if (!sidebarResizeSession) return;
+  const delta = event.clientX - sidebarResizeSession.originX;
+  const nextWidth = clampSidebarWidth(sidebarResizeSession.originWidth + delta);
+  appConfig.sidebarWidth = nextWidth;
+  applySidebarState();
+}
+
+function endSidebarResize(event) {
+  if (!(event instanceof PointerEvent)) return;
+  if (!sidebarResizeSession) return;
+  if (event.pointerId !== sidebarResizeSession.pointerId) return;
+  sidebarResizeSession = null;
+  if (dom.page) {
+    dom.page.classList.remove("sidebar-resizing");
+  }
+  if (dom.sidebarResizer) {
+    dom.sidebarResizer.classList.remove("active");
+  }
+  saveSettings(appConfig);
+}
+
+function bindSidebarResize() {
+  if (!dom.sidebarResizer) return;
+  dom.sidebarResizer.addEventListener("pointerdown", beginSidebarResize);
+  window.addEventListener("pointermove", updateSidebarResize);
+  window.addEventListener("pointerup", endSidebarResize);
+  window.addEventListener("pointercancel", endSidebarResize);
 }
 
 function toggleForm(show) {
@@ -3247,6 +3314,7 @@ function bindFormHandlers(onRefresh) {
   }
   bindDraggableForm();
   bindDraggableLlmPanel();
+  bindSidebarResize();
   bindDateTimePickers();
   dom.toggleFormBtn.addEventListener("click", handleAddClick);
   if (dom.llmScheduleBtn) {

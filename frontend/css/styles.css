@@ -137,7 +137,7 @@ body[data-theme="ember"] {
   height: 100dvh;
   padding: 0;
   display: grid;
-  grid-template-columns: var(--sidebar-width, 280px) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 280px) 10px minmax(0, 1fr);
   gap: 0;
   overflow: hidden;
 }
@@ -147,7 +147,12 @@ body[data-theme="ember"] {
 }
 
 .page.sidebar-collapsed {
-  --sidebar-width: 82px;
+  grid-template-columns: 82px 0 minmax(0, 1fr);
+}
+
+.page.sidebar-resizing {
+  user-select: none;
+  cursor: ew-resize;
 }
 
 .workspace {
@@ -184,6 +189,32 @@ body[data-theme="ember"] {
   overflow: hidden;
   border: 0;
   box-shadow: none;
+}
+
+.sidebar-resizer {
+  position: relative;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(27, 26, 22, 0.12);
+  transition: background 0.15s ease;
+}
+
+.sidebar-resizer:hover::before,
+.sidebar-resizer.active::before,
+.page.sidebar-resizing .sidebar-resizer::before {
+  background: rgba(58, 110, 122, 0.52);
 }
 
 .sidebar-toggle {
@@ -484,6 +515,14 @@ body[data-theme="ember"] {
 
 .page.sidebar-collapsed #sidebarWidthBtn {
   display: none;
+}
+
+.page.sidebar-collapsed .sidebar-resizer {
+  pointer-events: none;
+}
+
+.page.sidebar-collapsed .sidebar-resizer::before {
+  opacity: 0;
 }
 
 .ghost {
@@ -4048,6 +4087,10 @@ body.modal-open .info-card {
     grid-template-rows: auto auto auto auto;
     gap: 10px;
     padding: 14px;
+  }
+
+  .sidebar-resizer {
+    display: none;
   }
 
   .sidebar-main-nav {

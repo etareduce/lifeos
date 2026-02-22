@@ -3,6 +3,7 @@ const dom = {
   sidebar: document.querySelector(".sidebar"),
   sidebarToggleBtn: document.getElementById("sidebarToggleBtn"),
   sidebarWidthBtn: document.getElementById("sidebarWidthBtn"),
+  sidebarResizer: document.getElementById("sidebarResizer"),
   homeBtn: document.getElementById("homeBtn"),
   tasksBtn: document.getElementById("tasksBtn"),
   searchBtn: document.getElementById("searchBtn"),

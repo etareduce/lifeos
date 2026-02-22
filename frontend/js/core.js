@@ -52,6 +52,10 @@ const defaultConfig = {
   userTimeZone: window.APP_CONFIG?.userTimeZone || null,
   theme: window.APP_CONFIG?.theme || "sand",
   sidebarCollapsed: Boolean(window.APP_CONFIG?.sidebarCollapsed || false),
+  sidebarWidth: Number(
+    window.APP_CONFIG?.sidebarWidth ||
+      (window.APP_CONFIG?.sidebarWide ? 360 : 280)
+  ),
   sidebarWide: Boolean(window.APP_CONFIG?.sidebarWide || false),
   engineInitialTemp: Math.max(0.0001, Number(window.APP_CONFIG?.engineInitialTemp || 10.0)),
   engineFinalTemp: Math.max(0.000001, Number(window.APP_CONFIG?.engineFinalTemp || 0.0001)),
@@ -92,6 +96,23 @@ const appConfig = {
   ...defaultConfig,
   ...(storedConfig || {}),
 };
+
+const DEFAULT_SIDEBAR_WIDTH = 280;
+const MIN_SIDEBAR_WIDTH = 240;
+const MAX_SIDEBAR_WIDTH = 520;
+
+function clampSidebarWidthValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(numeric)));
+}
+
+if (!Number.isFinite(Number(appConfig.sidebarWidth))) {
+  appConfig.sidebarWidth = appConfig.sidebarWide ? 360 : DEFAULT_SIDEBAR_WIDTH;
+}
+appConfig.sidebarWidth = clampSidebarWidthValue(appConfig.sidebarWidth);
 
 if (!appConfig.userTimeZone) {
   appConfig.userTimeZone = getLocalTimeZone();
