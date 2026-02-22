@@ -361,6 +361,45 @@ function selectedCalendarIds() {
     .filter(Boolean);
 }
 
+function normalizeAccountIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function findSourceCalendarById(calendarId) {
+  return googleState.calendars.find((calendar) => calendar.id === calendarId) || null;
+}
+
+function matchingGoogleViewIdsForSourceCalendar(sourceCalendar) {
+  if (!sourceCalendar) return [];
+  const directId = String(sourceCalendar.id || "").trim();
+  const calendarId = String(sourceCalendar.calendar_id || "").trim();
+  const accountKey = String(sourceCalendar.account_key || "").trim();
+  const accountName = normalizeAccountIdentity(sourceCalendar.account_name);
+  const accountId = normalizeAccountIdentity(sourceCalendar.account_id);
+  const matches = googleState.calendarViews.filter((view) => {
+    if (String(view.source || "").toLowerCase() !== "google") return false;
+    if (directId && view.id === directId) return true;
+    if (!calendarId || String(view.calendar_id || "").trim() !== calendarId) return false;
+    if (accountKey && String(view.account_key || "").trim() === accountKey) return true;
+    const viewAccountName = normalizeAccountIdentity(view.account_name);
+    const viewAccountKey = normalizeAccountIdentity(view.account_key);
+    return Boolean(
+      (accountName && viewAccountName && viewAccountName === accountName) ||
+        (accountId && viewAccountKey && viewAccountKey === accountId)
+    );
+  });
+  return Array.from(new Set(matches.map((view) => view.id).filter(Boolean)));
+}
+
+function applyCalendarViewVisibilityToState(viewIds, visible) {
+  if (!Array.isArray(viewIds) || !viewIds.length) return;
+  const targetIds = new Set(viewIds.map((id) => String(id)));
+  googleState.calendarViews = googleState.calendarViews.map((view) =>
+    targetIds.has(String(view.id)) ? { ...view, visible: Boolean(visible) } : view
+  );
+  renderCalendarViews();
+}
+
 function renderPreview() {
   if (!dom.googlePreviewList) return;
   const preview = googleState.preview;
@@ -648,14 +687,24 @@ async function updateCalendarSelectionFromCheckbox(input) {
   if (!(input instanceof HTMLInputElement)) return;
   const calendarId = input.getAttribute("data-calendar-id");
   if (!calendarId) return;
-  const previous = googleState.calendars.find((calendar) => calendar.id === calendarId);
+  const previous = findSourceCalendarById(calendarId);
   const previousSelected = previous ? previous.selected !== false : !input.checked;
+  const targetViewIds = matchingGoogleViewIdsForSourceCalendar(previous);
+  const previousVisibleById = new Map(
+    googleState.calendarViews
+      .filter((view) => targetViewIds.includes(view.id))
+      .map((view) => [view.id, view.visible !== false])
+  );
   googleState.calendars = googleState.calendars.map((calendar) =>
     calendar.id === calendarId ? { ...calendar, selected: input.checked } : calendar
   );
+  applyCalendarViewVisibilityToState(targetViewIds, input.checked);
   renderCalendarList();
   try {
-    const updated = await setGoogleCalendarSelection(calendarId, input.checked);
+    const [updated, ...visibilityResults] = await Promise.all([
+      setGoogleCalendarSelection(calendarId, input.checked),
+      ...targetViewIds.map((viewId) => setCalendarVisibility(viewId, input.checked)),
+    ]);
     googleState.calendars = googleState.calendars.map((calendar) =>
       calendar.id === calendarId
         ? {
@@ -665,11 +714,31 @@ async function updateCalendarSelectionFromCheckbox(input) {
           }
         : calendar
     );
+    const updatesById = new Map(visibilityResults.map((item) => [item.id, item]));
+    googleState.calendarViews = googleState.calendarViews.map((view) => {
+      const update = updatesById.get(view.id);
+      if (!update) return view;
+      return {
+        ...view,
+        ...update,
+        visible: update.visible !== false,
+      };
+    });
+    renderCalendarViews();
     renderCalendarList();
+    if (refreshHandler && targetViewIds.length) {
+      await refreshHandler(state.view, { forceReload: true });
+    }
   } catch (error) {
     googleState.calendars = googleState.calendars.map((calendar) =>
       calendar.id === calendarId ? { ...calendar, selected: previousSelected } : calendar
     );
+    googleState.calendarViews = googleState.calendarViews.map((view) =>
+      previousVisibleById.has(view.id)
+        ? { ...view, visible: previousVisibleById.get(view.id) }
+        : view
+    );
+    renderCalendarViews();
     renderCalendarList();
     setSyncMessage(error?.message || "Unable to update Google calendar selection.", true);
   }
@@ -684,16 +753,38 @@ async function setAllGoogleCalendarSelections(selected) {
   const previousById = new Map(
     changed.map((calendar) => [calendar.id, calendar.selected !== false])
   );
+  const visibilityUpdates = [];
+  const previousVisibilityByViewId = new Map();
+  for (const calendar of changed) {
+    const viewIds = matchingGoogleViewIdsForSourceCalendar(calendar);
+    for (const viewId of viewIds) {
+      if (!previousVisibilityByViewId.has(viewId)) {
+        const view = googleState.calendarViews.find((item) => item.id === viewId);
+        previousVisibilityByViewId.set(viewId, view ? view.visible !== false : true);
+      }
+      visibilityUpdates.push(viewId);
+    }
+  }
+  const uniqueVisibilityUpdates = Array.from(new Set(visibilityUpdates));
   googleState.calendars = googleState.calendars.map((calendar) =>
     previousById.has(calendar.id) ? { ...calendar, selected: nextValue } : calendar
   );
+  applyCalendarViewVisibilityToState(uniqueVisibilityUpdates, nextValue);
   renderCalendarList();
   setSyncMessage(nextValue ? "Checking source calendars..." : "Unchecking source calendars...");
   try {
-    const updates = await Promise.all(
+    const sourceSelectionPromise = Promise.all(
       changed.map((calendar) => setGoogleCalendarSelection(calendar.id, nextValue))
     );
-    const updatesById = new Map(updates.map((item) => [item.id, item]));
+    const visibilityPromise = Promise.all(
+      uniqueVisibilityUpdates.map((viewId) => setCalendarVisibility(viewId, nextValue))
+    );
+    const [selectionUpdates, viewUpdates] = await Promise.all([
+      sourceSelectionPromise,
+      visibilityPromise,
+    ]);
+    const updatesById = new Map(selectionUpdates.map((item) => [item.id, item]));
+    const viewUpdatesById = new Map(viewUpdates.map((item) => [item.id, item]));
     googleState.calendars = googleState.calendars.map((calendar) => {
       const updated = updatesById.get(calendar.id);
       if (!updated) return calendar;
@@ -703,18 +794,37 @@ async function setAllGoogleCalendarSelections(selected) {
         selected: updated.selected !== false,
       };
     });
+    googleState.calendarViews = googleState.calendarViews.map((view) => {
+      const updated = viewUpdatesById.get(view.id);
+      if (!updated) return view;
+      return {
+        ...view,
+        ...updated,
+        visible: updated.visible !== false,
+      };
+    });
+    renderCalendarViews();
     renderCalendarList();
     setSyncMessage(
       nextValue
         ? "All source calendars checked."
         : "All source calendars unchecked."
     );
+    if (refreshHandler && uniqueVisibilityUpdates.length) {
+      await refreshHandler(state.view, { forceReload: true });
+    }
   } catch (error) {
     googleState.calendars = googleState.calendars.map((calendar) =>
       previousById.has(calendar.id)
         ? { ...calendar, selected: previousById.get(calendar.id) }
         : calendar
     );
+    googleState.calendarViews = googleState.calendarViews.map((view) =>
+      previousVisibilityByViewId.has(view.id)
+        ? { ...view, visible: previousVisibilityByViewId.get(view.id) }
+        : view
+    );
+    renderCalendarViews();
     renderCalendarList();
     setSyncMessage(error?.message || "Unable to update source calendar selections.", true);
   }
