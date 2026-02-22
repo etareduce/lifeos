@@ -510,8 +510,10 @@ async def disconnect_google_account(
 async def list_google_calendars(
     session: AsyncSession = Depends(get_session),
 ) -> list[IntegrationCalendarRead]:
-    connection = await _require_google_connection(session)
+    connection = await _get_google_connection(session)
     accounts = _get_google_accounts(connection)
+    if not accounts:
+        return []
     selection_map = _get_google_calendar_selection_map(connection)
     calendars: list[IntegrationCalendarRead] = []
     for account in accounts:
