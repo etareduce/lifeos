@@ -717,6 +717,63 @@ async def set_calendar_visibility(
     )
 
 
+@integration_router.delete(
+    "/calendars/{calendar_view_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    operation_id="delete_calendar_view",
+)
+async def delete_calendar_view(
+    calendar_view_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Main calendar cannot be deleted.",
+        )
+    connection = await _get_google_connection(session)
+    custom_calendars = _get_custom_calendars(connection)
+    custom_removed = len([item for item in custom_calendars if item["id"] == calendar_view_id]) > 0
+    next_custom_calendars = [item for item in custom_calendars if item["id"] != calendar_view_id]
+
+    result = await session.execute(select(RecurrenceModel))
+    deleted_count = 0
+    for recurrence in result.scalars().all():
+        if _calendar_view_id_from_payload(recurrence.payload) != calendar_view_id:
+            continue
+        await session.delete(recurrence)
+        deleted_count += 1
+
+    had_visibility = False
+    if connection is not None:
+        metadata_json = dict(connection.metadata_json or {})
+        visibility = _get_calendar_visibility_map(connection)
+        if calendar_view_id in visibility:
+            had_visibility = True
+            visibility.pop(calendar_view_id, None)
+            metadata_json["calendar_visibility"] = visibility
+        metadata_json["custom_calendars"] = next_custom_calendars
+        accounts = _get_google_accounts(connection)
+        if accounts or next_custom_calendars:
+            _set_google_connection_fields(
+                connection,
+                accounts=accounts,
+                metadata_json=metadata_json,
+            )
+        else:
+            await session.delete(connection)
+
+    if not (deleted_count or custom_removed or had_visibility):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Calendar view not found.",
+        )
+
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @integration_router.post(
     "/google/preview",
     response_model=GoogleSyncPreviewResponse,

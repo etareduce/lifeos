@@ -6,6 +6,7 @@ import {
   connectGoogleAccount,
   copyCalendarToMain,
   createCustomCalendar,
+  deleteCalendarView,
   disconnectGoogleAccount,
   getGoogleIntegrationStatus,
   listCalendarViews,
@@ -152,6 +153,7 @@ function renderCalendarViews() {
             ? '<span class="integration-calendar-badge">Main</span>'
             : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`;
           const copyDisabled = view.is_main || !view.recurrence_count;
+          const deleteDisabled = view.is_main;
           return `
             <div class="integration-calendar-item">
               <input
@@ -173,6 +175,14 @@ function renderCalendarViews() {
                   ${copyDisabled ? "disabled" : ""}
                 >
                   Copy to main
+                </button>
+                <button
+                  type="button"
+                  class="ghost small danger"
+                  data-delete-calendar-view-id="${view.id}"
+                  ${deleteDisabled ? "disabled" : ""}
+                >
+                  Delete
                 </button>
               </div>
             </div>
@@ -496,6 +506,25 @@ async function handleCopyCalendarToMain(button) {
   }
 }
 
+async function handleDeleteCalendarView(button) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  const calendarViewId = button.getAttribute("data-delete-calendar-view-id");
+  if (!calendarViewId) return;
+  setSyncMessage("Deleting calendar...");
+  try {
+    await deleteCalendarView(calendarViewId);
+    googleState.calendars = googleState.calendars.filter((item) => item.id !== calendarViewId);
+    renderCalendarList();
+    await hydrateCalendarViews();
+    if (refreshHandler) {
+      await refreshHandler(state.view);
+    }
+    setSyncMessage("Calendar deleted.");
+  } catch (error) {
+    setSyncMessage(error?.message || "Unable to delete calendar.", true);
+  }
+}
+
 async function handleCreateCustomCalendar(inputElement) {
   const name = inputElement?.value?.trim() || "";
   if (!name) {
@@ -572,6 +601,11 @@ function bindCalendarViewHandlers(target) {
     const button = element.closest("button[data-copy-calendar-view-id]");
     if (button instanceof HTMLButtonElement) {
       handleCopyCalendarToMain(button);
+      return;
+    }
+    const deleteButton = element.closest("button[data-delete-calendar-view-id]");
+    if (deleteButton instanceof HTMLButtonElement) {
+      handleDeleteCalendarView(deleteButton);
     }
   });
 }

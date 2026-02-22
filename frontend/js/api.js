@@ -411,6 +411,23 @@ async function createCustomCalendar(name) {
   return response.json();
 }
 
+async function deleteCalendarView(calendarViewId) {
+  const response = await fetch(`${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) {
+    let detail = "Failed to delete calendar";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+}
+
 export {
   ensureOccurrences,
   fetchOccurrences,
@@ -434,4 +451,5 @@ export {
   setCalendarVisibility,
   copyCalendarToMain,
   createCustomCalendar,
+  deleteCalendarView,
 };
