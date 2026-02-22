@@ -1,8 +1,16 @@
 import { API_BASE, appConfig, state } from "./core.js";
 import { toProjectIsoFromDate } from "./utils.js";
 
+let occurrenceRequestVersion = 0;
+let activeOccurrenceController = null;
+
 async function fetchOccurrences(start, end) {
+  const requestVersion = ++occurrenceRequestVersion;
+  if (activeOccurrenceController) {
+    activeOccurrenceController.abort();
+  }
   const controller = new AbortController();
+  activeOccurrenceController = controller;
   const timeoutId = window.setTimeout(() => controller.abort(), 12000);
   try {
     const query = new URLSearchParams({
@@ -16,12 +24,24 @@ async function fetchOccurrences(start, end) {
       throw new Error("Failed to fetch occurrences");
     }
     const data = await response.json();
+    if (requestVersion !== occurrenceRequestVersion) {
+      return;
+    }
     state.blobs = data;
     state.loadedRange = { start, end };
   } catch (error) {
+    if (requestVersion !== occurrenceRequestVersion) {
+      return;
+    }
+    if (error?.name === "AbortError") {
+      return;
+    }
     state.blobs = [];
     state.loadedRange = null;
   } finally {
+    if (activeOccurrenceController === controller) {
+      activeOccurrenceController = null;
+    }
     window.clearTimeout(timeoutId);
   }
 }

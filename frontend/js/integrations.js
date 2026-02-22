@@ -13,8 +13,8 @@ import {
   listGoogleCalendars,
   previewCopyCalendarToMain,
   previewGoogleSync,
-  setCalendarVisibility,
-  setGoogleCalendarSelection,
+  setCalendarVisibility as apiSetCalendarVisibility,
+  setGoogleCalendarSelection as apiSetGoogleCalendarSelection,
 } from "./api.js";
 import { addDays, toProjectIsoFromDate } from "./utils.js";
 
@@ -35,6 +35,8 @@ let refreshHandler = null;
 let forceReloadTimerId = null;
 const calendarViewMutationVersions = new Map();
 const sourceCalendarMutationVersions = new Map();
+const calendarVisibilityPersistChains = new Map();
+const sourceCalendarPersistChains = new Map();
 
 function setRefreshHandler(handler) {
   refreshHandler = handler;
@@ -65,6 +67,40 @@ function nextMutationVersion(store, id) {
 
 function isMutationVersionCurrent(store, id, version) {
   return (store.get(String(id || "")) || 0) === version;
+}
+
+function persistBooleanUpdateInOrder(chainStore, id, requestFn) {
+  const key = String(id || "").trim();
+  if (!key) {
+    return Promise.reject(new Error("Missing calendar id."));
+  }
+  const previous = chainStore.get(key) || Promise.resolve();
+  const task = previous.catch(() => {}).then(requestFn);
+  chainStore.set(
+    key,
+    task.finally(() => {
+      if (chainStore.get(key) === task) {
+        chainStore.delete(key);
+      }
+    })
+  );
+  return task;
+}
+
+function persistCalendarVisibility(viewId, visible) {
+  return persistBooleanUpdateInOrder(
+    calendarVisibilityPersistChains,
+    viewId,
+    () => apiSetCalendarVisibility(viewId, visible)
+  );
+}
+
+function persistSourceCalendarSelection(calendarId, selected) {
+  return persistBooleanUpdateInOrder(
+    sourceCalendarPersistChains,
+    calendarId,
+    () => apiSetGoogleCalendarSelection(calendarId, selected)
+  );
 }
 
 function calendarListTargets() {
@@ -709,7 +745,7 @@ async function handleCalendarVisibilityChange(input) {
   renderCalendarViews();
   refreshCalendarNow();
   try {
-    const updated = await setCalendarVisibility(calendarViewId, input.checked);
+    const updated = await persistCalendarVisibility(calendarViewId, input.checked);
     if (!isMutationVersionCurrent(calendarViewMutationVersions, calendarViewId, mutationVersion)) {
       return;
     }
@@ -758,8 +794,8 @@ async function updateCalendarSelectionFromCheckbox(input) {
   refreshCalendarNow();
   try {
     const [updated, ...visibilityResults] = await Promise.all([
-      setGoogleCalendarSelection(calendarId, input.checked),
-      ...targetViewIds.map((viewId) => setCalendarVisibility(viewId, input.checked)),
+      persistSourceCalendarSelection(calendarId, input.checked),
+      ...targetViewIds.map((viewId) => persistCalendarVisibility(viewId, input.checked)),
     ]);
     let sourceApplied = false;
     if (isMutationVersionCurrent(sourceCalendarMutationVersions, calendarId, sourceMutationVersion)) {
@@ -873,10 +909,10 @@ async function setAllGoogleCalendarSelections(selected) {
   setSyncMessage(nextValue ? "Checking source calendars..." : "Unchecking source calendars...");
   try {
     const sourceSelectionPromise = Promise.all(
-      changed.map((calendar) => setGoogleCalendarSelection(calendar.id, nextValue))
+      changed.map((calendar) => persistSourceCalendarSelection(calendar.id, nextValue))
     );
     const visibilityPromise = Promise.all(
-      uniqueVisibilityUpdates.map((viewId) => setCalendarVisibility(viewId, nextValue))
+      uniqueVisibilityUpdates.map((viewId) => persistCalendarVisibility(viewId, nextValue))
     );
     const [selectionUpdates, viewUpdates] = await Promise.all([
       sourceSelectionPromise,
