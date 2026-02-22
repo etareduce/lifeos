@@ -141,6 +141,8 @@ function renderSidebarAccountGroups(groups, renderItem, options = {}) {
   }
   const showDisconnect = Boolean(options.showDisconnect);
   const countLabel = options.countLabel || "calendar";
+  const summaryTextResolver =
+    typeof options.summaryTextResolver === "function" ? options.summaryTextResolver : null;
   const accountMetaByKey = new Map(
     googleState.accounts.map((account) => [account.id, account])
   );
@@ -157,7 +159,9 @@ function renderSidebarAccountGroups(groups, renderItem, options = {}) {
         "";
       const label = accountDisplayName(accountKey, inferredName, inferredId);
       const subtitle = accountSubtitle(inferredName, inferredId);
-      const countText = `${items.length} ${countLabel}${items.length === 1 ? "" : "s"}`;
+      const countText = summaryTextResolver
+        ? String(summaryTextResolver(accountKey, items) || "")
+        : `${items.length} ${countLabel}${items.length === 1 ? "" : "s"}`;
       const disconnectButton = showDisconnect
         ? `
             <button
@@ -234,7 +238,19 @@ function renderCalendarList() {
     dom.sidebarGoogleCalendarList.innerHTML = renderSidebarAccountGroups(
       groups,
       (calendar) => rowHtml(calendar, false, false),
-      { showDisconnect: true, countLabel: "source calendar" }
+      {
+        showDisconnect: true,
+        countLabel: "source calendar",
+        summaryTextResolver: (accountKey, items) => {
+          const sourceCount = items.length;
+          const syncedCount = googleState.calendarViews.filter(
+            (view) =>
+              String(view.source || "").toLowerCase() === "google" &&
+              view.account_key === accountKey
+          ).length;
+          return `${sourceCount} source${sourceCount === 1 ? "" : "s"} · ${syncedCount} synced`;
+        },
+      }
     );
   }
 }
