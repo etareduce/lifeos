@@ -79,6 +79,55 @@
             <span class="sidebar-link-subtitle">Find events quickly</span>
           </button>
         </nav>
+        <section class="sidebar-calendars" id="sidebarCalendars">
+          <div class="sidebar-calendars-header">
+            <div class="sidebar-calendars-title">Calendars</div>
+            <button class="ghost small" type="button" id="sidebarCalendarsRefreshBtn">Refresh</button>
+          </div>
+          <div class="sidebar-calendars-body">
+            <details class="sidebar-calendar-group" open>
+              <summary>
+                <span>Google</span>
+                <span class="sidebar-calendar-summary" id="sidebarGoogleMeta">Not connected</span>
+              </summary>
+              <div class="sidebar-calendar-actions">
+                <button type="button" class="ghost small" id="sidebarGoogleConnectBtn">Connect</button>
+                <button type="button" class="ghost small danger" id="sidebarGoogleDisconnectBtn">
+                  Disconnect
+                </button>
+                <button type="button" class="primary small" id="sidebarGoogleQuickSyncBtn">
+                  Quick sync
+                </button>
+              </div>
+              <div class="sidebar-calendar-subtitle">Source calendars</div>
+              <div class="sidebar-calendar-list" id="sidebarGoogleCalendarList"></div>
+              <div class="sidebar-calendar-subtitle">Imported subcalendars</div>
+              <div class="sidebar-calendar-list" id="sidebarGoogleViewList"></div>
+            </details>
+            <details class="sidebar-calendar-group" open>
+              <summary>
+                <span>Your calendars</span>
+                <span class="sidebar-calendar-summary">Main + custom</span>
+              </summary>
+              <div class="sidebar-calendar-actions">
+                <input
+                  type="text"
+                  id="sidebarCustomCalendarNameInput"
+                  placeholder="New calendar"
+                  data-settings-ignore="true"
+                />
+                <button type="button" class="ghost small" id="sidebarCreateCustomCalendarBtn">
+                  Add
+                </button>
+                <button type="button" class="ghost small" id="sidebarGoogleAdvancedBtn">
+                  Advanced
+                </button>
+              </div>
+              <div class="sidebar-calendar-list" id="sidebarCalendarViewList"></div>
+            </details>
+            <div class="form-status" id="sidebarGoogleSyncMessage"></div>
+          </div>
+        </section>
         <nav class="sidebar-nav sidebar-utility-nav" aria-label="Workspace tools">
           <button class="sidebar-icon-link" id="settingsBtn" type="button" data-short="S" title="Settings" aria-label="Settings">
             <span class="sidebar-link-icon" aria-hidden="true">
@@ -951,54 +1000,6 @@
             </div>
           </div>
         </div>
-        <section class="calendar-manager" id="homeCalendarManager">
-          <div class="calendar-manager-header">
-            <div>
-              <div class="calendar-manager-title">Calendars</div>
-              <div class="calendar-manager-copy">
-                Control visibility and sync without leaving Home.
-              </div>
-            </div>
-            <div class="calendar-manager-meta" id="homeGoogleConnectionMeta"></div>
-          </div>
-          <div class="calendar-manager-actions">
-            <button type="button" class="ghost small" id="homeGoogleConnectBtn">Add account</button>
-            <button type="button" class="ghost small danger" id="homeGoogleDisconnectBtn">
-              Disconnect all
-            </button>
-            <button type="button" class="ghost small" id="homeGoogleLoadCalendarsBtn">
-              Refresh Google calendars
-            </button>
-            <button type="button" class="primary small" id="homeGoogleQuickSyncBtn">
-              Quick sync selected
-            </button>
-            <button type="button" class="ghost small" id="homeGoogleAdvancedBtn">
-              Open advanced sync
-            </button>
-          </div>
-          <div class="form-status" id="homeGoogleSyncMessage"></div>
-          <div class="calendar-manager-columns">
-            <div class="calendar-manager-col">
-              <div class="calendar-manager-col-title">Google calendars to sync</div>
-              <div class="integration-calendars" id="homeGoogleCalendarList"></div>
-            </div>
-            <div class="calendar-manager-col">
-              <div class="calendar-manager-col-title">Displayed calendar views</div>
-              <div class="integration-actions" data-settings-ignore="true">
-                <input
-                  type="text"
-                  id="homeCustomCalendarNameInput"
-                  placeholder="New calendar name"
-                  data-settings-ignore="true"
-                />
-                <button type="button" class="ghost small" id="homeCreateCustomCalendarBtn">
-                  Create
-                </button>
-              </div>
-              <div class="integration-calendars" id="homeCalendarViewList"></div>
-            </div>
-          </div>
-        </section>
         <div class="info-card" id="infoCard" aria-hidden="true"></div>
 
         <div class="views">

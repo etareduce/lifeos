@@ -31,11 +31,7 @@ function setRefreshHandler(handler) {
 }
 
 function calendarListTargets() {
-  return [dom.googleCalendarList, dom.homeGoogleCalendarList].filter(Boolean);
-}
-
-function calendarViewTargets() {
-  return [dom.calendarViewList, dom.homeCalendarViewList].filter(Boolean);
+  return [dom.googleCalendarList, dom.sidebarGoogleCalendarList].filter(Boolean);
 }
 
 function setConnectionStatus(status) {
@@ -54,8 +50,8 @@ function setConnectionStatus(status) {
       dom.googleConnectionMeta.textContent = `${accounts.length} account(s) · ${label}`;
     }
   }
-  if (dom.homeGoogleConnectionMeta) {
-    dom.homeGoogleConnectionMeta.textContent = connected
+  if (dom.sidebarGoogleMeta) {
+    dom.sidebarGoogleMeta.textContent = connected
       ? `${accounts.length} Google account(s) connected`
       : "No Google accounts connected";
   }
@@ -73,9 +69,9 @@ function setSyncMessage(message = "", error = false) {
     dom.googleSyncMessage.textContent = message;
     dom.googleSyncMessage.classList.toggle("error", Boolean(error));
   }
-  if (dom.homeGoogleSyncMessage) {
-    dom.homeGoogleSyncMessage.textContent = message;
-    dom.homeGoogleSyncMessage.classList.toggle("error", Boolean(error));
+  if (dom.sidebarGoogleSyncMessage) {
+    dom.sidebarGoogleSyncMessage.textContent = message;
+    dom.sidebarGoogleSyncMessage.classList.toggle("error", Boolean(error));
   }
 }
 
@@ -142,56 +138,63 @@ function renderCalendarList() {
 }
 
 function renderCalendarViews() {
-  const targets = calendarViewTargets();
-  if (!targets.length) return;
-  const html = !googleState.calendarViews.length
-    ? ""
-    : googleState.calendarViews
-        .map((view) => {
-          const checked = view.visible !== false;
-          const badge = view.is_main
-            ? '<span class="integration-calendar-badge">Main</span>'
-            : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`;
-          const copyDisabled = view.is_main || !view.recurrence_count;
-          const deleteDisabled = view.is_main;
-          return `
-            <div class="integration-calendar-item">
-              <input
-                type="checkbox"
-                data-calendar-view-id="${view.id}"
-                ${checked ? "checked" : ""}
-                ${view.is_main ? "disabled" : ""}
-              />
-              <div class="integration-calendar-meta">
-                <span class="integration-calendar-name">${view.name}</span>
-                <span class="integration-calendar-tz">${view.recurrence_count || 0} recurrence(s)</span>
-              </div>
-              <div class="integration-calendar-actions">
-                ${badge}
-                <button
-                  type="button"
-                  class="ghost small"
-                  data-copy-calendar-view-id="${view.id}"
-                  ${copyDisabled ? "disabled" : ""}
-                >
-                  Copy to main
-                </button>
-                <button
-                  type="button"
-                  class="ghost small danger"
-                  data-delete-calendar-view-id="${view.id}"
-                  ${deleteDisabled ? "disabled" : ""}
-                >
-                  Delete
-                </button>
-              </div>
+  const allViews = Array.isArray(googleState.calendarViews) ? googleState.calendarViews : [];
+  const renderRows = (views) =>
+    views
+      .map((view) => {
+        const checked = view.visible !== false;
+        const badge = view.is_main
+          ? '<span class="integration-calendar-badge">Main</span>'
+          : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`;
+        const copyDisabled = view.is_main || !view.recurrence_count;
+        const deleteDisabled = view.is_main;
+        return `
+          <div class="integration-calendar-item">
+            <input
+              type="checkbox"
+              data-calendar-view-id="${view.id}"
+              ${checked ? "checked" : ""}
+              ${view.is_main ? "disabled" : ""}
+            />
+            <div class="integration-calendar-meta">
+              <span class="integration-calendar-name">${view.name}</span>
+              <span class="integration-calendar-tz">${view.recurrence_count || 0} recurrence(s)</span>
             </div>
-          `;
-        })
-        .join("");
-  targets.forEach((target) => {
-    target.innerHTML = html;
-  });
+            <div class="integration-calendar-actions">
+              ${badge}
+              <button
+                type="button"
+                class="ghost small"
+                data-copy-calendar-view-id="${view.id}"
+                ${copyDisabled ? "disabled" : ""}
+              >
+                Copy to main
+              </button>
+              <button
+                type="button"
+                class="ghost small danger"
+                data-delete-calendar-view-id="${view.id}"
+                ${deleteDisabled ? "disabled" : ""}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+  if (dom.calendarViewList) {
+    dom.calendarViewList.innerHTML = renderRows(allViews);
+  }
+  if (dom.sidebarGoogleViewList) {
+    const googleViews = allViews.filter((view) => String(view.source || "").toLowerCase() === "google");
+    dom.sidebarGoogleViewList.innerHTML = renderRows(googleViews);
+  }
+  if (dom.sidebarCalendarViewList) {
+    const ownViews = allViews.filter((view) => String(view.source || "").toLowerCase() !== "google");
+    dom.sidebarCalendarViewList.innerHTML = renderRows(ownViews);
+  }
 }
 
 function selectedCalendarIds() {
@@ -513,8 +516,8 @@ async function handleDeleteCalendarView(button) {
   setSyncMessage("Deleting calendar...");
   try {
     await deleteCalendarView(calendarViewId);
-    googleState.calendars = googleState.calendars.filter((item) => item.id !== calendarViewId);
     renderCalendarList();
+    await handleLoadCalendars({ silent: true });
     await hydrateCalendarViews();
     if (refreshHandler) {
       await refreshHandler(state.view);
@@ -537,8 +540,8 @@ async function handleCreateCustomCalendar(inputElement) {
     if (dom.customCalendarNameInput) {
       dom.customCalendarNameInput.value = "";
     }
-    if (dom.homeCustomCalendarNameInput) {
-      dom.homeCustomCalendarNameInput.value = "";
+    if (dom.sidebarCustomCalendarNameInput) {
+      dom.sidebarCustomCalendarNameInput.value = "";
     }
     await hydrateCalendarViews();
     setSyncMessage("Custom calendar created.");
@@ -615,15 +618,18 @@ function bindIntegrationHandlers(onRefresh) {
   consumeOAuthResultFromUrl();
 
   dom.googleConnectBtn?.addEventListener("click", handleConnectGoogle);
-  dom.homeGoogleConnectBtn?.addEventListener("click", handleConnectGoogle);
+  dom.sidebarGoogleConnectBtn?.addEventListener("click", handleConnectGoogle);
   dom.googleManualConnectBtn?.addEventListener("click", handleManualConnectGoogle);
 
   dom.googleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
-  dom.homeGoogleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
+  dom.sidebarGoogleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
 
   dom.googleLoadCalendarsBtn?.addEventListener("click", () => handleLoadCalendars());
-  dom.homeGoogleLoadCalendarsBtn?.addEventListener("click", () => handleLoadCalendars());
-  dom.homeGoogleQuickSyncBtn?.addEventListener("click", handleQuickSyncSelected);
+  dom.sidebarCalendarsRefreshBtn?.addEventListener("click", async () => {
+    await handleLoadCalendars();
+    await hydrateCalendarViews();
+  });
+  dom.sidebarGoogleQuickSyncBtn?.addEventListener("click", handleQuickSyncSelected);
 
   dom.googlePreviewBtn?.addEventListener("click", handlePreviewSync);
   dom.googleApplyBtn?.addEventListener("click", handleApplySync);
@@ -632,11 +638,11 @@ function bindIntegrationHandlers(onRefresh) {
   dom.createCustomCalendarBtn?.addEventListener("click", () =>
     handleCreateCustomCalendar(dom.customCalendarNameInput)
   );
-  dom.homeCreateCustomCalendarBtn?.addEventListener("click", () =>
-    handleCreateCustomCalendar(dom.homeCustomCalendarNameInput)
+  dom.sidebarCreateCustomCalendarBtn?.addEventListener("click", () =>
+    handleCreateCustomCalendar(dom.sidebarCustomCalendarNameInput)
   );
 
-  dom.homeGoogleAdvancedBtn?.addEventListener("click", openGoogleSyncSettings);
+  dom.sidebarGoogleAdvancedBtn?.addEventListener("click", openGoogleSyncSettings);
   dom.googleSyncBtn?.addEventListener("click", openGoogleSyncSettings);
 
   dom.googleAccountsList?.addEventListener("click", (event) => {
@@ -651,9 +657,10 @@ function bindIntegrationHandlers(onRefresh) {
   });
 
   bindCalendarListHandlers(dom.googleCalendarList);
-  bindCalendarListHandlers(dom.homeGoogleCalendarList);
+  bindCalendarListHandlers(dom.sidebarGoogleCalendarList);
   bindCalendarViewHandlers(dom.calendarViewList);
-  bindCalendarViewHandlers(dom.homeCalendarViewList);
+  bindCalendarViewHandlers(dom.sidebarGoogleViewList);
+  bindCalendarViewHandlers(dom.sidebarCalendarViewList);
 
   dom.settingsBtn?.addEventListener("click", () => {
     hydrateConnectionStatus();

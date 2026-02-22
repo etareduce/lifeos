@@ -172,7 +172,7 @@ body[data-theme="ember"] {
 
 .sidebar {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 18px;
   border-radius: 0;
   padding: 20px 16px;
@@ -200,6 +200,108 @@ body[data-theme="ember"] {
 .sidebar-utility-nav {
   margin-top: auto;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sidebar-calendars {
+  min-height: 0;
+  border: 1px solid rgba(27, 26, 22, 0.14);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 250, 242, 0.72);
+  display: grid;
+  gap: 8px;
+}
+
+.sidebar-calendars-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-calendars-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sidebar-calendars-body {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.sidebar-calendar-group {
+  border: 1px solid rgba(27, 26, 22, 0.1);
+  border-radius: 10px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.sidebar-calendar-group > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sidebar-calendar-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-calendar-summary {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.sidebar-calendar-actions {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sidebar-calendar-actions input[type="text"] {
+  min-width: 130px;
+  flex: 1 1 130px;
+}
+
+.sidebar-calendar-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.sidebar-calendar-subtitle {
+  margin-top: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.sidebar-calendar-list .integration-calendar-item {
+  padding: 6px 8px;
+  border-radius: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.sidebar-calendar-list .integration-calendar-name {
+  font-size: 12px;
+}
+
+.sidebar-calendar-list .integration-calendar-tz {
+  font-size: 10px;
 }
 
 .sidebar-link,
@@ -287,7 +389,8 @@ body[data-theme="ember"] {
 .page.sidebar-collapsed .brand .title,
 .page.sidebar-collapsed .sidebar-link-title,
 .page.sidebar-collapsed .sidebar-link-subtitle,
-.page.sidebar-collapsed .sidebar-icon-label {
+.page.sidebar-collapsed .sidebar-icon-label,
+.page.sidebar-collapsed .sidebar-calendars {
   display: none;
 }
 
@@ -3824,7 +3927,7 @@ body.modal-open .info-card {
   }
 
   .sidebar {
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto auto auto;
     gap: 10px;
     padding: 14px;
   }
@@ -3851,6 +3954,10 @@ body.modal-open .info-card {
 
   .sidebar-utility-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar-calendars {
+    max-height: 260px;
   }
 
   .workspace {
