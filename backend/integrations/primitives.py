@@ -23,6 +23,7 @@ class RecurrencePrimitive:
     title: str
     description: str | None = None
     is_recurring: bool = False
+    identifiers: list[str] = field(default_factory=list)
     events: list[EventPrimitive] = field(default_factory=list)
 
     def sort_events(self) -> None:

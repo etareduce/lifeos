@@ -9,6 +9,8 @@ from .utils import (
     timeranges_equal,
 )
 
+MIN_IDENTIFIER_EDGE_CHARS = 6
+
 
 def events_are_same(
     left: EventPrimitive,
@@ -55,9 +57,31 @@ def find_recurrence_matches(
 ) -> list[RecurrencePrimitive]:
     matches: list[RecurrencePrimitive] = []
     for candidate in existing:
-        if recurrences_are_same(imported, candidate, name_distance_threshold):
+        if recurrences_are_same(imported, candidate, name_distance_threshold) or (
+            recurrences_have_related_identifiers(imported, candidate)
+        ):
             matches.append(candidate)
     return matches
+
+
+def recurrences_have_related_identifiers(
+    left: RecurrencePrimitive,
+    right: RecurrencePrimitive,
+    min_shared_chars: int = MIN_IDENTIFIER_EDGE_CHARS,
+) -> bool:
+    left_ids = _recurrence_identifiers(left)
+    right_ids = _recurrence_identifiers(right)
+    if not left_ids or not right_ids:
+        return False
+    for left_id in left_ids:
+        for right_id in right_ids:
+            if _shares_nontrivial_prefix_or_suffix(
+                left_id,
+                right_id,
+                min_shared_chars=min_shared_chars,
+            ):
+                return True
+    return False
 
 
 def _has_perfect_bipartite_matching(graph: list[list[int]], right_size: int) -> bool:
@@ -93,3 +117,52 @@ def _timerange_signature(events: list[EventPrimitive]) -> tuple[tuple[str, str],
             for event in events
         )
     )
+
+
+def _recurrence_identifiers(value: RecurrencePrimitive) -> list[str]:
+    raw = list(value.identifiers or [])
+    raw.append(value.key)
+    identifiers: list[str] = []
+    for item in raw:
+        normalized = str(item or "").strip().lower()
+        if not normalized:
+            continue
+        if normalized in identifiers:
+            continue
+        identifiers.append(normalized)
+    return identifiers
+
+
+def _shares_nontrivial_prefix_or_suffix(
+    left: str,
+    right: str,
+    *,
+    min_shared_chars: int,
+) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) < (min_shared_chars + 2):
+        return False
+    return _common_prefix_length(left, right) >= min_shared_chars or _common_suffix_length(
+        left, right
+    ) >= min_shared_chars
+
+
+def _common_prefix_length(left: str, right: str) -> int:
+    count = 0
+    for left_char, right_char in zip(left, right):
+        if left_char != right_char:
+            break
+        count += 1
+    return count
+
+
+def _common_suffix_length(left: str, right: str) -> int:
+    count = 0
+    for left_char, right_char in zip(reversed(left), reversed(right)):
+        if left_char != right_char:
+            break
+        count += 1
+    return count

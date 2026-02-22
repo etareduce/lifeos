@@ -28,6 +28,9 @@ from .schemas import (
     CalendarViewRead,
     CalendarViewCreateRequest,
     CalendarVisibilityUpdateRequest,
+    CopyToMainApplyRequest,
+    CopyToMainPreviewItem,
+    CopyToMainPreviewResponse,
     CopyToMainResponse,
     GoogleCalendarSelectionUpdateRequest,
     GoogleConnectRequest,
@@ -1064,6 +1067,195 @@ async def apply_google_sync(
 
 
 @integration_router.post(
+    "/calendars/{calendar_view_id}/copy-to-main/preview",
+    response_model=CopyToMainPreviewResponse,
+    operation_id="preview_copy_calendar_to_main",
+)
+async def preview_copy_calendar_to_main(
+    calendar_view_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> CopyToMainPreviewResponse:
+    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Main calendar is already the ground-truth calendar.",
+        )
+    rows = await _calendar_rows_for_view(session, calendar_view_id)
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No imported recurrences found for that calendar.",
+        )
+
+    now = datetime.now(tz=timezone.utc)
+    range_start = now - timedelta(days=1)
+    range_end = now + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
+    existing_main = await _build_main_recurrence_primitives(
+        session=session,
+        range_start=range_start,
+        range_end=range_end,
+    )
+
+    items: list[CopyToMainPreviewItem] = []
+    for row in rows:
+        source_payload = dict(row.payload or {})
+        imported_primitive = _stored_recurrence_to_primitive(
+            recurrence_id=row.id,
+            recurrence_type=row.type,
+            payload=source_payload,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        if imported_primitive is None:
+            continue
+        matches = find_recurrence_matches(
+            imported_primitive,
+            existing_main,
+            DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
+        )
+        suggested_action = "create"
+        if len(matches) == 1:
+            suggested_action = "merge"
+        elif len(matches) > 1:
+            suggested_action = "review"
+        items.append(
+            CopyToMainPreviewItem(
+                recurrence_id=row.id,
+                recurrence_name=imported_primitive.title,
+                event_count=len(imported_primitive.events),
+                suggested_action=suggested_action,
+                match_candidates=[
+                    MergeCandidatePreview(
+                        recurrence_id=match.key,
+                        recurrence_name=match.title,
+                        event_count=len(match.events),
+                    )
+                    for match in matches
+                ],
+            )
+        )
+
+    if not items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No copyable recurrences found for that calendar.",
+        )
+    return CopyToMainPreviewResponse(
+        calendar_view_id=calendar_view_id,
+        calendar_view_name=_calendar_view_name_from_payload(rows[0].payload) or calendar_view_id,
+        items=items,
+    )
+
+
+@integration_router.post(
+    "/calendars/{calendar_view_id}/copy-to-main/apply",
+    response_model=CopyToMainResponse,
+    operation_id="apply_copy_calendar_to_main",
+)
+async def apply_copy_calendar_to_main(
+    calendar_view_id: str,
+    payload: CopyToMainApplyRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CopyToMainResponse:
+    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Main calendar is already the ground-truth calendar.",
+        )
+    rows = await _calendar_rows_for_view(session, calendar_view_id)
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No imported recurrences found for that calendar.",
+        )
+    rows_by_id = {row.id: row for row in rows}
+
+    now = datetime.now(tz=timezone.utc)
+    range_start = now - timedelta(days=1)
+    range_end = now + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
+    existing_main_rows = await _main_recurrence_rows(session)
+    existing_main_by_id = {row.id: row for row in existing_main_rows}
+    existing_main = await _build_main_recurrence_primitives(
+        session=session,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    imported_cache: dict[str, RecurrencePrimitive] = {}
+    created_count = 0
+    merged_count = 0
+    skipped_count = 0
+
+    for decision in payload.decisions:
+        source_row = rows_by_id.get(decision.recurrence_id)
+        if source_row is None:
+            skipped_count += 1
+            continue
+        if decision.action == "skip":
+            skipped_count += 1
+            continue
+
+        imported = imported_cache.get(source_row.id)
+        if imported is None:
+            imported = _stored_recurrence_to_primitive(
+                recurrence_id=source_row.id,
+                recurrence_type=source_row.type,
+                payload=dict(source_row.payload or {}),
+                range_start=range_start,
+                range_end=range_end,
+            )
+            if imported is None:
+                skipped_count += 1
+                continue
+            imported_cache[source_row.id] = imported
+
+        if decision.action == "merge":
+            matches = find_recurrence_matches(
+                imported,
+                existing_main,
+                DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
+            )
+            target_id = (decision.merge_recurrence_id or "").strip() or None
+            if target_id is None and len(matches) == 1:
+                target_id = matches[0].key
+            if not target_id:
+                skipped_count += 1
+                continue
+            target_row = existing_main_by_id.get(target_id)
+            if target_row is None:
+                skipped_count += 1
+                continue
+            target_row.payload = _append_integration_link(
+                target_row.payload,
+                imported=imported,
+            )
+            merged_count += 1
+            continue
+
+        if decision.action == "create":
+            new_payload = _main_payload_from_imported_payload(dict(source_row.payload or {}))
+            new_row = RecurrenceModel(
+                id=str(uuid.uuid4()),
+                type=source_row.type,
+                payload=new_payload,
+            )
+            session.add(new_row)
+            created_count += 1
+            continue
+
+        skipped_count += 1
+
+    if created_count or merged_count:
+        await session.commit()
+        await _mark_schedule_dirty(session)
+
+    return CopyToMainResponse(
+        created_count=created_count,
+        merged_count=merged_count,
+        skipped_count=skipped_count,
+    )
+
+
+@integration_router.post(
     "/calendars/{calendar_view_id}/copy-to-main",
     response_model=CopyToMainResponse,
     operation_id="copy_calendar_to_main",
@@ -1077,13 +1269,7 @@ async def copy_calendar_to_main(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Main calendar is already the ground-truth calendar.",
         )
-    result = await session.execute(select(RecurrenceModel))
-    rows = [
-        row
-        for row in result.scalars().all()
-        if _is_non_main_calendar_payload(row.payload)
-        and _calendar_view_id_from_payload(row.payload) == calendar_view_id
-    ]
+    rows = await _calendar_rows_for_view(session, calendar_view_id)
     if not rows:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1361,6 +1547,14 @@ def _calendar_view_id_from_payload(payload: dict | None) -> str | None:
     return value or None
 
 
+def _calendar_view_name_from_payload(payload: dict | None) -> str | None:
+    calendar_view = _calendar_view_from_payload(payload)
+    if not calendar_view:
+        return None
+    value = str(calendar_view.get("name") or "").strip()
+    return value or None
+
+
 def _integration_source(payload: dict | None) -> dict | None:
     if not isinstance(payload, dict):
         return None
@@ -1486,6 +1680,26 @@ def _cleanup_oauth_sessions() -> None:
         _OAUTH_SESSIONS.pop(key, None)
 
 
+async def _calendar_rows_for_view(
+    session: AsyncSession,
+    calendar_view_id: str,
+) -> list[RecurrenceModel]:
+    result = await session.execute(select(RecurrenceModel))
+    return [
+        row
+        for row in result.scalars().all()
+        if _is_non_main_calendar_payload(row.payload)
+        and _calendar_view_id_from_payload(row.payload) == calendar_view_id
+    ]
+
+
+async def _main_recurrence_rows(session: AsyncSession) -> list[RecurrenceModel]:
+    result = await session.execute(select(RecurrenceModel))
+    return [
+        row for row in result.scalars().all() if _is_main_calendar_payload(row.payload)
+    ]
+
+
 async def _build_local_recurrence_primitives(
     *,
     session: AsyncSession,
@@ -1538,9 +1752,36 @@ async def _build_local_recurrence_primitives(
             calendar_name="Elastisched",
             title=recurrence_title,
             description=payload.get("recurrence_description"),
+            identifiers=_recurrence_identifiers_from_payload(payload, fallback=row.id),
             events=events,
         )
         primitive.sort_events()
+        recurrences.append(primitive)
+    return recurrences
+
+
+async def _build_main_recurrence_primitives(
+    *,
+    session: AsyncSession,
+    range_start: datetime,
+    range_end: datetime,
+) -> list[RecurrencePrimitive]:
+    result = await session.execute(select(RecurrenceModel))
+    recurrences: list[RecurrencePrimitive] = []
+    for row in result.scalars().all():
+        payload = row.payload or {}
+        if not _is_main_calendar_payload(payload):
+            continue
+        primitive = _stored_recurrence_to_primitive(
+            recurrence_id=row.id,
+            recurrence_type=row.type,
+            payload=payload,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        if primitive is None:
+            continue
+        primitive.key = row.id
         recurrences.append(primitive)
     return recurrences
 
@@ -1651,22 +1892,20 @@ async def _copy_imported_rows_to_main(
     rows: list[RecurrenceModel],
 ) -> dict[str, int]:
     if not rows:
-        return {"created_count": 0, "merged_count": 0}
+        return {"created_count": 0, "merged_count": 0, "skipped_count": 0}
     now = datetime.now(tz=timezone.utc)
     range_start = now - timedelta(days=1)
     range_end = now + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
-    existing_main = await _build_local_recurrence_primitives(
+    existing_main_rows = await _main_recurrence_rows(session)
+    existing_main_by_id = {row.id: row for row in existing_main_rows}
+    existing_main = await _build_main_recurrence_primitives(
         session=session,
         range_start=range_start,
         range_end=range_end,
-        include_imported=False,
     )
-    existing_main_by_id = {
-        item.key: item
-        for item in existing_main
-    }
     created_count = 0
     merged_count = 0
+    skipped_count = 0
     for row in rows:
         source_payload = dict(row.payload or {})
         imported_primitive = _stored_recurrence_to_primitive(
@@ -1677,20 +1916,19 @@ async def _copy_imported_rows_to_main(
             range_end=range_end,
         )
         if imported_primitive is None:
+            skipped_count += 1
             continue
         matches = find_recurrence_matches(
             imported_primitive,
-            list(existing_main_by_id.values()),
+            existing_main,
             DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
         )
         if len(matches) == 1:
             target = matches[0]
             target_id = target.key
-            target_row_result = await session.execute(
-                select(RecurrenceModel).where(RecurrenceModel.id == target_id)
-            )
-            target_row = target_row_result.scalar_one_or_none()
+            target_row = existing_main_by_id.get(target_id)
             if target_row is None:
+                skipped_count += 1
                 continue
             target_row.payload = _append_integration_link(
                 target_row.payload,
@@ -1709,7 +1947,11 @@ async def _copy_imported_rows_to_main(
         created_count += 1
     if created_count or merged_count:
         await session.commit()
-    return {"created_count": created_count, "merged_count": merged_count}
+    return {
+        "created_count": created_count,
+        "merged_count": merged_count,
+        "skipped_count": skipped_count,
+    }
 
 
 def _stored_recurrence_to_primitive(
@@ -1763,6 +2005,7 @@ def _stored_recurrence_to_primitive(
         calendar_name=calendar_name or MAIN_CALENDAR_NAME,
         title=str(payload.get("recurrence_name") or events[0].name or recurrence_id),
         description=payload.get("recurrence_description"),
+        identifiers=_recurrence_identifiers_from_payload(payload, fallback=primitive_key),
         events=events,
     )
     primitive.sort_events()
@@ -1777,6 +2020,44 @@ def _main_payload_from_imported_payload(payload: dict) -> dict:
     if links:
         result["integration_links"] = links
     return result
+
+
+def _recurrence_identifiers_from_payload(payload: dict, *, fallback: str) -> list[str]:
+    identifiers: list[str] = []
+    source = _integration_source(payload)
+    if source:
+        external_id = str(source.get("external_recurrence_id") or "").strip()
+        calendar_id = str(source.get("calendar_id") or "").strip()
+        if external_id and calendar_id:
+            identifiers.append(f"{calendar_id}:{external_id}")
+        if external_id:
+            identifiers.append(external_id)
+
+    links = payload.get("integration_links")
+    if isinstance(links, list):
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            provider = str(link.get("provider") or "").strip().lower()
+            if provider != GOOGLE_PROVIDER:
+                continue
+            external_id = str(link.get("external_recurrence_id") or "").strip()
+            calendar_id = str(link.get("calendar_id") or "").strip()
+            if external_id and calendar_id:
+                identifiers.append(f"{calendar_id}:{external_id}")
+            if external_id:
+                identifiers.append(external_id)
+
+    identifiers.append(fallback)
+    deduped: list[str] = []
+    for item in identifiers:
+        normalized = str(item or "").strip()
+        if not normalized:
+            continue
+        if normalized in deduped:
+            continue
+        deduped.append(normalized)
+    return deduped
 
 
 def _integration_link(

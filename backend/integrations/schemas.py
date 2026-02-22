@@ -124,3 +124,28 @@ class CalendarViewCreateRequest(BaseModel):
 class CopyToMainResponse(BaseModel):
     created_count: int
     merged_count: int
+    skipped_count: int = 0
+
+
+class CopyToMainPreviewItem(BaseModel):
+    recurrence_id: str
+    recurrence_name: str
+    event_count: int
+    suggested_action: Literal["merge", "create", "review"]
+    match_candidates: list[MergeCandidatePreview] = Field(default_factory=list)
+
+
+class CopyToMainPreviewResponse(BaseModel):
+    calendar_view_id: str
+    calendar_view_name: str
+    items: list[CopyToMainPreviewItem] = Field(default_factory=list)
+
+
+class CopyToMainDecision(BaseModel):
+    recurrence_id: str
+    action: Literal["merge", "create", "skip"]
+    merge_recurrence_id: str | None = None
+
+
+class CopyToMainApplyRequest(BaseModel):
+    decisions: list[CopyToMainDecision] = Field(default_factory=list)

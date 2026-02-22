@@ -50,6 +50,7 @@ def translate_google_events_to_primitives(
             title=title,
             description=description,
             is_recurring=is_recurring,
+            identifiers=[f"{calendar_id}:{key}", key],
             events=primitives,
         )
         recurrences.append(recurrence)
