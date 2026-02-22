@@ -13,6 +13,7 @@ import {
   listGoogleCalendars,
   previewGoogleSync,
   setCalendarVisibility,
+  setGoogleCalendarSelection,
 } from "./api.js";
 import { addDays, toProjectIsoFromDate } from "./utils.js";
 
@@ -104,96 +105,172 @@ function renderAccountList() {
     .join("");
 }
 
+function accountDisplayName(accountKey, accountName, accountId) {
+  return accountName || accountId || accountKey || "Google account";
+}
+
+function accountSubtitle(accountName, accountId) {
+  if (!accountId || accountId === accountName) {
+    return "";
+  }
+  return accountId;
+}
+
+function groupEntriesByAccount(entries, keySelector) {
+  const groups = new Map();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const key = String(keySelector(entry) || "unassigned");
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(entry);
+  }
+  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
+}
+
+function renderSidebarAccountGroups(groups, renderItem) {
+  if (!groups.length) {
+    return "";
+  }
+  const accountMetaByKey = new Map(
+    googleState.accounts.map((account) => [account.id, account])
+  );
+  return groups
+    .map(([accountKey, items]) => {
+      const accountMeta = accountMetaByKey.get(accountKey) || {};
+      const inferredName =
+        accountMeta.account_name ||
+        items.find((item) => item.account_name)?.account_name ||
+        "";
+      const inferredId =
+        accountMeta.account_id ||
+        items.find((item) => item.account_id)?.account_id ||
+        "";
+      const label = accountDisplayName(accountKey, inferredName, inferredId);
+      const subtitle = accountSubtitle(inferredName, inferredId);
+      const countLabel = `${items.length} calendar${items.length === 1 ? "" : "s"}`;
+      return `
+        <details class="sidebar-account-group" open>
+          <summary>
+            <span>${label}</span>
+            <span class="sidebar-calendar-summary">${countLabel}</span>
+          </summary>
+          ${subtitle ? `<div class="sidebar-account-subtitle">${subtitle}</div>` : ""}
+          <div class="sidebar-account-list">
+            ${items.map((item) => renderItem(item)).join("")}
+          </div>
+        </details>
+      `;
+    })
+    .join("");
+}
+
 function renderCalendarList() {
   const targets = calendarListTargets();
   if (!targets.length) return;
-  const html = !googleState.calendars.length
+  const rowHtml = (calendar, includeAccountLabel) => {
+    const selected = calendar.selected !== false;
+    const badge = calendar.primary ? '<span class="integration-calendar-badge">Primary</span>' : "";
+    const accountLabel = accountDisplayName(
+      calendar.account_key,
+      calendar.account_name,
+      calendar.account_id
+    );
+    const metaLabel = includeAccountLabel
+      ? `${accountLabel} · ${calendar.time_zone || "UTC"}`
+      : `${calendar.time_zone || "UTC"}`;
+    return `
+      <label class="integration-calendar-item">
+        <input
+          type="checkbox"
+          data-calendar-id="${calendar.id}"
+          ${selected ? "checked" : ""}
+        />
+        <div class="integration-calendar-meta">
+          <span class="integration-calendar-name">${calendar.name}</span>
+          <span class="integration-calendar-tz">${metaLabel}</span>
+        </div>
+        ${badge}
+      </label>
+    `;
+  };
+
+  const settingsHtml = !googleState.calendars.length
     ? ""
-    : googleState.calendars
-        .map((calendar) => {
-          const selected = calendar.selected !== false;
-          const badge = calendar.primary
-            ? '<span class="integration-calendar-badge">Primary</span>'
-            : "";
-          const accountLabel = calendar.account_name || calendar.account_id || "Google account";
-          return `
-            <label class="integration-calendar-item">
-              <input
-                type="checkbox"
-                data-calendar-id="${calendar.id}"
-                ${selected ? "checked" : ""}
-              />
-              <div class="integration-calendar-meta">
-                <span class="integration-calendar-name">${calendar.name}</span>
-                <span class="integration-calendar-tz">${accountLabel} · ${calendar.time_zone || "UTC"}</span>
-              </div>
-              ${badge}
-            </label>
-          `;
-        })
-        .join("");
-  targets.forEach((target) => {
-    target.innerHTML = html;
-  });
+    : googleState.calendars.map((calendar) => rowHtml(calendar, true)).join("");
+  if (dom.googleCalendarList) {
+    dom.googleCalendarList.innerHTML = settingsHtml;
+  }
+
+  if (dom.sidebarGoogleCalendarList) {
+    const groups = groupEntriesByAccount(googleState.calendars, (calendar) => calendar.account_key);
+    dom.sidebarGoogleCalendarList.innerHTML = renderSidebarAccountGroups(groups, (calendar) =>
+      rowHtml(calendar, false)
+    );
+  }
 }
 
 function renderCalendarViews() {
   const allViews = Array.isArray(googleState.calendarViews) ? googleState.calendarViews : [];
-  const renderRows = (views) =>
-    views
-      .map((view) => {
-        const checked = view.visible !== false;
-        const badge = view.is_main
-          ? '<span class="integration-calendar-badge">Main</span>'
-          : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`;
-        const copyDisabled = view.is_main || !view.recurrence_count;
-        const deleteDisabled = view.is_main;
-        return `
-          <div class="integration-calendar-item">
-            <input
-              type="checkbox"
-              data-calendar-view-id="${view.id}"
-              ${checked ? "checked" : ""}
-              ${view.is_main ? "disabled" : ""}
-            />
-            <div class="integration-calendar-meta">
-              <span class="integration-calendar-name">${view.name}</span>
-              <span class="integration-calendar-tz">${view.recurrence_count || 0} recurrence(s)</span>
-            </div>
-            <div class="integration-calendar-actions">
-              ${badge}
-              <button
-                type="button"
-                class="ghost small"
-                data-copy-calendar-view-id="${view.id}"
-                ${copyDisabled ? "disabled" : ""}
-              >
-                Copy to main
-              </button>
-              <button
-                type="button"
-                class="ghost small danger"
-                data-delete-calendar-view-id="${view.id}"
-                ${deleteDisabled ? "disabled" : ""}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        `;
-      })
-      .join("");
+  const renderViewRow = (view, options = {}) => {
+    const checked = view.visible !== false;
+    const showSourceBadge = options.showSourceBadge !== false;
+    const badge = showSourceBadge
+      ? view.is_main
+        ? '<span class="integration-calendar-badge">Main</span>'
+        : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`
+      : "";
+    const copyDisabled = view.is_main || !view.recurrence_count;
+    const deleteDisabled = view.is_main;
+    return `
+      <div class="integration-calendar-item">
+        <input
+          type="checkbox"
+          data-calendar-view-id="${view.id}"
+          ${checked ? "checked" : ""}
+          ${view.is_main ? "disabled" : ""}
+        />
+        <div class="integration-calendar-meta">
+          <span class="integration-calendar-name">${view.name}</span>
+          <span class="integration-calendar-tz">${view.recurrence_count || 0} recurrence(s)</span>
+        </div>
+        <div class="integration-calendar-actions">
+          ${badge}
+          <button
+            type="button"
+            class="ghost small"
+            data-copy-calendar-view-id="${view.id}"
+            ${copyDisabled ? "disabled" : ""}
+          >
+            Copy to main
+          </button>
+          <button
+            type="button"
+            class="ghost small danger"
+            data-delete-calendar-view-id="${view.id}"
+            ${deleteDisabled ? "disabled" : ""}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    `;
+  };
+  const renderRows = (views, options = {}) => views.map((view) => renderViewRow(view, options)).join("");
 
   if (dom.calendarViewList) {
-    dom.calendarViewList.innerHTML = renderRows(allViews);
+    dom.calendarViewList.innerHTML = renderRows(allViews, { showSourceBadge: true });
   }
   if (dom.sidebarGoogleViewList) {
     const googleViews = allViews.filter((view) => String(view.source || "").toLowerCase() === "google");
-    dom.sidebarGoogleViewList.innerHTML = renderRows(googleViews);
+    const groups = groupEntriesByAccount(googleViews, (view) => view.account_key);
+    dom.sidebarGoogleViewList.innerHTML = renderSidebarAccountGroups(groups, (view) =>
+      renderViewRow(view, { showSourceBadge: false })
+    );
   }
   if (dom.sidebarCalendarViewList) {
     const ownViews = allViews.filter((view) => String(view.source || "").toLowerCase() !== "google");
-    dom.sidebarCalendarViewList.innerHTML = renderRows(ownViews);
+    dom.sidebarCalendarViewList.innerHTML = renderRows(ownViews, { showSourceBadge: true });
   }
 }
 
@@ -261,14 +338,9 @@ function collectDecisions() {
 }
 
 function mergeCalendarSelections(nextCalendars) {
-  const selectedById = new Map(
-    googleState.calendars.map((calendar) => [calendar.id, calendar.selected !== false])
-  );
   return (Array.isArray(nextCalendars) ? nextCalendars : []).map((calendar) => ({
     ...calendar,
-    selected: selectedById.has(calendar.id)
-      ? selectedById.get(calendar.id)
-      : calendar.selected !== false,
+    selected: calendar.selected !== false,
   }));
 }
 
@@ -468,26 +540,59 @@ async function handleCalendarVisibilityChange(input) {
   if (!(input instanceof HTMLInputElement)) return;
   const calendarViewId = input.getAttribute("data-calendar-view-id");
   if (!calendarViewId) return;
+  const previous = googleState.calendarViews.find((view) => view.id === calendarViewId);
+  const previousVisible = previous ? previous.visible !== false : !input.checked;
+  googleState.calendarViews = googleState.calendarViews.map((view) =>
+    view.id === calendarViewId ? { ...view, visible: input.checked } : view
+  );
+  renderCalendarViews();
   try {
-    await setCalendarVisibility(calendarViewId, input.checked);
-    await hydrateCalendarViews();
+    const updated = await setCalendarVisibility(calendarViewId, input.checked);
+    googleState.calendarViews = googleState.calendarViews.map((view) =>
+      view.id === calendarViewId ? { ...view, ...updated, visible: updated.visible !== false } : view
+    );
+    renderCalendarViews();
     if (refreshHandler) {
       await refreshHandler(state.view);
     }
   } catch (error) {
+    googleState.calendarViews = googleState.calendarViews.map((view) =>
+      view.id === calendarViewId ? { ...view, visible: previousVisible } : view
+    );
+    renderCalendarViews();
     setSyncMessage(error?.message || "Unable to update calendar visibility.", true);
-    await hydrateCalendarViews();
   }
 }
 
-function updateCalendarSelectionFromCheckbox(input) {
+async function updateCalendarSelectionFromCheckbox(input) {
   if (!(input instanceof HTMLInputElement)) return;
   const calendarId = input.getAttribute("data-calendar-id");
   if (!calendarId) return;
+  const previous = googleState.calendars.find((calendar) => calendar.id === calendarId);
+  const previousSelected = previous ? previous.selected !== false : !input.checked;
   googleState.calendars = googleState.calendars.map((calendar) =>
     calendar.id === calendarId ? { ...calendar, selected: input.checked } : calendar
   );
   renderCalendarList();
+  try {
+    const updated = await setGoogleCalendarSelection(calendarId, input.checked);
+    googleState.calendars = googleState.calendars.map((calendar) =>
+      calendar.id === calendarId
+        ? {
+            ...calendar,
+            ...updated,
+            selected: updated.selected !== false,
+          }
+        : calendar
+    );
+    renderCalendarList();
+  } catch (error) {
+    googleState.calendars = googleState.calendars.map((calendar) =>
+      calendar.id === calendarId ? { ...calendar, selected: previousSelected } : calendar
+    );
+    renderCalendarList();
+    setSyncMessage(error?.message || "Unable to update Google calendar selection.", true);
+  }
 }
 
 async function handleCopyCalendarToMain(button) {

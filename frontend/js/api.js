@@ -372,6 +372,29 @@ async function setCalendarVisibility(calendarViewId, visible) {
   return response.json();
 }
 
+async function setGoogleCalendarSelection(calendarViewId, selected) {
+  const response = await fetch(
+    `${API_BASE}/integrations/google/calendars/${encodeURIComponent(calendarViewId)}/selection`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected: Boolean(selected) }),
+    }
+  );
+  if (!response.ok) {
+    let detail = "Failed to update Google calendar selection";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 async function copyCalendarToMain(calendarViewId) {
   const response = await fetch(
     `${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/copy-to-main`,
@@ -449,6 +472,7 @@ export {
   applyGoogleSync,
   listCalendarViews,
   setCalendarVisibility,
+  setGoogleCalendarSelection,
   copyCalendarToMain,
   createCustomCalendar,
   deleteCalendarView,
