@@ -123,6 +123,17 @@ const dom = {
   calendarViewList: document.getElementById("calendarViewList"),
   createCustomCalendarBtn: document.getElementById("createCustomCalendarBtn"),
   customCalendarNameInput: document.getElementById("customCalendarNameInput"),
+  homeGoogleConnectionMeta: document.getElementById("homeGoogleConnectionMeta"),
+  homeGoogleConnectBtn: document.getElementById("homeGoogleConnectBtn"),
+  homeGoogleDisconnectBtn: document.getElementById("homeGoogleDisconnectBtn"),
+  homeGoogleLoadCalendarsBtn: document.getElementById("homeGoogleLoadCalendarsBtn"),
+  homeGoogleQuickSyncBtn: document.getElementById("homeGoogleQuickSyncBtn"),
+  homeGoogleAdvancedBtn: document.getElementById("homeGoogleAdvancedBtn"),
+  homeGoogleSyncMessage: document.getElementById("homeGoogleSyncMessage"),
+  homeGoogleCalendarList: document.getElementById("homeGoogleCalendarList"),
+  homeCalendarViewList: document.getElementById("homeCalendarViewList"),
+  homeCreateCustomCalendarBtn: document.getElementById("homeCreateCustomCalendarBtn"),
+  homeCustomCalendarNameInput: document.getElementById("homeCustomCalendarNameInput"),
 };
 
 export { dom };

@@ -2002,6 +2002,11 @@ body.modal-open .info-card {
   font-size: 12px;
 }
 
+.primary.small {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 .edit-only {
   display: none;
 }
@@ -2131,6 +2136,64 @@ body.modal-open .info-card {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.calendar-manager {
+  margin-top: 14px;
+  border: 1px solid #e0d3c1;
+  background: #fffaf2;
+  border-radius: 16px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.calendar-manager-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.calendar-manager-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.calendar-manager-copy {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.calendar-manager-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.calendar-manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.calendar-manager-columns {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.calendar-manager-col {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-manager-col-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
 }
 
 .now-panel {
@@ -3816,6 +3879,20 @@ body.modal-open .info-card {
   .now-actions {
     justify-self: start;
     flex-wrap: wrap;
+  }
+
+  .calendar-manager-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-manager-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .calendar-manager-actions > .form-status {
+    grid-column: 1 / -1;
   }
 
   .task-card {

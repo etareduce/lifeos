@@ -951,6 +951,54 @@
             </div>
           </div>
         </div>
+        <section class="calendar-manager" id="homeCalendarManager">
+          <div class="calendar-manager-header">
+            <div>
+              <div class="calendar-manager-title">Calendars</div>
+              <div class="calendar-manager-copy">
+                Control visibility and sync without leaving Home.
+              </div>
+            </div>
+            <div class="calendar-manager-meta" id="homeGoogleConnectionMeta"></div>
+          </div>
+          <div class="calendar-manager-actions">
+            <button type="button" class="ghost small" id="homeGoogleConnectBtn">Add account</button>
+            <button type="button" class="ghost small danger" id="homeGoogleDisconnectBtn">
+              Disconnect all
+            </button>
+            <button type="button" class="ghost small" id="homeGoogleLoadCalendarsBtn">
+              Refresh Google calendars
+            </button>
+            <button type="button" class="primary small" id="homeGoogleQuickSyncBtn">
+              Quick sync selected
+            </button>
+            <button type="button" class="ghost small" id="homeGoogleAdvancedBtn">
+              Open advanced sync
+            </button>
+          </div>
+          <div class="form-status" id="homeGoogleSyncMessage"></div>
+          <div class="calendar-manager-columns">
+            <div class="calendar-manager-col">
+              <div class="calendar-manager-col-title">Google calendars to sync</div>
+              <div class="integration-calendars" id="homeGoogleCalendarList"></div>
+            </div>
+            <div class="calendar-manager-col">
+              <div class="calendar-manager-col-title">Displayed calendar views</div>
+              <div class="integration-actions" data-settings-ignore="true">
+                <input
+                  type="text"
+                  id="homeCustomCalendarNameInput"
+                  placeholder="New calendar name"
+                  data-settings-ignore="true"
+                />
+                <button type="button" class="ghost small" id="homeCreateCustomCalendarBtn">
+                  Create
+                </button>
+              </div>
+              <div class="integration-calendars" id="homeCalendarViewList"></div>
+            </div>
+          </div>
+        </section>
         <div class="info-card" id="infoCard" aria-hidden="true"></div>
 
         <div class="views">

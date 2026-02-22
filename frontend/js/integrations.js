@@ -29,6 +29,14 @@ function setRefreshHandler(handler) {
   refreshHandler = handler;
 }
 
+function calendarListTargets() {
+  return [dom.googleCalendarList, dom.homeGoogleCalendarList].filter(Boolean);
+}
+
+function calendarViewTargets() {
+  return [dom.calendarViewList, dom.homeCalendarViewList].filter(Boolean);
+}
+
 function setConnectionStatus(status) {
   if (!dom.googleConnectionStatus) return;
   const accounts = Array.isArray(status?.accounts) ? status.accounts : [];
@@ -45,6 +53,11 @@ function setConnectionStatus(status) {
       dom.googleConnectionMeta.textContent = `${accounts.length} account(s) · ${label}`;
     }
   }
+  if (dom.homeGoogleConnectionMeta) {
+    dom.homeGoogleConnectionMeta.textContent = connected
+      ? `${accounts.length} Google account(s) connected`
+      : "No Google accounts connected";
+  }
   renderAccountList();
 }
 
@@ -55,9 +68,14 @@ function setConnectionMessage(message = "", error = false) {
 }
 
 function setSyncMessage(message = "", error = false) {
-  if (!dom.googleSyncMessage) return;
-  dom.googleSyncMessage.textContent = message;
-  dom.googleSyncMessage.classList.toggle("error", Boolean(error));
+  if (dom.googleSyncMessage) {
+    dom.googleSyncMessage.textContent = message;
+    dom.googleSyncMessage.classList.toggle("error", Boolean(error));
+  }
+  if (dom.homeGoogleSyncMessage) {
+    dom.homeGoogleSyncMessage.textContent = message;
+    dom.homeGoogleSyncMessage.classList.toggle("error", Boolean(error));
+  }
 }
 
 function renderAccountList() {
@@ -90,80 +108,86 @@ function renderAccountList() {
 }
 
 function renderCalendarList() {
-  if (!dom.googleCalendarList) return;
-  if (!googleState.calendars.length) {
-    dom.googleCalendarList.innerHTML = "";
-    return;
-  }
-  dom.googleCalendarList.innerHTML = googleState.calendars
-    .map((calendar) => {
-      const selected = calendar.selected !== false;
-      const badge = calendar.primary ? '<span class="integration-calendar-badge">Primary</span>' : "";
-      const accountLabel = calendar.account_name || calendar.account_id || "Google account";
-      return `
-        <label class="integration-calendar-item">
-          <input
-            type="checkbox"
-            data-calendar-id="${calendar.id}"
-            ${selected ? "checked" : ""}
-          />
-          <div class="integration-calendar-meta">
-            <span class="integration-calendar-name">${calendar.name}</span>
-            <span class="integration-calendar-tz">${accountLabel} · ${calendar.time_zone || "UTC"}</span>
-          </div>
-          ${badge}
-        </label>
-      `;
-    })
-    .join("");
+  const targets = calendarListTargets();
+  if (!targets.length) return;
+  const html = !googleState.calendars.length
+    ? ""
+    : googleState.calendars
+        .map((calendar) => {
+          const selected = calendar.selected !== false;
+          const badge = calendar.primary
+            ? '<span class="integration-calendar-badge">Primary</span>'
+            : "";
+          const accountLabel = calendar.account_name || calendar.account_id || "Google account";
+          return `
+            <label class="integration-calendar-item">
+              <input
+                type="checkbox"
+                data-calendar-id="${calendar.id}"
+                ${selected ? "checked" : ""}
+              />
+              <div class="integration-calendar-meta">
+                <span class="integration-calendar-name">${calendar.name}</span>
+                <span class="integration-calendar-tz">${accountLabel} · ${calendar.time_zone || "UTC"}</span>
+              </div>
+              ${badge}
+            </label>
+          `;
+        })
+        .join("");
+  targets.forEach((target) => {
+    target.innerHTML = html;
+  });
 }
 
 function renderCalendarViews() {
-  if (!dom.calendarViewList) return;
-  if (!googleState.calendarViews.length) {
-    dom.calendarViewList.innerHTML = "";
-    return;
-  }
-  dom.calendarViewList.innerHTML = googleState.calendarViews
-    .map((view) => {
-      const checked = view.visible !== false;
-      const badge = view.is_main
-        ? '<span class="integration-calendar-badge">Main</span>'
-        : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`;
-      const copyDisabled = view.is_main || !view.recurrence_count;
-      return `
-        <div class="integration-calendar-item">
-          <input
-            type="checkbox"
-            data-calendar-view-id="${view.id}"
-            ${checked ? "checked" : ""}
-            ${view.is_main ? "disabled" : ""}
-          />
-          <div class="integration-calendar-meta">
-            <span class="integration-calendar-name">${view.name}</span>
-            <span class="integration-calendar-tz">${view.recurrence_count || 0} recurrence(s)</span>
-          </div>
-          <div class="integration-calendar-actions">
-            ${badge}
-            <button
-              type="button"
-              class="ghost small"
-              data-copy-calendar-view-id="${view.id}"
-              ${copyDisabled ? "disabled" : ""}
-            >
-              Copy to main
-            </button>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
+  const targets = calendarViewTargets();
+  if (!targets.length) return;
+  const html = !googleState.calendarViews.length
+    ? ""
+    : googleState.calendarViews
+        .map((view) => {
+          const checked = view.visible !== false;
+          const badge = view.is_main
+            ? '<span class="integration-calendar-badge">Main</span>'
+            : `<span class="integration-calendar-badge">${view.source || "calendar"}</span>`;
+          const copyDisabled = view.is_main || !view.recurrence_count;
+          return `
+            <div class="integration-calendar-item">
+              <input
+                type="checkbox"
+                data-calendar-view-id="${view.id}"
+                ${checked ? "checked" : ""}
+                ${view.is_main ? "disabled" : ""}
+              />
+              <div class="integration-calendar-meta">
+                <span class="integration-calendar-name">${view.name}</span>
+                <span class="integration-calendar-tz">${view.recurrence_count || 0} recurrence(s)</span>
+              </div>
+              <div class="integration-calendar-actions">
+                ${badge}
+                <button
+                  type="button"
+                  class="ghost small"
+                  data-copy-calendar-view-id="${view.id}"
+                  ${copyDisabled ? "disabled" : ""}
+                >
+                  Copy to main
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+  targets.forEach((target) => {
+    target.innerHTML = html;
+  });
 }
 
 function selectedCalendarIds() {
-  if (!dom.googleCalendarList) return [];
-  return Array.from(dom.googleCalendarList.querySelectorAll("input[data-calendar-id]:checked"))
-    .map((input) => input.getAttribute("data-calendar-id"))
+  return googleState.calendars
+    .filter((calendar) => calendar.selected !== false)
+    .map((calendar) => calendar.id)
     .filter(Boolean);
 }
 
@@ -221,6 +245,18 @@ function collectDecisions() {
       merge_recurrence_id: null,
     };
   });
+}
+
+function mergeCalendarSelections(nextCalendars) {
+  const selectedById = new Map(
+    googleState.calendars.map((calendar) => [calendar.id, calendar.selected !== false])
+  );
+  return (Array.isArray(nextCalendars) ? nextCalendars : []).map((calendar) => ({
+    ...calendar,
+    selected: selectedById.has(calendar.id)
+      ? selectedById.get(calendar.id)
+      : calendar.selected !== false,
+  }));
 }
 
 async function hydrateConnectionStatus() {
@@ -286,20 +322,39 @@ async function handleDisconnectGoogle(accountKey = null) {
   }
 }
 
-async function handleLoadCalendars() {
-  setSyncMessage("Loading calendars...");
+async function handleLoadCalendars(options = {}) {
+  const silent = Boolean(options.silent);
+  if (!silent) {
+    setSyncMessage("Loading calendars...");
+  }
   try {
     const calendars = await listGoogleCalendars();
-    googleState.calendars = Array.isArray(calendars) ? calendars : [];
+    googleState.calendars = mergeCalendarSelections(calendars);
     renderCalendarList();
-    setSyncMessage(
-      googleState.calendars.length
-        ? "Choose calendars, then generate a preview."
-        : "No calendars available for connected accounts."
-    );
+    if (!silent) {
+      setSyncMessage(
+        googleState.calendars.length
+          ? "Choose calendars, then generate a preview or quick sync."
+          : "No calendars available for connected accounts."
+      );
+    }
   } catch (error) {
-    setSyncMessage(error?.message || "Unable to load calendars.", true);
+    if (!silent) {
+      setSyncMessage(error?.message || "Unable to load calendars.", true);
+    }
   }
+}
+
+function buildPreviewRange() {
+  const range = getViewRange(state.view, state.anchorDate);
+  const maxEnd = new Date(range.start.getTime() + MAX_PREVIEW_DAYS * 24 * 60 * 60 * 1000);
+  const boundedEnd = range.end > maxEnd ? maxEnd : range.end;
+  return {
+    range,
+    boundedEnd,
+    range_start: toProjectIsoFromDate(range.start, appConfig.projectTimeZone),
+    range_end: toProjectIsoFromDate(boundedEnd, appConfig.projectTimeZone),
+  };
 }
 
 async function handlePreviewSync() {
@@ -308,15 +363,13 @@ async function handlePreviewSync() {
     setSyncMessage("Select at least one calendar first.", true);
     return;
   }
-  const range = getViewRange(state.view, state.anchorDate);
-  const maxEnd = new Date(range.start.getTime() + MAX_PREVIEW_DAYS * 24 * 60 * 60 * 1000);
-  const boundedEnd = range.end > maxEnd ? maxEnd : range.end;
+  const { range, boundedEnd, range_start, range_end } = buildPreviewRange();
   setSyncMessage("Generating preview...");
   try {
     const preview = await previewGoogleSync({
       calendar_ids: calendarIds,
-      range_start: toProjectIsoFromDate(range.start, appConfig.projectTimeZone),
-      range_end: toProjectIsoFromDate(boundedEnd, appConfig.projectTimeZone),
+      range_start,
+      range_end,
     });
     googleState.preview = preview;
     renderPreview();
@@ -328,29 +381,76 @@ async function handlePreviewSync() {
   }
 }
 
-async function handleApplySync() {
+async function applyPreviewDecisions(decisions, progressLabel = "Applying sync...") {
   if (!googleState.preview?.preview_id) {
     setSyncMessage("Generate a preview before applying sync.", true);
-    return;
+    return null;
   }
-  const decisions = collectDecisions();
-  setSyncMessage("Applying sync...");
+  setSyncMessage(progressLabel);
+  const result = await applyGoogleSync({
+    preview_id: googleState.preview.preview_id,
+    decisions,
+  });
+  googleState.preview = null;
+  renderPreview();
+  await hydrateCalendarViews();
+  if (refreshHandler) {
+    await refreshHandler(state.view);
+  }
+  return result;
+}
+
+async function handleApplySync() {
   try {
-    const result = await applyGoogleSync({
-      preview_id: googleState.preview.preview_id,
-      decisions,
-    });
+    const decisions = collectDecisions();
+    const result = await applyPreviewDecisions(decisions, "Applying sync...");
+    if (!result) return;
     setSyncMessage(
       `Sync complete. Created ${result.created_count}, updated ${result.merged_count}, removed ${result.deleted_count || 0}, skipped ${result.skipped_count}.`
     );
-    googleState.preview = null;
-    renderPreview();
-    await hydrateCalendarViews();
-    if (refreshHandler) {
-      await refreshHandler(state.view);
-    }
   } catch (error) {
     setSyncMessage(error?.message || "Unable to apply sync.", true);
+  }
+}
+
+async function handleQuickSyncSelected() {
+  if (!googleState.accounts.length) {
+    setSyncMessage("Connect a Google account first.", true);
+    return;
+  }
+  if (!googleState.calendars.length) {
+    await handleLoadCalendars({ silent: true });
+  }
+  if (!googleState.calendars.length) {
+    setSyncMessage("No Google calendars available to sync.", true);
+    return;
+  }
+  if (!selectedCalendarIds().length) {
+    googleState.calendars = googleState.calendars.map((calendar) => ({ ...calendar, selected: true }));
+    renderCalendarList();
+  }
+  const calendarIds = selectedCalendarIds();
+  const { range_start, range_end } = buildPreviewRange();
+  setSyncMessage("Quick sync in progress...");
+  try {
+    const preview = await previewGoogleSync({
+      calendar_ids: calendarIds,
+      range_start,
+      range_end,
+    });
+    googleState.preview = preview;
+    const decisions = (preview.items || []).map((item) => ({
+      item_id: item.item_id,
+      action: "create",
+      merge_recurrence_id: null,
+    }));
+    const result = await applyPreviewDecisions(decisions, "Applying quick sync...");
+    if (!result) return;
+    setSyncMessage(
+      `Quick sync complete. Created ${result.created_count}, updated ${result.merged_count}, removed ${result.deleted_count || 0}, skipped ${result.skipped_count}.`
+    );
+  } catch (error) {
+    setSyncMessage(error?.message || "Quick sync failed.", true);
   }
 }
 
@@ -368,6 +468,16 @@ async function handleCalendarVisibilityChange(input) {
     setSyncMessage(error?.message || "Unable to update calendar visibility.", true);
     await hydrateCalendarViews();
   }
+}
+
+function updateCalendarSelectionFromCheckbox(input) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const calendarId = input.getAttribute("data-calendar-id");
+  if (!calendarId) return;
+  googleState.calendars = googleState.calendars.map((calendar) =>
+    calendar.id === calendarId ? { ...calendar, selected: input.checked } : calendar
+  );
+  renderCalendarList();
 }
 
 async function handleCopyCalendarToMain(button) {
@@ -389,8 +499,8 @@ async function handleCopyCalendarToMain(button) {
   }
 }
 
-async function handleCreateCustomCalendar() {
-  const name = dom.customCalendarNameInput?.value?.trim() || "";
+async function handleCreateCustomCalendar(inputElement) {
+  const name = inputElement?.value?.trim() || "";
   if (!name) {
     setSyncMessage("Enter a calendar name first.", true);
     return;
@@ -400,6 +510,9 @@ async function handleCreateCustomCalendar() {
     await createCustomCalendar(name);
     if (dom.customCalendarNameInput) {
       dom.customCalendarNameInput.value = "";
+    }
+    if (dom.homeCustomCalendarNameInput) {
+      dom.homeCustomCalendarNameInput.value = "";
     }
     await hydrateCalendarViews();
     setSyncMessage("Custom calendar created.");
@@ -427,27 +540,74 @@ function consumeOAuthResultFromUrl() {
   const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ""}${window.location.hash}`;
   window.history.replaceState({}, "", cleanUrl);
 
-  openGoogleSyncSettings();
   if (oauthStatus === "success") {
     setConnectionMessage("Google account connected.");
     hydrateConnectionStatus();
+    handleLoadCalendars({ silent: true });
     hydrateCalendarViews();
     return;
   }
   setConnectionMessage(oauthMessage || "Google sign-in failed.", true);
+  setSyncMessage(oauthMessage || "Google sign-in failed.", true);
+}
+
+function bindCalendarListHandlers(target) {
+  target?.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof Element)) return;
+    if (input.matches("input[data-calendar-id]")) {
+      updateCalendarSelectionFromCheckbox(input);
+    }
+  });
+}
+
+function bindCalendarViewHandlers(target) {
+  target?.addEventListener("change", (event) => {
+    const element = event.target;
+    if (!(element instanceof Element)) return;
+    if (element.matches("input[data-calendar-view-id]")) {
+      handleCalendarVisibilityChange(element);
+    }
+  });
+  target?.addEventListener("click", (event) => {
+    const element = event.target;
+    if (!(element instanceof Element)) return;
+    const button = element.closest("button[data-copy-calendar-view-id]");
+    if (button instanceof HTMLButtonElement) {
+      handleCopyCalendarToMain(button);
+    }
+  });
 }
 
 function bindIntegrationHandlers(onRefresh) {
   setRefreshHandler(onRefresh);
   consumeOAuthResultFromUrl();
+
   dom.googleConnectBtn?.addEventListener("click", handleConnectGoogle);
+  dom.homeGoogleConnectBtn?.addEventListener("click", handleConnectGoogle);
   dom.googleManualConnectBtn?.addEventListener("click", handleManualConnectGoogle);
+
   dom.googleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
-  dom.googleLoadCalendarsBtn?.addEventListener("click", handleLoadCalendars);
+  dom.homeGoogleDisconnectBtn?.addEventListener("click", () => handleDisconnectGoogle(null));
+
+  dom.googleLoadCalendarsBtn?.addEventListener("click", () => handleLoadCalendars());
+  dom.homeGoogleLoadCalendarsBtn?.addEventListener("click", () => handleLoadCalendars());
+  dom.homeGoogleQuickSyncBtn?.addEventListener("click", handleQuickSyncSelected);
+
   dom.googlePreviewBtn?.addEventListener("click", handlePreviewSync);
   dom.googleApplyBtn?.addEventListener("click", handleApplySync);
   dom.googleRefreshViewsBtn?.addEventListener("click", hydrateCalendarViews);
-  dom.createCustomCalendarBtn?.addEventListener("click", handleCreateCustomCalendar);
+
+  dom.createCustomCalendarBtn?.addEventListener("click", () =>
+    handleCreateCustomCalendar(dom.customCalendarNameInput)
+  );
+  dom.homeCreateCustomCalendarBtn?.addEventListener("click", () =>
+    handleCreateCustomCalendar(dom.homeCustomCalendarNameInput)
+  );
+
+  dom.homeGoogleAdvancedBtn?.addEventListener("click", openGoogleSyncSettings);
+  dom.googleSyncBtn?.addEventListener("click", openGoogleSyncSettings);
+
   dom.googleAccountsList?.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -458,32 +618,28 @@ function bindIntegrationHandlers(onRefresh) {
       handleDisconnectGoogle(accountKey);
     }
   });
-  dom.calendarViewList?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (target.matches("input[data-calendar-view-id]")) {
-      handleCalendarVisibilityChange(target);
-    }
-  });
-  dom.calendarViewList?.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const button = target.closest("button[data-copy-calendar-view-id]");
-    if (button instanceof HTMLButtonElement) {
-      handleCopyCalendarToMain(button);
-    }
-  });
-  dom.googleSyncBtn?.addEventListener("click", openGoogleSyncSettings);
+
+  bindCalendarListHandlers(dom.googleCalendarList);
+  bindCalendarListHandlers(dom.homeGoogleCalendarList);
+  bindCalendarViewHandlers(dom.calendarViewList);
+  bindCalendarViewHandlers(dom.homeCalendarViewList);
+
   dom.settingsBtn?.addEventListener("click", () => {
     hydrateConnectionStatus();
+    handleLoadCalendars({ silent: true });
     hydrateCalendarViews();
   });
   document
     .querySelector('[data-settings-tab="integrations"]')
     ?.addEventListener("click", () => {
       hydrateConnectionStatus();
+      handleLoadCalendars({ silent: true });
       hydrateCalendarViews();
     });
+
+  hydrateConnectionStatus();
+  handleLoadCalendars({ silent: true });
+  hydrateCalendarViews();
 }
 
 export { bindIntegrationHandlers, openGoogleSyncSettings };
