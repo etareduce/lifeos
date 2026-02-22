@@ -347,7 +347,10 @@ function renderCalendarViews() {
     dom.calendarViewList.innerHTML = renderRows(allViews, { showSourceBadge: true });
   }
   if (dom.sidebarCalendarViewList) {
-    dom.sidebarCalendarViewList.innerHTML = renderRows(allViews, { showSourceBadge: true });
+    const topLevelViews = allViews.filter(
+      (view) => String(view.source || "").toLowerCase() !== "google"
+    );
+    dom.sidebarCalendarViewList.innerHTML = renderRows(topLevelViews, { showSourceBadge: true });
   }
 }
 
