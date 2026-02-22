@@ -312,8 +312,11 @@ async function switchWorkspaceMode(mode) {
   }
 }
 
-async function refreshView(nextView = state.view) {
+async function refreshView(nextView = state.view, options = {}) {
   const view = nextView || state.view;
+  if (options?.forceReload) {
+    state.loadedRange = null;
+  }
   setActive(view, { deferRender: true });
   const range =
     state.workspaceMode === WORKSPACE_MODE.HOME

@@ -586,7 +586,7 @@ async function handleCalendarVisibilityChange(input) {
     );
     renderCalendarViews();
     if (refreshHandler) {
-      await refreshHandler(state.view);
+      await refreshHandler(state.view, { forceReload: true });
     }
   } catch (error) {
     googleState.calendarViews = googleState.calendarViews.map((view) =>
