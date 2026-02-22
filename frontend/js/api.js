@@ -392,13 +392,26 @@ async function setCalendarVisibility(calendarViewId, visible) {
   return response.json();
 }
 
-async function setGoogleCalendarSelection(calendarViewId, selected) {
+async function setGoogleCalendarSelection(calendarViewId, selected, options = {}) {
+  const relatedViewIds = Array.isArray(options?.relatedViewIds)
+    ? options.relatedViewIds
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    : [];
+  const payload = {
+    selected: Boolean(selected),
+    visible:
+      typeof options?.visible === "boolean"
+        ? options.visible
+        : Boolean(selected),
+    related_view_ids: relatedViewIds,
+  };
   const response = await fetch(
     `${API_BASE}/integrations/google/calendars/${encodeURIComponent(calendarViewId)}/selection`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ selected: Boolean(selected) }),
+      body: JSON.stringify(payload),
     }
   );
   if (!response.ok) {

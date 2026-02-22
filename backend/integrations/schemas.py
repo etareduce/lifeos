@@ -26,6 +26,8 @@ class GoogleConnectRequest(BaseModel):
 
 class GoogleCalendarSelectionUpdateRequest(BaseModel):
     selected: bool
+    visible: bool | None = None
+    related_view_ids: list[str] = Field(default_factory=list)
 
 
 class IntegrationCalendarRead(BaseModel):

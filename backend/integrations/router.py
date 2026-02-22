@@ -598,6 +598,16 @@ async def set_google_calendar_selection(
     selection_map = _get_google_calendar_selection_map(connection)
     selection_map[calendar_view_id] = bool(payload.selected)
     metadata_json["google_calendar_selection"] = selection_map
+    visibility = _get_calendar_visibility_map(connection)
+    next_visible = bool(payload.selected if payload.visible is None else payload.visible)
+    related_view_ids = {
+        str(item or "").strip()
+        for item in ([calendar_view_id] + list(payload.related_view_ids or []))
+        if str(item or "").strip()
+    }
+    for view_id in related_view_ids:
+        visibility[view_id] = next_visible
+    metadata_json["calendar_visibility"] = visibility
     _set_google_connection_fields(
         connection,
         accounts=_get_google_accounts(connection),

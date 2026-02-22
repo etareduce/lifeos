@@ -95,11 +95,18 @@ function persistCalendarVisibility(viewId, visible) {
   );
 }
 
-function persistSourceCalendarSelection(calendarId, selected) {
+function persistSourceCalendarSelection(calendarId, selected, relatedViewIds = []) {
+  const related = Array.isArray(relatedViewIds)
+    ? relatedViewIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
   return persistBooleanUpdateInOrder(
     sourceCalendarPersistChains,
     calendarId,
-    () => apiSetGoogleCalendarSelection(calendarId, selected)
+    () =>
+      apiSetGoogleCalendarSelection(calendarId, selected, {
+        visible: Boolean(selected),
+        relatedViewIds: related,
+      })
   );
 }
 
@@ -793,10 +800,11 @@ async function updateCalendarSelectionFromCheckbox(input) {
   renderCalendarList();
   refreshCalendarNow();
   try {
-    const [updated, ...visibilityResults] = await Promise.all([
-      persistSourceCalendarSelection(calendarId, input.checked),
-      ...targetViewIds.map((viewId) => persistCalendarVisibility(viewId, input.checked)),
-    ]);
+    const updated = await persistSourceCalendarSelection(
+      calendarId,
+      input.checked,
+      targetViewIds
+    );
     let sourceApplied = false;
     if (isMutationVersionCurrent(sourceCalendarMutationVersions, calendarId, sourceMutationVersion)) {
       googleState.calendars = googleState.calendars.map((calendar) =>
@@ -810,30 +818,11 @@ async function updateCalendarSelectionFromCheckbox(input) {
       );
       sourceApplied = true;
     }
-    const updatesById = new Map(visibilityResults.map((item) => [item.id, item]));
-    let viewApplied = false;
-    googleState.calendarViews = googleState.calendarViews.map((view) => {
-      const update = updatesById.get(view.id);
-      if (!update) return view;
-      const expectedVersion = viewMutationVersions.get(view.id);
-      if (
-        typeof expectedVersion === "number" &&
-        !isMutationVersionCurrent(calendarViewMutationVersions, view.id, expectedVersion)
-      ) {
-        return view;
-      }
-      viewApplied = true;
-      return {
-        ...view,
-        ...update,
-        visible: update.visible !== false,
-      };
-    });
-    if (sourceApplied || viewApplied) {
+    if (sourceApplied) {
       renderCalendarViews();
       renderCalendarList();
     }
-    if (targetViewIds.length && (sourceApplied || viewApplied)) {
+    if (targetViewIds.length && sourceApplied) {
       scheduleCalendarForceReload();
     }
   } catch (error) {
@@ -881,10 +870,12 @@ async function setAllGoogleCalendarSelections(selected) {
   const previousById = new Map(
     changed.map((calendar) => [calendar.id, calendar.selected !== false])
   );
+  const relatedViewIdsByCalendarId = new Map();
   const visibilityUpdates = [];
   const previousVisibilityByViewId = new Map();
   for (const calendar of changed) {
     const viewIds = matchingGoogleViewIdsForSourceCalendar(calendar);
+    relatedViewIdsByCalendarId.set(calendar.id, viewIds);
     for (const viewId of viewIds) {
       if (!previousVisibilityByViewId.has(viewId)) {
         const view = googleState.calendarViews.find((item) => item.id === viewId);
@@ -909,17 +900,16 @@ async function setAllGoogleCalendarSelections(selected) {
   setSyncMessage(nextValue ? "Checking source calendars..." : "Unchecking source calendars...");
   try {
     const sourceSelectionPromise = Promise.all(
-      changed.map((calendar) => persistSourceCalendarSelection(calendar.id, nextValue))
+      changed.map((calendar) =>
+        persistSourceCalendarSelection(
+          calendar.id,
+          nextValue,
+          relatedViewIdsByCalendarId.get(calendar.id) || []
+        )
+      )
     );
-    const visibilityPromise = Promise.all(
-      uniqueVisibilityUpdates.map((viewId) => persistCalendarVisibility(viewId, nextValue))
-    );
-    const [selectionUpdates, viewUpdates] = await Promise.all([
-      sourceSelectionPromise,
-      visibilityPromise,
-    ]);
+    const selectionUpdates = await sourceSelectionPromise;
     const updatesById = new Map(selectionUpdates.map((item) => [item.id, item]));
-    const viewUpdatesById = new Map(viewUpdates.map((item) => [item.id, item]));
     let sourceApplied = false;
     googleState.calendars = googleState.calendars.map((calendar) => {
       const updated = updatesById.get(calendar.id);
@@ -938,25 +928,7 @@ async function setAllGoogleCalendarSelections(selected) {
         selected: updated.selected !== false,
       };
     });
-    let viewApplied = false;
-    googleState.calendarViews = googleState.calendarViews.map((view) => {
-      const updated = viewUpdatesById.get(view.id);
-      if (!updated) return view;
-      const expectedVersion = viewMutationVersions.get(view.id);
-      if (
-        typeof expectedVersion === "number" &&
-        !isMutationVersionCurrent(calendarViewMutationVersions, view.id, expectedVersion)
-      ) {
-        return view;
-      }
-      viewApplied = true;
-      return {
-        ...view,
-        ...updated,
-        visible: updated.visible !== false,
-      };
-    });
-    if (sourceApplied || viewApplied) {
+    if (sourceApplied) {
       renderCalendarViews();
       renderCalendarList();
       setSyncMessage(
@@ -965,7 +937,7 @@ async function setAllGoogleCalendarSelections(selected) {
           : "All source calendars unchecked."
       );
     }
-    if (uniqueVisibilityUpdates.length && (sourceApplied || viewApplied)) {
+    if (uniqueVisibilityUpdates.length && sourceApplied) {
       scheduleCalendarForceReload();
     }
   } catch (error) {
