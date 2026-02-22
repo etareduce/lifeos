@@ -304,7 +304,7 @@ async def google_oauth_callback(
         else None
     )
 
-    connection = await _ensure_google_connection(session)
+    connection = await _require_google_connection(session)
     metadata_json = dict(connection.metadata_json or {})
     accounts = _get_google_accounts(connection)
     target = None
