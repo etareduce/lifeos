@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass, field
@@ -84,6 +85,7 @@ MAIN_CALENDAR_VIEW_ID = "main"
 MAIN_CALENDAR_NAME = "Main calendar"
 GOOGLE_PROVIDER = "google"
 CUSTOM_PROVIDER = "custom"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -515,6 +517,7 @@ async def list_google_calendars(
     if not accounts:
         return []
     selection_map = _get_google_calendar_selection_map(connection)
+    fallback_calendars_by_account: dict[str, list[dict]] | None = None
     calendars: list[IntegrationCalendarRead] = []
     for account in accounts:
         access_token = str(account.get("access_token") or "").strip()
@@ -522,20 +525,28 @@ async def list_google_calendars(
         if not access_token:
             continue
         adapter = GoogleCalendarAdapter(access_token)
+        account_calendars: list[dict] = []
         try:
             account_calendars = await adapter.list_calendars()
         except GoogleCalendarAPIError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unable to list Google calendars: {exc}",
-            ) from exc
+            logger.warning(
+                "google list_calendars failed for account %s: %s",
+                account_key,
+                exc,
+            )
         except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Google calendar request failed: {exc}",
-            ) from exc
+            logger.exception(
+                "google list_calendars request failed for account %s",
+                account_key,
+            )
         finally:
             await adapter.aclose()
+        if not account_calendars:
+            if fallback_calendars_by_account is None:
+                fallback_calendars_by_account = await _fallback_google_calendars_by_account(
+                    session
+                )
+            account_calendars = fallback_calendars_by_account.get(account_key, [])
         for item in account_calendars:
             calendar_id = str(item.get("id") or "").strip()
             if not calendar_id:
@@ -568,6 +579,61 @@ async def list_google_calendars(
         )
     )
     return calendars
+
+
+async def _fallback_google_calendars_by_account(
+    session: AsyncSession,
+) -> dict[str, list[dict]]:
+    result = await session.execute(select(RecurrenceModel))
+    recurrences = result.scalars().all()
+    by_account: dict[str, dict[str, dict]] = {}
+    for recurrence in recurrences:
+        payload = recurrence.payload or {}
+        source = _integration_source(payload)
+        if not source:
+            continue
+        account_key = str(source.get("account_key") or "").strip()
+        calendar_id = str(source.get("calendar_id") or "").strip()
+        if not account_key or not calendar_id:
+            continue
+        account_items = by_account.setdefault(account_key, {})
+        if calendar_id in account_items:
+            continue
+        calendar_name = str(source.get("calendar_name") or "").strip() or calendar_id
+        account_items[calendar_id] = {
+            "id": calendar_id,
+            "name": calendar_name,
+            "description": None,
+            "time_zone": _fallback_calendar_timezone(payload),
+            "primary": False,
+            "access_role": "reader",
+        }
+    return {
+        account_key: sorted(
+            items.values(),
+            key=lambda item: str(item.get("name") or "").lower(),
+        )
+        for account_key, items in by_account.items()
+    }
+
+
+def _fallback_calendar_timezone(payload: dict | None) -> str:
+    if not isinstance(payload, dict):
+        return "UTC"
+    blob = payload.get("blob")
+    if isinstance(blob, dict):
+        value = str(blob.get("tz") or "").strip()
+        if value:
+            return value
+    blobs = payload.get("blobs")
+    if isinstance(blobs, list):
+        for item in blobs:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("tz") or "").strip()
+            if value:
+                return value
+    return "UTC"
 
 
 @integration_router.put(
