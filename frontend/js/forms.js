@@ -5,6 +5,7 @@ import {
   formatDateTimeLocalInTimeZone,
   getViewRange,
   getWeekStart,
+  isBlobEditableInMainUi,
   overlaps,
   shiftAnchorDate,
   toLocalInputValueInTimeZone,
@@ -18,7 +19,7 @@ import {
   createRecurrencesBulk,
   updateRecurrence,
 } from "./api.js";
-import { confirmDialog } from "./popups.js";
+import { alertDialog, confirmDialog } from "./popups.js";
 import { bindDateTimePickers, syncDateTimeDisplays } from "./datetime_picker.js";
 import { deleteOccurrenceWithUndo, deleteRecurrenceWithUndo } from "./actions.js";
 
@@ -2258,6 +2259,12 @@ function resetFormMode() {
 }
 
 function openEditForm(blob) {
+  if (!isBlobEditableInMainUi(blob)) {
+    alertDialog(
+      "This event belongs to a source calendar and is read-only in the main timeline. Copy it to Main to edit."
+    );
+    return;
+  }
   state.selectionMode = false;
   state.selectionStep = null;
   state.pendingDefaultRange = null;

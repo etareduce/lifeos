@@ -328,6 +328,35 @@ function getTagType(tags) {
   return "focus";
 }
 
+function getBlobCalendarContext(blob) {
+  const payload = blob?.recurrence_payload;
+  const recurrencePayload = payload && typeof payload === "object" ? payload : {};
+  const calendarView =
+    recurrencePayload.calendar_view && typeof recurrencePayload.calendar_view === "object"
+      ? recurrencePayload.calendar_view
+      : null;
+  const integrationSource =
+    recurrencePayload.integration_source &&
+    typeof recurrencePayload.integration_source === "object"
+      ? recurrencePayload.integration_source
+      : null;
+  const calendarViewId = String(calendarView?.id || "").trim();
+  const isMain =
+    Boolean(calendarView?.is_main) ||
+    calendarViewId === "main" ||
+    (!calendarView && !integrationSource);
+  return {
+    calendarView,
+    integrationSource,
+    calendarViewId,
+    isMain,
+  };
+}
+
+function isBlobEditableInMainUi(blob) {
+  return getBlobCalendarContext(blob).isMain;
+}
+
 function overlaps(rangeStart, rangeEnd, eventStart, eventEnd) {
   return eventStart < rangeEnd && eventEnd > rangeStart;
 }
@@ -386,7 +415,9 @@ export {
   getViewRange,
   getWeekStart,
   getEffectiveOccurrenceRange,
+  getBlobCalendarContext,
   getOccurrenceOverride,
+  isBlobEditableInMainUi,
   getLocalTimeZone,
   getTimeZoneParts,
   formatDateTimeLocalInTimeZone,

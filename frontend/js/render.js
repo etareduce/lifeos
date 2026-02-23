@@ -6,6 +6,7 @@ import {
   addDays,
   clampToGranularity,
   formatTimeRangeInTimeZone,
+  getBlobCalendarContext,
   getEffectiveOccurrenceRange,
   getOccurrenceOverride,
   getWeekStart,
@@ -140,24 +141,8 @@ function calendarSourceLabel(source) {
 }
 
 function resolveBlobCalendarInfo(blob) {
-  const payload = blob?.recurrence_payload;
-  const recurrencePayload =
-    payload && typeof payload === "object" ? payload : {};
-  const calendarView =
-    recurrencePayload.calendar_view &&
-    typeof recurrencePayload.calendar_view === "object"
-      ? recurrencePayload.calendar_view
-      : null;
-  const integrationSource =
-    recurrencePayload.integration_source &&
-    typeof recurrencePayload.integration_source === "object"
-      ? recurrencePayload.integration_source
-      : null;
-  const calendarViewId = String(calendarView?.id || "").trim();
-  const isMain =
-    Boolean(calendarView?.is_main) ||
-    calendarViewId === "main" ||
-    (!calendarView && !integrationSource);
+  const { calendarView, integrationSource, calendarViewId, isMain } =
+    getBlobCalendarContext(blob);
   const name = String(
     isMain
       ? "Main"
