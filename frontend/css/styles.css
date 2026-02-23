@@ -271,6 +271,9 @@ body[data-theme="ember"] {
 .sidebar-calendars-body {
   min-height: 0;
   display: grid;
+  grid-auto-rows: min-content;
+  align-content: start;
+  align-items: start;
   gap: 8px;
   overflow: auto;
   padding-right: 2px;
@@ -281,6 +284,7 @@ body[data-theme="ember"] {
   border-radius: 10px;
   padding: 6px;
   background: rgba(255, 255, 255, 0.4);
+  align-self: start;
 }
 
 .sidebar-calendar-group:not([open]) {
@@ -324,6 +328,9 @@ body[data-theme="ember"] {
 .sidebar-calendar-list {
   margin-top: 8px;
   display: grid;
+  grid-auto-rows: min-content;
+  align-content: start;
+  align-items: start;
   gap: 6px;
 }
 
@@ -340,6 +347,7 @@ body[data-theme="ember"] {
   border-radius: 8px;
   padding: 4px 6px;
   background: rgba(255, 255, 255, 0.45);
+  align-self: start;
 }
 
 .sidebar-account-group:not([open]) {
