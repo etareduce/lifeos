@@ -283,6 +283,10 @@ body[data-theme="ember"] {
   background: rgba(255, 255, 255, 0.4);
 }
 
+.sidebar-calendar-group:not([open]) {
+  padding: 4px 6px;
+}
+
 .sidebar-calendar-group > summary {
   list-style: none;
   cursor: pointer;
@@ -338,6 +342,10 @@ body[data-theme="ember"] {
   background: rgba(255, 255, 255, 0.45);
 }
 
+.sidebar-account-group:not([open]) {
+  padding: 2px 6px;
+}
+
 .sidebar-account-group > summary {
   list-style: none;
   cursor: pointer;
@@ -348,6 +356,11 @@ body[data-theme="ember"] {
   font-size: 11px;
   font-weight: 700;
   color: var(--ink);
+}
+
+.sidebar-account-group:not([open]) > summary {
+  min-height: 0;
+  line-height: 1.15;
 }
 
 .sidebar-account-group > summary::-webkit-details-marker {
