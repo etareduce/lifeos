@@ -245,6 +245,9 @@ body[data-theme="ember"] {
 
 .sidebar-calendars {
   min-height: 0;
+  max-height: 100%;
+  align-self: start;
+  width: 100%;
   border: 1px solid rgba(27, 26, 22, 0.14);
   border-radius: 12px;
   padding: 10px;
