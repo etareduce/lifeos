@@ -48,6 +48,7 @@ from .schemas import (
     GoogleSyncPreviewResponse,
     IntegrationCalendarRead,
     MergeCandidatePreview,
+    MoveOccurrenceToMainRequest,
     SyncEventPreview,
 )
 from .utils import DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD
@@ -1390,6 +1391,123 @@ async def copy_recurrence_to_main(
 
 
 @integration_router.post(
+    "/recurrences/{recurrence_id}/move-to-main",
+    response_model=CopyToMainResponse,
+    operation_id="move_recurrence_to_main",
+)
+async def move_recurrence_to_main(
+    recurrence_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> CopyToMainResponse:
+    result = await session.execute(
+        select(RecurrenceModel).where(RecurrenceModel.id == recurrence_id)
+    )
+    recurrence = result.scalar_one_or_none()
+    if recurrence is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recurrence not found.",
+        )
+    if not _is_non_main_calendar_payload(recurrence.payload):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only non-main recurrences can be moved to main.",
+        )
+    outcome = await _move_imported_row_to_main(
+        session=session,
+        recurrence=recurrence,
+    )
+    return CopyToMainResponse(**outcome)
+
+
+@integration_router.post(
+    "/recurrences/{recurrence_id}/occurrences/move-to-main",
+    response_model=CopyToMainResponse,
+    operation_id="move_occurrence_to_main",
+)
+async def move_occurrence_to_main(
+    recurrence_id: str,
+    request: MoveOccurrenceToMainRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CopyToMainResponse:
+    result = await session.execute(
+        select(RecurrenceModel).where(RecurrenceModel.id == recurrence_id)
+    )
+    recurrence = result.scalar_one_or_none()
+    if recurrence is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recurrence not found.",
+        )
+    payload = dict(recurrence.payload or {})
+    if not _is_non_main_calendar_payload(payload):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only non-main recurrences can be moved to main.",
+        )
+    recurrence_type = _normalize_recurrence_type(recurrence.type)
+    if recurrence_type == "single":
+        outcome = await _move_imported_row_to_main(
+            session=session,
+            recurrence=recurrence,
+        )
+        return CopyToMainResponse(**outcome)
+
+    target_start = request.occurrence_start
+    if target_start.tzinfo is None:
+        target_start = target_start.replace(tzinfo=timezone.utc)
+    target_blob = _find_occurrence_blob(
+        recurrence_type=recurrence_type,
+        payload=payload,
+        occurrence_start=target_start,
+    )
+    if target_blob is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Occurrence not found for that recurrence.",
+        )
+
+    new_payload = _single_main_payload_from_occurrence_blob(
+        source_payload=payload,
+        blob=target_blob,
+    )
+    imported = _stored_recurrence_to_primitive(
+        recurrence_id=recurrence.id,
+        recurrence_type=recurrence_type,
+        payload=payload,
+        range_start=target_start - timedelta(days=2),
+        range_end=target_start + timedelta(days=2),
+    )
+    if imported is not None:
+        new_payload = _append_integration_link(new_payload, imported=imported)
+
+    removal = _remove_occurrence_from_payload(
+        recurrence_type=recurrence_type,
+        payload=payload,
+        occurrence_start=target_start,
+    )
+    if not removal["removed"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Occurrence could not be removed from source recurrence.",
+        )
+
+    session.add(
+        RecurrenceModel(
+            id=str(uuid.uuid4()),
+            type="single",
+            payload=new_payload,
+        )
+    )
+    if removal["delete_recurrence"]:
+        await session.delete(recurrence)
+    else:
+        recurrence.payload = removal["payload"]
+    await _mark_schedule_dirty(session)
+    return CopyToMainResponse(created_count=1, merged_count=0, skipped_count=0)
+
+
+@integration_router.post(
     "/recurrences/{recurrence_id}/copy-to-calendar/{calendar_view_id}",
     response_model=RecurrenceRead,
     operation_id="copy_recurrence_to_calendar",
@@ -2222,6 +2340,175 @@ async def _copy_imported_rows_to_main(
         "merged_count": merged_count,
         "skipped_count": skipped_count,
     }
+
+
+async def _move_imported_row_to_main(
+    *,
+    session: AsyncSession,
+    recurrence: RecurrenceModel,
+) -> dict[str, int]:
+    outcome = await _copy_imported_rows_to_main(session=session, rows=[recurrence])
+    if not (outcome["created_count"] or outcome["merged_count"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unable to move recurrence to main.",
+        )
+    await session.delete(recurrence)
+    await _mark_schedule_dirty(session)
+    return outcome
+
+
+def _single_main_payload_from_occurrence_blob(
+    *,
+    source_payload: dict,
+    blob,
+) -> dict:
+    next_payload = _main_payload_from_imported_payload(source_payload)
+    default_range = blob.get_default_scheduled_timerange()
+    schedulable_range = blob.get_schedulable_timerange()
+    tz_name = blob.tz.key if hasattr(blob.tz, "key") else str(blob.tz or "UTC")
+    next_payload["recurrence_name"] = str(
+        source_payload.get("recurrence_name") or blob.name or "Untitled event"
+    )
+    next_payload["recurrence_description"] = (
+        blob.description or source_payload.get("recurrence_description")
+    )
+    next_payload["end_date"] = None
+    next_payload["blob"] = {
+        "name": blob.name or str(source_payload.get("recurrence_name") or "Untitled event"),
+        "description": blob.description or source_payload.get("recurrence_description"),
+        "tz": tz_name,
+        "default_scheduled_timerange": {
+            "start": default_range.start.isoformat(),
+            "end": default_range.end.isoformat(),
+        },
+        "schedulable_timerange": {
+            "start": schedulable_range.start.isoformat(),
+            "end": schedulable_range.end.isoformat(),
+        },
+        "policy": dict(blob.policy or {}),
+        "dependencies": sorted(str(item) for item in (blob.dependencies or [])),
+        "tags": _serialize_tags(blob.tags),
+    }
+    return next_payload
+
+
+def _remove_occurrence_from_payload(
+    *,
+    recurrence_type: str,
+    payload: dict,
+    occurrence_start: datetime,
+) -> dict:
+    target_ts = int(occurrence_start.timestamp())
+    if recurrence_type == "multiple":
+        blobs = list(payload.get("blobs") or [])
+        remaining: list[object] = []
+        removed = False
+        for item in blobs:
+            if not isinstance(item, dict):
+                remaining.append(item)
+                continue
+            schedulable = item.get("schedulable_timerange")
+            start_raw = (
+                schedulable.get("start")
+                if isinstance(schedulable, dict)
+                else None
+            )
+            item_dt = _parse_optional_datetime(start_raw)
+            if item_dt is not None and int(item_dt.timestamp()) == target_ts:
+                removed = True
+                continue
+            remaining.append(item)
+        if not removed:
+            return {
+                "removed": False,
+                "delete_recurrence": False,
+                "payload": payload,
+            }
+        if not remaining:
+            return {
+                "removed": True,
+                "delete_recurrence": True,
+                "payload": payload,
+            }
+        next_payload = dict(payload)
+        next_payload["blobs"] = remaining
+        return {
+            "removed": True,
+            "delete_recurrence": False,
+            "payload": next_payload,
+        }
+
+    existing = list(payload.get("exclusions") or [])
+    for raw in existing:
+        parsed = _parse_optional_datetime(raw)
+        if parsed is None:
+            continue
+        if int(parsed.timestamp()) == target_ts:
+            return {
+                "removed": True,
+                "delete_recurrence": False,
+                "payload": payload,
+            }
+    next_payload = dict(payload)
+    next_payload["exclusions"] = [*existing, occurrence_start.isoformat()]
+    return {
+        "removed": True,
+        "delete_recurrence": False,
+        "payload": next_payload,
+    }
+
+
+def _parse_optional_datetime(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = raw.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _find_occurrence_blob(
+    *,
+    recurrence_type: str,
+    payload: dict,
+    occurrence_start: datetime,
+):
+    try:
+        recurrence_obj = _recurrence_from_payload(recurrence_type, payload)
+    except HTTPException:
+        return None
+    recurrence_tz = _recurrence_tzinfo(recurrence_obj)
+    target = occurrence_start
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=recurrence_tz or timezone.utc)
+    elif recurrence_tz is not None:
+        target = target.astimezone(recurrence_tz)
+    range_start = target - timedelta(days=2)
+    range_end = target + timedelta(days=2)
+    recurrence_range = _coerce_timerange(
+        TimeRange(start=range_start, end=range_end),
+        recurrence_tz,
+    )
+    target_ts = int(target.timestamp())
+    for blob in recurrence_obj.all_occurrences(recurrence_range):
+        sched_start = blob.get_schedulable_timerange().start
+        if sched_start.tzinfo is None:
+            sched_start = sched_start.replace(tzinfo=timezone.utc)
+        if int(sched_start.timestamp()) == target_ts:
+            return blob
+    return None
 
 
 def _stored_recurrence_to_primitive(

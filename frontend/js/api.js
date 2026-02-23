@@ -491,6 +491,52 @@ async function copyCalendarToMain(calendarViewId) {
   return response.json();
 }
 
+async function moveRecurrenceToMain(recurrenceId) {
+  const response = await fetch(
+    `${API_BASE}/integrations/recurrences/${encodeURIComponent(recurrenceId)}/move-to-main`,
+    {
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    let detail = "Failed to move recurrence to main";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function moveOccurrenceToMain(recurrenceId, occurrenceStart) {
+  const response = await fetch(
+    `${API_BASE}/integrations/recurrences/${encodeURIComponent(
+      recurrenceId
+    )}/occurrences/move-to-main`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ occurrence_start: occurrenceStart }),
+    }
+  );
+  if (!response.ok) {
+    let detail = "Failed to move occurrence to main";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 async function createCustomCalendar(name) {
   const response = await fetch(`${API_BASE}/integrations/calendars/custom`, {
     method: "POST",
@@ -553,6 +599,8 @@ export {
   previewCopyCalendarToMain,
   applyCopyCalendarToMain,
   copyCalendarToMain,
+  moveRecurrenceToMain,
+  moveOccurrenceToMain,
   createCustomCalendar,
   deleteCalendarView,
 };

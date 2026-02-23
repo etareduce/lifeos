@@ -129,6 +129,10 @@ class CopyToMainResponse(BaseModel):
     skipped_count: int = 0
 
 
+class MoveOccurrenceToMainRequest(BaseModel):
+    occurrence_start: datetime
+
+
 class CopyToMainPreviewItem(BaseModel):
     recurrence_id: str
     recurrence_name: str

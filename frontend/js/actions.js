@@ -1,4 +1,11 @@
-import { createRecurrence, deleteRecurrence, getRecurrence, updateRecurrence } from "./api.js";
+import {
+  createRecurrence,
+  deleteRecurrence,
+  getRecurrence,
+  moveOccurrenceToMain,
+  moveRecurrenceToMain,
+  updateRecurrence,
+} from "./api.js";
 import { pushHistoryAction } from "./history.js";
 
 function refreshCalendar() {
@@ -77,4 +84,25 @@ async function deleteOccurrenceWithUndo(blob) {
   refreshCalendar();
 }
 
-export { deleteOccurrenceWithUndo, deleteRecurrenceWithUndo };
+async function moveRecurrenceToMainWithRefresh(recurrenceId) {
+  if (!recurrenceId) return null;
+  const result = await moveRecurrenceToMain(recurrenceId);
+  refreshCalendar();
+  return result;
+}
+
+async function moveOccurrenceToMainWithRefresh(blob) {
+  if (!blob?.recurrence_id) return null;
+  const occurrenceStart = blob.schedulable_timerange?.start;
+  if (!occurrenceStart) return null;
+  const result = await moveOccurrenceToMain(blob.recurrence_id, occurrenceStart);
+  refreshCalendar();
+  return result;
+}
+
+export {
+  deleteOccurrenceWithUndo,
+  deleteRecurrenceWithUndo,
+  moveRecurrenceToMainWithRefresh,
+  moveOccurrenceToMainWithRefresh,
+};

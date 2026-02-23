@@ -1,7 +1,12 @@
 import { appConfig, minuteGranularity, saveView, state } from "./core.js";
 import { dom } from "./dom.js";
 import { alertDialog, choiceDialog } from "./popups.js";
-import { deleteOccurrenceWithUndo, deleteRecurrenceWithUndo } from "./actions.js";
+import {
+  deleteOccurrenceWithUndo,
+  deleteRecurrenceWithUndo,
+  moveOccurrenceToMainWithRefresh,
+  moveRecurrenceToMainWithRefresh,
+} from "./actions.js";
 import {
   addDays,
   clampToGranularity,
@@ -486,13 +491,35 @@ function showInfoCard(blob, anchorRect) {
     `
     : "";
   const previewBadge = isPreview ? `<span class="info-preview">Preview</span>` : "";
+  const canMoveToMain = !calendarInfo.isMain && Boolean(blob.recurrence_id);
+  const moveAction = canMoveToMain
+    ? `
+      <button class="info-move" type="button" aria-label="Move to main options" title="Move to Main calendar">
+        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <path d="M4 6.5h10.5A3.5 3.5 0 0 1 18 10v.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <path d="M14 12l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          <rect x="4" y="13.5" width="8" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        </svg>
+      </button>
+    `
+    : "";
   const actions = isPreview
     ? ""
     : `
-      <button class="info-close" type="button" aria-label="Delete options">×</button>
-      <button class="info-star-btn ${starred ? "active" : ""}" type="button" aria-label="${starred ? "Unstar" : "Star"}">
-        <span class="info-star" aria-hidden="true">★</span>
-      </button>
+      <span class="info-title-actions">
+        ${moveAction}
+        <button class="info-close" type="button" aria-label="Delete options" title="Delete">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M5 7h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            <path d="M9 7V5.8A1.8 1.8 0 0 1 10.8 4h2.4A1.8 1.8 0 0 1 15 5.8V7" fill="none" stroke="currentColor" stroke-width="1.8" />
+            <path d="M8 9.5v8.7A1.8 1.8 0 0 0 9.8 20h4.4A1.8 1.8 0 0 0 16 18.2V9.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+            <path d="M11 11.5v6M13 11.5v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button class="info-star-btn ${starred ? "active" : ""}" type="button" aria-label="${starred ? "Unstar" : "Star"}" title="${starred ? "Unstar" : "Star"}">
+          <span class="info-star" aria-hidden="true">★</span>
+        </button>
+      </span>
     `;
   const html = `
     <div class="info-title">
@@ -707,6 +734,40 @@ async function handleInfoCardDelete(event) {
     }
   } catch (error) {
     await alertDialog(error?.message || "Unable to delete.");
+  }
+}
+
+async function handleInfoCardMove(event) {
+  const button = event.target.closest(".info-move");
+  if (!button) return;
+  const blobId = dom.infoCard?.dataset?.blobId || state.lockedBlobId;
+  if (!blobId) return;
+  const blob = getBlobById(blobId);
+  if (!blob?.recurrence_id || blob.preview) return;
+  const calendarInfo = resolveBlobCalendarInfo(blob);
+  if (calendarInfo.isMain) return;
+  const choice = await choiceDialog(
+    "Move this occurrence or the full recurrence to Main calendar?",
+    {
+      confirmText: "Move recurrence",
+      confirmValue: "recurrence",
+      altText: "Move occurrence",
+      altValue: "occurrence",
+      cancelText: "Cancel",
+      confirmVariant: "ghost",
+      altVariant: "ghost",
+      actionOrder: "confirm-alt-cancel",
+    }
+  );
+  if (!choice) return;
+  try {
+    if (choice === "occurrence" && blob.recurrence_type !== "single") {
+      await moveOccurrenceToMainWithRefresh(blob);
+      return;
+    }
+    await moveRecurrenceToMainWithRefresh(blob.recurrence_id);
+  } catch (error) {
+    await alertDialog(error?.message || "Unable to move to main calendar.");
   }
 }
 
@@ -1024,6 +1085,10 @@ function renderDay() {
     document.removeEventListener("click", state.infoCardActionHandler);
   }
   state.infoCardActionHandler = (event) => {
+    if (event.target.closest(".info-move")) {
+      handleInfoCardMove(event);
+      return;
+    }
     if (event.target.closest(".info-close")) {
       handleInfoCardDelete(event);
       return;
@@ -1605,6 +1670,10 @@ function renderWeek() {
     document.removeEventListener("click", state.infoCardActionHandler);
   }
   state.infoCardActionHandler = (event) => {
+    if (event.target.closest(".info-move")) {
+      handleInfoCardMove(event);
+      return;
+    }
     if (event.target.closest(".info-close")) {
       handleInfoCardDelete(event);
       return;

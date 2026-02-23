@@ -2715,35 +2715,75 @@ body.modal-open .info-card {
   display: flex;
   align-items: center;
   gap: 6px;
-  position: relative;
-  padding-right: 18px;
+}
+
+.info-title-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.info-move,
+.info-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  padding: 3px;
+  border-radius: 8px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .info-close {
-  position: absolute;
-  right: 0;
-  top: 0;
-  border: none;
-  background: transparent;
   color: #b4493f;
-  font-size: 14px;
-  cursor: pointer;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 8px;
+}
+
+.info-move {
+  color: var(--muted);
+}
+
+.info-close svg,
+.info-move svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+}
+
+.info-close svg *,
+.info-move svg * {
+  stroke: currentColor;
 }
 
 .info-close:hover {
   background: rgba(180, 73, 63, 0.12);
 }
 
+.info-move:hover {
+  background: rgba(27, 26, 22, 0.08);
+}
+
 .info-star-btn {
   border: none;
   background: transparent;
   cursor: pointer;
-  padding: 0;
+  padding: 3px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.info-star-btn:hover {
+  background: rgba(242, 179, 64, 0.15);
 }
 
 .info-star {
