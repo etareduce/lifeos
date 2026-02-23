@@ -22,7 +22,11 @@ from backend.config import (
 )
 from backend.db import get_session
 from .google_calendar.adapter import GoogleCalendarAdapter
-from .google_calendar.client import GoogleCalendarAPIError, exchange_oauth_code_for_tokens
+from .google_calendar.client import (
+    GoogleCalendarAPIError,
+    exchange_oauth_code_for_tokens,
+    refresh_oauth_access_token,
+)
 from .merge import find_recurrence_matches
 from .primitives import EventPrimitive, RecurrencePrimitive
 from .schemas import (
@@ -520,14 +524,13 @@ async def list_google_calendars(
     fallback_calendars_by_account: dict[str, list[dict]] | None = None
     calendars: list[IntegrationCalendarRead] = []
     for account in accounts:
-        access_token = str(account.get("access_token") or "").strip()
         account_key = account["id"]
-        if not access_token:
-            continue
-        adapter = GoogleCalendarAdapter(access_token)
-        account_calendars: list[dict] = []
         try:
-            account_calendars = await adapter.list_calendars()
+            account_calendars = await _list_calendars_with_refresh(
+                session=session,
+                connection=connection,
+                account=account,
+            )
         except GoogleCalendarAPIError as exc:
             logger.warning(
                 "google list_calendars failed for account %s: %s",
@@ -539,8 +542,7 @@ async def list_google_calendars(
                 "google list_calendars request failed for account %s",
                 account_key,
             )
-        finally:
-            await adapter.aclose()
+            account_calendars = []
         if not account_calendars:
             if fallback_calendars_by_account is None:
                 fallback_calendars_by_account = await _fallback_google_calendars_by_account(
@@ -950,15 +952,16 @@ async def preview_google_sync(
     imported_items: list[tuple[dict, str, RecurrencePrimitive]] = []
     for account_key, selected_calendar_ids in account_calendar_ids.items():
         account = accounts_by_id[account_key]
-        access_token = str(account.get("access_token") or "").strip()
-        if not access_token or not selected_calendar_ids:
+        if not selected_calendar_ids:
             continue
-        adapter = GoogleCalendarAdapter(access_token)
         try:
-            imported = await adapter.list_recurrence_primitives(
+            imported = await _list_recurrence_primitives_with_refresh(
+                session=session,
+                connection=connection,
+                account=account,
                 calendar_ids=selected_calendar_ids,
-                start=payload.range_start,
-                end=bounded_end,
+                range_start=payload.range_start,
+                range_end=bounded_end,
             )
         except GoogleCalendarAPIError as exc:
             raise HTTPException(
@@ -970,8 +973,6 @@ async def preview_google_sync(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Google sync preview failed: {exc}",
             ) from exc
-        finally:
-            await adapter.aclose()
         for recurrence in imported:
             imported_items.append(
                 (
@@ -1542,6 +1543,176 @@ def _get_google_accounts(connection: IntegrationConnectionModel | None) -> list[
             "updated_at": None,
         }
     ]
+
+
+def _is_google_auth_error(exc: GoogleCalendarAPIError) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {401, 403}:
+        return True
+    message = str(exc).strip().lower()
+    return any(
+        marker in message
+        for marker in (
+            "invalid authentication credentials",
+            "invalid credentials",
+            "invalid_grant",
+            "login required",
+            "unauthorized",
+        )
+    )
+
+
+async def _refresh_google_account_access_token(
+    *,
+    session: AsyncSession,
+    connection: IntegrationConnectionModel,
+    account_key: str,
+) -> str | None:
+    accounts = _get_google_accounts(connection)
+    target_index = next(
+        (index for index, item in enumerate(accounts) if item.get("id") == account_key),
+        None,
+    )
+    if target_index is None:
+        return None
+    target = dict(accounts[target_index])
+    oauth_payload = dict(target.get("oauth") or {})
+    refresh_token = str(oauth_payload.get("refresh_token") or "").strip()
+    if not refresh_token:
+        return None
+    client_id = get_google_oauth_client_id().strip()
+    client_secret = get_google_oauth_client_secret().strip()
+    if not client_id or not client_secret:
+        return None
+    try:
+        refreshed = await refresh_oauth_access_token(
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+    except GoogleCalendarAPIError as exc:
+        logger.warning(
+            "google token refresh failed for account %s: %s",
+            account_key,
+            exc,
+        )
+        return None
+    except Exception:
+        logger.exception("google token refresh request failed for account %s", account_key)
+        return None
+
+    access_token = str(refreshed.get("access_token") or "").strip()
+    if not access_token:
+        return None
+    next_refresh_token = str(refreshed.get("refresh_token") or "").strip() or refresh_token
+    try:
+        expires_in = int(refreshed.get("expires_in") or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    expires_at = (
+        (datetime.now(tz=timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+        if expires_in > 0
+        else None
+    )
+    oauth_payload.update(
+        {
+            "refresh_token": next_refresh_token,
+            "token_type": str(refreshed.get("token_type") or "").strip() or "Bearer",
+            "scope": str(refreshed.get("scope") or "").strip() or oauth_payload.get("scope"),
+            "expires_at": expires_at,
+        }
+    )
+    target["access_token"] = access_token
+    target["oauth"] = oauth_payload
+    target["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
+    accounts[target_index] = target
+    metadata_json = dict(connection.metadata_json or {})
+    _set_google_connection_fields(connection, accounts=accounts, metadata_json=metadata_json)
+    await session.commit()
+    return access_token
+
+
+async def _list_calendars_with_refresh(
+    *,
+    session: AsyncSession,
+    connection: IntegrationConnectionModel,
+    account: dict,
+) -> list[dict]:
+    access_token = str(account.get("access_token") or "").strip()
+    if not access_token:
+        return []
+    account_key = str(account.get("id") or "").strip()
+    adapter = GoogleCalendarAdapter(access_token)
+    try:
+        return await adapter.list_calendars()
+    except GoogleCalendarAPIError as exc:
+        if not _is_google_auth_error(exc):
+            raise
+    finally:
+        await adapter.aclose()
+
+    refreshed_token = await _refresh_google_account_access_token(
+        session=session,
+        connection=connection,
+        account_key=account_key,
+    )
+    if not refreshed_token:
+        raise GoogleCalendarAPIError(
+            "Google access token expired. Reconnect the account.",
+            status_code=401,
+        )
+    retry_adapter = GoogleCalendarAdapter(refreshed_token)
+    try:
+        return await retry_adapter.list_calendars()
+    finally:
+        await retry_adapter.aclose()
+
+
+async def _list_recurrence_primitives_with_refresh(
+    *,
+    session: AsyncSession,
+    connection: IntegrationConnectionModel,
+    account: dict,
+    calendar_ids: list[str],
+    range_start: datetime,
+    range_end: datetime,
+) -> list[RecurrencePrimitive]:
+    access_token = str(account.get("access_token") or "").strip()
+    if not access_token:
+        return []
+    account_key = str(account.get("id") or "").strip()
+    adapter = GoogleCalendarAdapter(access_token)
+    try:
+        return await adapter.list_recurrence_primitives(
+            calendar_ids=calendar_ids,
+            start=range_start,
+            end=range_end,
+        )
+    except GoogleCalendarAPIError as exc:
+        if not _is_google_auth_error(exc):
+            raise
+    finally:
+        await adapter.aclose()
+
+    refreshed_token = await _refresh_google_account_access_token(
+        session=session,
+        connection=connection,
+        account_key=account_key,
+    )
+    if not refreshed_token:
+        raise GoogleCalendarAPIError(
+            "Google access token expired. Reconnect the account.",
+            status_code=401,
+        )
+    retry_adapter = GoogleCalendarAdapter(refreshed_token)
+    try:
+        return await retry_adapter.list_recurrence_primitives(
+            calendar_ids=calendar_ids,
+            start=range_start,
+            end=range_end,
+        )
+    finally:
+        await retry_adapter.aclose()
 
 
 def _stable_google_account_key(

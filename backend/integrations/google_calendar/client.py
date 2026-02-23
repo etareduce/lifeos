@@ -12,7 +12,9 @@ GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
 class GoogleCalendarAPIError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class GoogleCalendarClient:
@@ -72,7 +74,7 @@ class GoogleCalendarClient:
         )
         if response.status_code >= 400:
             detail = _error_message(response)
-            raise GoogleCalendarAPIError(detail)
+            raise GoogleCalendarAPIError(detail, status_code=response.status_code)
         return response.json()
 
 
@@ -95,7 +97,30 @@ async def exchange_oauth_code_for_tokens(
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(GOOGLE_OAUTH_TOKEN_URL, data=data)
     if response.status_code >= 400:
-        raise GoogleCalendarAPIError(_error_message(response))
+        raise GoogleCalendarAPIError(
+            _error_message(response), status_code=response.status_code
+        )
+    return response.json()
+
+
+async def refresh_oauth_access_token(
+    *,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+) -> dict:
+    data = {
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "refresh_token",
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(GOOGLE_OAUTH_TOKEN_URL, data=data)
+    if response.status_code >= 400:
+        raise GoogleCalendarAPIError(
+            _error_message(response), status_code=response.status_code
+        )
     return response.json()
 
 
