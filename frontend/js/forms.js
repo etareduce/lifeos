@@ -1,4 +1,14 @@
-import { API_BASE, appConfig, applyTheme, saveSettings, state } from "./core.js";
+import {
+  API_BASE,
+  KEYBIND_DEFAULTS,
+  appConfig,
+  applyTheme,
+  normalizeKeybindCombo,
+  normalizeKeybindConfig,
+  normalizeKeybindToken,
+  saveSettings,
+  state,
+} from "./core.js";
 import { dom } from "./dom.js";
 import {
   addDays,
@@ -53,6 +63,21 @@ let sidebarResizeSession = null;
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 520;
+const KEYBIND_FIELD_BY_ACTION = Object.freeze({
+  undo: "keybindUndo",
+  redo: "keybindRedo",
+  closePanels: "keybindClosePanels",
+  createTask: "keybindCreateTask",
+  createEvent: "keybindCreateEvent",
+  navigatePrev: "keybindNavigatePrev",
+  navigateNext: "keybindNavigateNext",
+});
+const KEYBIND_ACTION_BY_FIELD = Object.freeze(
+  Object.fromEntries(
+    Object.entries(KEYBIND_FIELD_BY_ACTION).map(([action, field]) => [field, action])
+  )
+);
+const KEYBIND_FIELD_NAMES = new Set(Object.values(KEYBIND_FIELD_BY_ACTION));
 
 const weeklyFieldPlacement = {
   dependency: {
@@ -104,23 +129,12 @@ function applySidebarState() {
   appConfig.sidebarWidth = clampSidebarWidth(appConfig.sidebarWidth);
   dom.page.style.setProperty("--sidebar-width", `${appConfig.sidebarWidth}px`);
   dom.page.classList.toggle("sidebar-collapsed", Boolean(appConfig.sidebarCollapsed));
-  if (dom.sidebarWidthBtn) {
-    dom.sidebarWidthBtn.textContent = "Reset";
-  }
 }
 
 function toggleSidebarCollapsed(force) {
   const next =
     typeof force === "boolean" ? force : !Boolean(appConfig.sidebarCollapsed);
   appConfig.sidebarCollapsed = next;
-  applySidebarState();
-  saveSettings(appConfig);
-}
-
-function toggleSidebarWidth(force) {
-  const next =
-    typeof force === "number" ? force : DEFAULT_SIDEBAR_WIDTH;
-  appConfig.sidebarWidth = clampSidebarWidth(next);
   applySidebarState();
   saveSettings(appConfig);
 }
@@ -213,13 +227,6 @@ function updateAdvancedEngineVisibility(enabled) {
   dom.advancedEngineCard.classList.toggle("is-hidden", !enabled);
 }
 
-function toggleHelp(show) {
-  const isActive = typeof show === "boolean" ? show : !dom.helpModal.classList.contains("active");
-  dom.helpModal.classList.toggle("active", isActive);
-  dom.helpPanel.classList.toggle("active", isActive);
-  dom.helpModal.setAttribute("aria-hidden", (!isActive).toString());
-}
-
 function toggleLlm(show) {
   if (!dom.llmPanel) return;
   const isActive = typeof show === "boolean" ? show : !dom.llmPanel.classList.contains("active");
@@ -234,15 +241,6 @@ function toggleLlm(show) {
   if (!isActive && dom.llmStatus) {
     dom.llmStatus.textContent = "";
   }
-}
-
-function getAiContextParts() {
-  const parts = [];
-  const raw = dom.blobForm?.aiContext?.value?.trim();
-  if (raw) {
-    parts.push({ type: "text", content: raw, label: "User notes" });
-  }
-  return parts;
 }
 
 function setLlmPreviewControls(hasPreview) {
@@ -277,6 +275,51 @@ function setActiveSettingsTab(tabName) {
   settingsSections.forEach((section) => {
     section.classList.toggle("active", section.dataset.settingsSection === tabName);
   });
+}
+
+function getSettingsKeybindValues(formData) {
+  return normalizeKeybindConfig({
+    undo: formData.get(KEYBIND_FIELD_BY_ACTION.undo),
+    redo: formData.get(KEYBIND_FIELD_BY_ACTION.redo),
+    closePanels: formData.get(KEYBIND_FIELD_BY_ACTION.closePanels),
+    createTask: formData.get(KEYBIND_FIELD_BY_ACTION.createTask),
+    createEvent: formData.get(KEYBIND_FIELD_BY_ACTION.createEvent),
+    navigatePrev: formData.get(KEYBIND_FIELD_BY_ACTION.navigatePrev),
+    navigateNext: formData.get(KEYBIND_FIELD_BY_ACTION.navigateNext),
+  });
+}
+
+function hydrateSettingsKeybindFields() {
+  const normalized = normalizeKeybindConfig(appConfig.keybinds);
+  appConfig.keybinds = normalized;
+  Object.entries(KEYBIND_FIELD_BY_ACTION).forEach(([action, fieldName]) => {
+    const field = dom.settingsForm?.[fieldName];
+    if (!(field instanceof HTMLInputElement)) return;
+    field.value = normalized[action] || KEYBIND_DEFAULTS[action];
+  });
+}
+
+function buildKeybindFromKeyboardEvent(event) {
+  const key = normalizeKeybindToken(event.key);
+  if (!key) return "";
+  if (key === "Shift") return "";
+  const lowerRaw = String(event.key || "").trim().toLowerCase();
+  if (
+    lowerRaw === "control" ||
+    lowerRaw === "ctrl" ||
+    lowerRaw === "meta" ||
+    lowerRaw === "alt" ||
+    lowerRaw === "cmd" ||
+    lowerRaw === "command"
+  ) {
+    return "";
+  }
+  const parts = [];
+  if (event.ctrlKey || event.metaKey) parts.push("Mod");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey && key !== "Shift") parts.push("Shift");
+  parts.push(key);
+  return normalizeKeybindCombo(parts.join("+"), "");
 }
 
 function populateTimeZones() {
@@ -352,6 +395,7 @@ function hydrateSettingsForm() {
     dom.settingsForm.engineGranularityCostWeight.value =
       appConfig.engineGranularityCostWeight ?? 1.0;
   }
+  hydrateSettingsKeybindFields();
   settingsHydrating = false;
   setSettingsDirty(false);
 }
@@ -1415,6 +1459,23 @@ function dayOffsetFromSunday(dayIndex) {
   return dayIndex;
 }
 
+function getWeeklyAnchorStartFromPayload(payload) {
+  const blobs = Array.isArray(payload?.blobs_of_week) ? payload.blobs_of_week : [];
+  let earliest = null;
+  blobs.forEach((weeklyBlob) => {
+    const startRaw =
+      weeklyBlob?.schedulable_timerange?.start ||
+      weeklyBlob?.default_scheduled_timerange?.start;
+    if (!startRaw) return;
+    const start = new Date(startRaw);
+    if (Number.isNaN(start.getTime())) return;
+    if (!earliest || start < earliest) {
+      earliest = start;
+    }
+  });
+  return earliest ? getWeekStart(earliest) : null;
+}
+
 function clearWeeklySlots() {
   if (dom.weeklySlots) {
     dom.weeklySlots.innerHTML = "";
@@ -2199,6 +2260,7 @@ function resetFormMode() {
   state.editingRecurrenceId = null;
   state.editingRecurrenceType = null;
   state.editingRecurrencePayload = null;
+  state.editingWeeklyAnchorStart = null;
   state.editingOccurrenceStart = null;
   state.selectionMode = false;
   state.selectionStep = null;
@@ -2269,6 +2331,7 @@ function openEditForm(blob) {
   state.selectionStep = null;
   state.pendingDefaultRange = null;
   state.pendingSchedulableRange = null;
+  state.editingWeeklyAnchorStart = null;
   const recurrenceType = blob.recurrence_type || "single";
   if (dom.recurrenceType) {
     dom.recurrenceType.value = recurrenceType;
@@ -2340,6 +2403,9 @@ function openEditForm(blob) {
   }
   if (recurrenceType === "weekly" && blob.recurrence_payload?.blobs_of_week) {
     const blobs = blob.recurrence_payload.blobs_of_week;
+    state.editingWeeklyAnchorStart = getWeeklyAnchorStartFromPayload(
+      blob.recurrence_payload
+    );
     applyPolicyToForm(blobs[0]?.policy || {});
     const sharedName = blobs[0]?.name || "";
     const sharedDescription = blobs[0]?.description || "";
@@ -2706,7 +2772,14 @@ async function handleBlobSubmit(event) {
       dom.formStatus.textContent = "Fix weekly slot errors before saving.";
       return;
     }
-    const weekStart = getWeekStart(state.anchorDate);
+    const editAnchor =
+      state.editingRecurrenceId &&
+      state.editingRecurrenceType === "weekly" &&
+      state.editingWeeklyAnchorStart instanceof Date &&
+      !Number.isNaN(state.editingWeeklyAnchorStart.getTime())
+        ? state.editingWeeklyAnchorStart
+        : state.anchorDate;
+    const weekStart = getWeekStart(editAnchor);
     const slots = getWeeklySlots();
     const fallbackName = formData.get("recurrenceName") || "Unnamed Blob";
     const sharedName = perSlot ? formData.get("blobName") : (formData.get("blobName") || fallbackName);
@@ -2918,6 +2991,7 @@ async function handleBlobSubmit(event) {
 function handleSettingsSubmit(event) {
   event.preventDefault();
   const formData = new FormData(dom.settingsForm);
+  const keybinds = getSettingsKeybindValues(formData);
   const scheduleName = formData.get("scheduleName")?.toString().trim() || "";
   const subtitle = formData.get("subtitle")?.toString().trim() || "";
   const granularity = Math.max(1, Number(formData.get("minuteGranularity") || 1));
@@ -2978,6 +3052,7 @@ function handleSettingsSubmit(event) {
   appConfig.engineSplitCostWeight = engineSplitCostWeight;
   appConfig.engineConsistencyCostWeight = engineConsistencyCostWeight;
   appConfig.engineGranularityCostWeight = engineGranularityCostWeight;
+  appConfig.keybinds = keybinds;
   if (userTimeZone) {
     appConfig.userTimeZone = userTimeZone;
   }
@@ -3007,20 +3082,11 @@ function openCreateForm(blobType = BLOB_TYPES.TASK) {
 function handleSettingsClick() {
   setUtilitySidebarActive("settingsBtn");
   toggleSettings(true);
-  toggleHelp(false);
   populateTimeZones();
   hydrateSettingsForm();
   setActiveSettingsTab("general");
   dom.settingsStatus.textContent = "";
   setSettingsDirty(false);
-}
-
-function handleHelpClick() {
-  setUtilitySidebarActive("helpBtn");
-  applyTheme(appConfig.theme);
-  toggleSettings(false);
-  setSettingsDirty(false);
-  toggleHelp(true);
 }
 
 function handleLlmOpen() {
@@ -3138,11 +3204,6 @@ function handleCloseSettings() {
   toggleSettings(false);
   dom.settingsStatus.textContent = "";
   setSettingsDirty(false);
-  setUtilitySidebarActive(null);
-}
-
-function handleCloseHelp() {
-  toggleHelp(false);
   setUtilitySidebarActive(null);
 }
 
@@ -3307,6 +3368,30 @@ function bindFormHandlers(onRefresh) {
       applyTheme(event.target.value || appConfig.theme);
     }
   });
+  dom.settingsForm.addEventListener("keydown", (event) => {
+    if (settingsHydrating) return;
+    if (!(event.target instanceof HTMLInputElement)) return;
+    const fieldName = event.target.name || "";
+    if (!KEYBIND_FIELD_NAMES.has(fieldName)) return;
+    if (!KEYBIND_ACTION_BY_FIELD[fieldName]) return;
+    if (event.key === "Tab") return;
+    event.preventDefault();
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.target.value = "";
+      if (dom.settingsStatus) {
+        dom.settingsStatus.textContent = "";
+      }
+      setSettingsDirty(true);
+      return;
+    }
+    const combo = buildKeybindFromKeyboardEvent(event);
+    if (!combo) return;
+    event.target.value = combo;
+    if (dom.settingsStatus) {
+      dom.settingsStatus.textContent = "";
+    }
+    setSettingsDirty(true);
+  });
   if (dom.deleteRecurrenceBtn) {
     dom.deleteRecurrenceBtn.addEventListener("click", deleteRecurrence);
   }
@@ -3335,25 +3420,11 @@ function bindFormHandlers(onRefresh) {
       toggleSidebarCollapsed();
     });
   }
-  if (dom.sidebarWidthBtn) {
-    dom.sidebarWidthBtn.addEventListener("click", () => {
-      toggleSidebarWidth();
-    });
-  }
-  if (dom.helpBtn) {
-    dom.helpBtn.addEventListener("click", handleHelpClick);
-  }
   if (dom.closeSettingsBtn) {
     dom.closeSettingsBtn.addEventListener("click", handleCloseSettings);
   }
   if (dom.settingsBackdrop) {
     dom.settingsBackdrop.addEventListener("click", handleCloseSettings);
-  }
-  if (dom.closeHelpBtn) {
-    dom.closeHelpBtn.addEventListener("click", handleCloseHelp);
-  }
-  if (dom.helpBackdrop) {
-    dom.helpBackdrop.addEventListener("click", handleCloseHelp);
   }
   if (dom.closeLlmBtn) {
     dom.closeLlmBtn.addEventListener("click", handleCloseLlm);
@@ -3524,5 +3595,4 @@ export {
   resetFormMode,
   toggleForm,
   toggleSettings,
-  toggleHelp,
 };

@@ -5,7 +5,7 @@ const http = require("http");
 const path = require("path");
 
 const API_HOST = "127.0.0.1";
-const API_PORT = 8000;
+const API_PORT = 8080;
 const API_URL = `http://${API_HOST}:${API_PORT}`;
 const UI_URL = `${API_URL}/ui`;
 

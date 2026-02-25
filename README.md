@@ -34,8 +34,10 @@ Each major folder has its own README:
 
 ## Quick Start
 ### Docker
-1. `docker compose up --build`
-2. Open the app at `http://localhost:8000/ui` (or the frontend proxy at `http://localhost:8080`).
+1. `cp .env.example .env`
+2. Fill `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in `.env` if you want Google Calendar integration.
+3. `docker compose --env-file .env up --build`
+4. Open `http://localhost:8080` (recommended) or `http://localhost:8000/ui`.
 
 ### Local Development
 1. `python3 -m venv .venv`
@@ -50,6 +52,19 @@ Common environment variables:
 - `ELASTISCHED_PROJECT_TZ` (default: `UTC`)
 - `GEMINI_API_KEY`, `GEMINI_MODEL`
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_OAUTH_SCOPES`
+
+Use `.env.example` as the template for local setup.
+
+### Google OAuth Setup (Local)
+In Google Cloud Console for your OAuth client (`Web application`):
+
+1. Add authorized redirect URI(s):
+   - `http://localhost:8080/integrations/google/oauth/callback`
+   - `http://localhost:8000/integrations/google/oauth/callback`
+2. Add authorized JavaScript origin(s):
+   - `http://localhost:8080`
+   - `http://localhost:8000`
+3. Keep `GOOGLE_OAUTH_REDIRECT_URI` blank in `.env` to auto-detect from the URL you open.
 
 ## Testing
 - Python tests: `pytest -q`

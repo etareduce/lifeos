@@ -254,3 +254,72 @@ async def test_single_occurrence_scheduled_same_day_before_afternoon(
 
     assert realized_start_local.date() == target_date
     assert realized_start_local.hour < AFTERNOON_START.value
+
+
+@pytest.mark.asyncio
+async def test_schedule_includes_overlapping_schedulable_window_started_before_now(
+    api_client, monkeypatch
+):
+    fixed_now = datetime(2026, 2, 25, 16, 20, tzinfo=timezone.utc)
+    user_tz = ZoneInfo("America/New_York")
+
+    import backend.schedule_router as schedule_router
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(schedule_router, "datetime", FrozenDateTime)
+
+    schedulable_start = fixed_now - timedelta(minutes=30)
+    schedulable_end = fixed_now + timedelta(days=2)
+    default_start = fixed_now + timedelta(hours=2)
+    default_end = default_start + timedelta(hours=1)
+
+    recurrence_payload = {
+        "type": "single",
+        "payload": {
+            "blob": {
+                "name": "Window crossing now",
+                "description": "Should still be scheduled",
+                "tz": "UTC",
+                "default_scheduled_timerange": {
+                    "start": default_start.isoformat(),
+                    "end": default_end.isoformat(),
+                },
+                "schedulable_timerange": {
+                    "start": schedulable_start.isoformat(),
+                    "end": schedulable_end.isoformat(),
+                },
+                "policy": {"is_overlappable": False},
+                "dependencies": [],
+                "tags": [],
+            }
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json=recurrence_payload)
+        assert create_resp.status_code == 201
+        recurrence_id = create_resp.json()["id"]
+        expected_occurrence_id = f"{recurrence_id}:{schedulable_start.isoformat()}"
+
+        schedule_payload = {
+            "granularity_minutes": 5,
+            "lookahead_seconds": 3 * 24 * 60 * 60,
+            "user_timezone": user_tz.key,
+        }
+        schedule_resp = await client.post("/schedule", json=schedule_payload)
+        assert schedule_resp.status_code == 200
+        schedule_data = schedule_resp.json()
+
+    occurrences = schedule_data.get("occurrences") or []
+    occurrence = next(
+        (item for item in occurrences if item.get("id") == expected_occurrence_id),
+        None,
+    )
+    assert occurrence is not None
+    assert occurrence.get("realized_timerange") is not None

@@ -381,7 +381,7 @@ async def run_schedule(
         if end_date and end_date < recurrence_range.end:
             recurrence_range = TimeRange(start=recurrence_range.start, end=end_date)
         for blob in recurrence_obj.all_occurrences(recurrence_range):
-            if not recurrence_range.contains(blob.get_schedulable_timerange()):
+            if not recurrence_range.overlaps(blob.get_schedulable_timerange()):
                 continue
             sched_start = blob.get_schedulable_timerange().start
             if end_date and sched_start > end_date:

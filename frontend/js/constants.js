@@ -16,4 +16,13 @@ window.APP_CONFIG = {
   engineSplitCostWeight: 1.0,
   engineConsistencyCostWeight: 1.0,
   engineGranularityCostWeight: 1.0,
+  keybinds: {
+    undo: "Mod+Z",
+    redo: "Mod+Y",
+    closePanels: "Escape",
+    createTask: "N",
+    createEvent: "C",
+    navigatePrev: "ArrowLeft",
+    navigateNext: "ArrowRight",
+  },
 };

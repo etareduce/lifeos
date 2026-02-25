@@ -4,6 +4,9 @@ import {
   isTypingInField,
   loadView,
   loadWorkspaceMode,
+  normalizeKeybindCombo,
+  normalizeKeybindConfig,
+  normalizeKeybindToken,
   saveWorkspaceMode,
   state,
 } from "./core.js";
@@ -24,7 +27,6 @@ import {
   resetFormMode,
   toggleForm,
   toggleSettings,
-  toggleHelp,
 } from "./forms.js";
 import { bindIntegrationHandlers } from "./integrations.js";
 import {
@@ -57,6 +59,49 @@ const WORKSPACE_MODE = {
   SEARCH: "search",
 };
 const WORKSPACE_LOOKAHEAD_DAYS = 90;
+const ZOOM_SCROLL_THRESHOLD = 1.05;
+const BASE_DEVICE_PIXEL_RATIO =
+  Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+    ? window.devicePixelRatio
+    : 1;
+const BASE_VISUAL_VIEWPORT_SCALE =
+  window.visualViewport && Number.isFinite(window.visualViewport.scale)
+    ? window.visualViewport.scale || 1
+    : 1;
+
+function getCurrentZoomFactor() {
+  const viewportScale =
+    window.visualViewport && Number.isFinite(window.visualViewport.scale)
+      ? window.visualViewport.scale || 1
+      : 1;
+  const normalizedViewportScale =
+    BASE_VISUAL_VIEWPORT_SCALE > 0
+      ? viewportScale / BASE_VISUAL_VIEWPORT_SCALE
+      : viewportScale;
+  const devicePixelRatio =
+    Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+  const normalizedDevicePixelRatio =
+    BASE_DEVICE_PIXEL_RATIO > 0
+      ? devicePixelRatio / BASE_DEVICE_PIXEL_RATIO
+      : devicePixelRatio;
+  return Math.max(normalizedViewportScale, normalizedDevicePixelRatio);
+}
+
+function syncZoomScrollMode() {
+  const zoomFactor = getCurrentZoomFactor();
+  const zoomed = zoomFactor > ZOOM_SCROLL_THRESHOLD;
+  document.documentElement.dataset.zoomed = zoomed ? "true" : "false";
+}
+
+syncZoomScrollMode();
+window.addEventListener("resize", syncZoomScrollMode, { passive: true });
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", syncZoomScrollMode, {
+    passive: true,
+  });
+}
 
 function getWorkspaceDataRange() {
   const start = new Date();
@@ -743,43 +788,106 @@ document.addEventListener("click", (event) => {
   resetFormMode();
 });
 
+function getActiveKeybinds() {
+  const normalized = normalizeKeybindConfig(appConfig.keybinds);
+  appConfig.keybinds = normalized;
+  return normalized;
+}
+
+function parseKeybind(combo) {
+  const normalized = normalizeKeybindCombo(combo, "");
+  if (!normalized) return null;
+  const parsed = {
+    mod: false,
+    ctrl: false,
+    meta: false,
+    alt: false,
+    shift: false,
+    key: "",
+  };
+  normalized.split("+").forEach((token) => {
+    if (token === "Mod") {
+      parsed.mod = true;
+      return;
+    }
+    if (token === "Ctrl") {
+      parsed.ctrl = true;
+      return;
+    }
+    if (token === "Meta") {
+      parsed.meta = true;
+      return;
+    }
+    if (token === "Alt") {
+      parsed.alt = true;
+      return;
+    }
+    if (token === "Shift") {
+      parsed.shift = true;
+      return;
+    }
+    parsed.key = token;
+  });
+  return parsed.key ? parsed : null;
+}
+
+function normalizeEventKey(event) {
+  const raw = String(event.key || "").trim().toLowerCase();
+  if (
+    raw === "control" ||
+    raw === "ctrl" ||
+    raw === "meta" ||
+    raw === "alt" ||
+    raw === "shift" ||
+    raw === "cmd" ||
+    raw === "command"
+  ) {
+    return "";
+  }
+  return normalizeKeybindToken(event.key);
+}
+
+function matchesKeybind(event, combo) {
+  const parsed = parseKeybind(combo);
+  if (!parsed) return false;
+  if (parsed.mod) {
+    if (!(event.ctrlKey || event.metaKey)) return false;
+  } else {
+    if (Boolean(event.ctrlKey) !== parsed.ctrl) return false;
+    if (Boolean(event.metaKey) !== parsed.meta) return false;
+  }
+  if (Boolean(event.altKey) !== parsed.alt) return false;
+  if (Boolean(event.shiftKey) !== parsed.shift) return false;
+  return normalizeEventKey(event) === parsed.key;
+}
+
 window.addEventListener("keydown", (event) => {
   if (isTypingInField(event.target)) return;
-  const hasMod = event.ctrlKey || event.metaKey;
-  if (hasMod && event.key.toLowerCase() === "z") {
+  const keybinds = getActiveKeybinds();
+  const redoMatch = matchesKeybind(event, keybinds.redo);
+  const undoMatch = matchesKeybind(event, keybinds.undo);
+  const closePanelsMatch = matchesKeybind(event, keybinds.closePanels);
+  const createTaskMatch = matchesKeybind(event, keybinds.createTask);
+  const createEventMatch = matchesKeybind(event, keybinds.createEvent);
+  const navigatePrevMatch = matchesKeybind(event, keybinds.navigatePrev);
+  const navigateNextMatch = matchesKeybind(event, keybinds.navigateNext);
+
+  if (undoMatch) {
     event.preventDefault();
-    if (event.shiftKey) {
-      redoHistoryAction();
-    } else {
-      undoHistoryAction();
-    }
+    undoHistoryAction();
     return;
   }
-  if (hasMod && event.key.toLowerCase() === "y") {
+  if (redoMatch) {
     event.preventDefault();
     redoHistoryAction();
     return;
   }
-  const isArrowLeft =
-    event.key === "ArrowLeft" ||
-    event.key === "Left" ||
-    event.code === "ArrowLeft" ||
-    event.keyCode === 37;
-  const isArrowRight =
-    event.key === "ArrowRight" ||
-    event.key === "Right" ||
-    event.code === "ArrowRight" ||
-    event.keyCode === 39;
-  if (event.key === "Escape") {
+  if (closePanelsMatch) {
     clearInfoCardLock();
     let closedSidebarModal = false;
     if (dom.settingsModal.classList.contains("active")) {
       toggleSettings(false);
       dom.settingsStatus.textContent = "";
-      closedSidebarModal = true;
-    }
-    if (dom.helpModal?.classList.contains("active")) {
-      toggleHelp(false);
       closedSidebarModal = true;
     }
     if (closedSidebarModal) {
@@ -793,19 +901,21 @@ window.addEventListener("keydown", (event) => {
     }
     return;
   }
-  if (!hasMod && event.key.toLowerCase() === "n") {
+  if (createTaskMatch) {
     event.preventDefault();
     openCreateForm("task");
+    return;
   }
-  if (!hasMod && event.key.toLowerCase() === "c") {
+  if (createEventMatch) {
     event.preventDefault();
     openCreateForm("event");
+    return;
   }
-  if (isArrowLeft || isArrowRight) {
+  if (navigatePrevMatch || navigateNextMatch) {
     if (state.workspaceMode !== WORKSPACE_MODE.HOME) {
       return;
     }
-    const direction = isArrowLeft ? -1 : 1;
+    const direction = navigatePrevMatch ? -1 : 1;
     const view = state.view;
     const next = shiftAnchorDate(view, state.anchorDate, direction);
     if (!next) {

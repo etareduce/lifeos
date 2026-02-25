@@ -508,6 +508,12 @@ function showInfoCard(blob, anchorRect) {
     : `
       <span class="info-title-actions">
         ${moveAction}
+        <button class="info-edit" type="button" aria-label="Edit recurrence" title="Edit recurrence">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M4 16.8V20h3.2L18 9.2 14.8 6 4 16.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+            <path d="M13.6 7.2l3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </button>
         <button class="info-close" type="button" aria-label="Delete options" title="Delete">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <path d="M5 7h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -734,6 +740,22 @@ async function handleInfoCardDelete(event) {
     }
   } catch (error) {
     await alertDialog(error?.message || "Unable to delete.");
+  }
+}
+
+async function handleInfoCardEdit(event) {
+  const button = event.target.closest(".info-edit");
+  if (!button) return;
+  const blobId = dom.infoCard?.dataset?.blobId || state.lockedBlobId;
+  if (!blobId) return;
+  const blob = getBlobById(blobId);
+  if (!blob?.recurrence_id || blob.preview) return;
+  clearInfoCardLock();
+  try {
+    const { openEditForm } = await import("./forms.js");
+    openEditForm(blob);
+  } catch (error) {
+    await alertDialog(error?.message || "Unable to open edit form.");
   }
 }
 
@@ -1087,6 +1109,10 @@ function renderDay() {
   state.infoCardActionHandler = (event) => {
     if (event.target.closest(".info-move")) {
       handleInfoCardMove(event);
+      return;
+    }
+    if (event.target.closest(".info-edit")) {
+      handleInfoCardEdit(event);
       return;
     }
     if (event.target.closest(".info-close")) {
@@ -1672,6 +1698,10 @@ function renderWeek() {
   state.infoCardActionHandler = (event) => {
     if (event.target.closest(".info-move")) {
       handleInfoCardMove(event);
+      return;
+    }
+    if (event.target.closest(".info-edit")) {
+      handleInfoCardEdit(event);
       return;
     }
     if (event.target.closest(".info-close")) {

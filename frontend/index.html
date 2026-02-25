@@ -24,9 +24,6 @@
           <button class="ghost small sidebar-toggle" id="sidebarToggleBtn" type="button" aria-label="Collapse sidebar">
             ☰
           </button>
-          <button class="ghost small sidebar-toggle" id="sidebarWidthBtn" type="button" aria-label="Reset sidebar width">
-            Reset
-          </button>
         </div>
         <div class="brand">
           <div>
@@ -153,22 +150,6 @@
             </span>
             <span class="sidebar-icon-label">Settings</span>
           </button>
-          <button class="sidebar-icon-link" id="helpBtn" type="button" data-short="?" title="Help" aria-label="Help">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <path
-                  d="M9.7 9.3a2.5 2.5 0 1 1 4.4 1.7c-0.8 0.8-1.6 1.2-1.6 2.3"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                />
-                <circle cx="12" cy="17.5" r="0.9" fill="currentColor" />
-                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
-              </svg>
-            </span>
-            <span class="sidebar-icon-label">Help</span>
-          </button>
         </nav>
       </aside>
       <div
@@ -243,6 +224,94 @@
                     User timezone
                     <select name="userTimeZone"></select>
                   </label>
+                </article>
+                <article class="settings-card">
+                  <div class="settings-card-title">Keyboard shortcuts</div>
+                  <div class="settings-card-copy">
+                    Click a field and press the shortcut. Use <code>Mod</code> for Ctrl/Cmd.
+                  </div>
+                  <div class="settings-keybind-grid">
+                    <label>
+                      Undo
+                      <input
+                        type="text"
+                        name="keybindUndo"
+                        placeholder="Mod+Z"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label>
+                      Redo
+                      <input
+                        type="text"
+                        name="keybindRedo"
+                        placeholder="Mod+Y"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label>
+                      Close panels
+                      <input
+                        type="text"
+                        name="keybindClosePanels"
+                        placeholder="Escape"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label>
+                      Create task
+                      <input
+                        type="text"
+                        name="keybindCreateTask"
+                        placeholder="N"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label>
+                      Create event
+                      <input
+                        type="text"
+                        name="keybindCreateEvent"
+                        placeholder="C"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label>
+                      Previous period
+                      <input
+                        type="text"
+                        name="keybindNavigatePrev"
+                        placeholder="ArrowLeft"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label>
+                      Next period
+                      <input
+                        type="text"
+                        name="keybindNavigateNext"
+                        placeholder="ArrowRight"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                  </div>
+                  <div class="settings-keybind-note">
+                    Press Backspace/Delete in a field to clear it and restore the default on save.
+                  </div>
                 </article>
               </div>
             </div>
@@ -422,45 +491,6 @@
         </section>
       </div>
 
-      <div class="modal" id="helpModal" aria-hidden="true">
-        <div class="modal-backdrop" id="helpBackdrop"></div>
-        <section class="panel form-panel modal-panel help-panel" id="helpPanel">
-          <div class="form-header">
-            <div>
-              <div class="form-title">Keyboard shortcuts</div>
-              <div class="form-subtitle">Quick actions without leaving the flow</div>
-            </div>
-            <button class="ghost small" id="closeHelpBtn">Close</button>
-          </div>
-          <div class="help-grid">
-            <div class="help-item">
-              <div class="help-action">Undo</div>
-              <div class="help-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd></div>
-            </div>
-            <div class="help-item">
-              <div class="help-action">Redo</div>
-              <div class="help-keys"><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd></div>
-            </div>
-            <div class="help-item">
-              <div class="help-action">Create new recurrence</div>
-              <div class="help-keys"><kbd>N</kbd></div>
-            </div>
-            <div class="help-item">
-              <div class="help-action">Previous / next period</div>
-              <div class="help-keys"><kbd>←</kbd><span>/</span><kbd>→</kbd></div>
-            </div>
-            <div class="help-item">
-              <div class="help-action">Close panels / clear lock</div>
-              <div class="help-keys"><kbd>Esc</kbd></div>
-            </div>
-            <div class="help-item">
-              <div class="help-action">Edit occurrence</div>
-              <div class="help-keys"><kbd>Shift</kbd><span>+</span><kbd>Click</kbd></div>
-            </div>
-          </div>
-        </section>
-      </div>
-
       <section class="panel form-panel llm-panel" id="llmPanel">
         <div class="form-header">
           <div>
@@ -536,24 +566,16 @@
           <button class="ghost small" id="closeFormBtn">Close</button>
         </div>
         <form id="blobForm" class="blob-form">
-          <label>
+          <label class="recurrence-primary-field">
             Recurrence name
             <input type="text" name="recurrenceName" class="needs-input" />
           </label>
-          <label>
+          <label class="recurrence-primary-field">
             Recurrence description
             <input type="text" name="recurrenceDescription" class="needs-input" />
           </label>
-          <label>
-            AI context (optional)
-            <textarea
-              name="aiContext"
-              rows="3"
-              placeholder="Paste extra notes or constraints for AI..."
-            ></textarea>
-          </label>
-          <label>
-            Recurrence
+          <label class="recurrence-primary-field">
+            Recurrence type
             <select name="recurrenceType" id="recurrenceType">
               <option value="single">Single occurrence</option>
               <option value="multiple">Multiple occurrence</option>

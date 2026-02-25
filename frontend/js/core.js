@@ -7,6 +7,7 @@ const state = {
   editingRecurrenceId: null,
   editingRecurrenceType: null,
   editingRecurrencePayload: null,
+  editingWeeklyAnchorStart: null,
   editingOccurrenceStart: null,
   loadedRange: null,
   selectionMode: false,
@@ -32,6 +33,102 @@ const state = {
   llmDraftNotes: null,
   workspaceMode: "home",
 };
+
+const KEYBIND_DEFAULTS = Object.freeze({
+  undo: "Mod+Z",
+  redo: "Mod+Y",
+  closePanels: "Escape",
+  createTask: "N",
+  createEvent: "C",
+  navigatePrev: "ArrowLeft",
+  navigateNext: "ArrowRight",
+});
+
+function normalizeKeybindToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  if (lower === "esc" || lower === "escape") return "Escape";
+  if (lower === "left" || lower === "arrowleft") return "ArrowLeft";
+  if (lower === "right" || lower === "arrowright") return "ArrowRight";
+  if (lower === "up" || lower === "arrowup") return "ArrowUp";
+  if (lower === "down" || lower === "arrowdown") return "ArrowDown";
+  if (lower === "space" || lower === "spacebar") return "Space";
+  if (lower === "return" || lower === "enter") return "Enter";
+  if (lower === "tab") return "Tab";
+  if (lower === "backspace") return "Backspace";
+  if (lower === "delete" || lower === "del") return "Delete";
+  if (lower === "pageup") return "PageUp";
+  if (lower === "pagedown") return "PageDown";
+  if (lower === "home") return "Home";
+  if (lower === "end") return "End";
+  if (/^f\d{1,2}$/.test(lower)) return lower.toUpperCase();
+  if (raw.length === 1) return raw.toUpperCase();
+  return "";
+}
+
+function normalizeKeybindCombo(value, fallback = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  const tokens = raw
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!tokens.length) return fallback;
+  let hasMod = false;
+  let hasCtrl = false;
+  let hasMeta = false;
+  let hasAlt = false;
+  let hasShift = false;
+  let key = "";
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (lower === "mod") {
+      hasMod = true;
+      continue;
+    }
+    if (lower === "ctrl" || lower === "control") {
+      hasCtrl = true;
+      continue;
+    }
+    if (lower === "meta" || lower === "cmd" || lower === "command") {
+      hasMeta = true;
+      continue;
+    }
+    if (lower === "alt" || lower === "option") {
+      hasAlt = true;
+      continue;
+    }
+    if (lower === "shift") {
+      hasShift = true;
+      continue;
+    }
+    if (key) return fallback;
+    key = normalizeKeybindToken(token);
+    if (!key) return fallback;
+  }
+  if (!key) return fallback;
+  const parts = [];
+  if (hasMod) {
+    parts.push("Mod");
+  } else {
+    if (hasCtrl) parts.push("Ctrl");
+    if (hasMeta) parts.push("Meta");
+  }
+  if (hasAlt) parts.push("Alt");
+  if (hasShift) parts.push("Shift");
+  parts.push(key);
+  return parts.join("+");
+}
+
+function normalizeKeybindConfig(rawConfig) {
+  const raw = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+  const next = {};
+  Object.entries(KEYBIND_DEFAULTS).forEach(([action, fallback]) => {
+    next[action] = normalizeKeybindCombo(raw[action], fallback);
+  });
+  return next;
+}
 
 const defaultConfig = {
   scheduleName: window.APP_CONFIG?.scheduleName || "Elastisched",
@@ -82,6 +179,7 @@ const defaultConfig = {
     0,
     Number(window.APP_CONFIG?.engineGranularityCostWeight || 1.0)
   ),
+  keybinds: normalizeKeybindConfig(window.APP_CONFIG?.keybinds),
 };
 
 const storedConfig = (() => {
@@ -97,6 +195,7 @@ const appConfig = {
   ...defaultConfig,
   ...(storedConfig || {}),
 };
+appConfig.keybinds = normalizeKeybindConfig(appConfig.keybinds);
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 240;
@@ -207,11 +306,15 @@ function isTypingInField(target) {
 
 export {
   API_BASE,
+  KEYBIND_DEFAULTS,
   appConfig,
   isTypingInField,
   loadView,
   loadWorkspaceMode,
   minuteGranularity,
+  normalizeKeybindCombo,
+  normalizeKeybindConfig,
+  normalizeKeybindToken,
   applyTheme,
   saveSettings,
   saveView,
