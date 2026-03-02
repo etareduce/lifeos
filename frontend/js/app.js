@@ -199,6 +199,10 @@ function getUpcomingRecurrenceGroups() {
 }
 
 function isTaskOccurrence(blob) {
+  const showOnTasksPage = blob?.policy?.show_on_tasks_page;
+  if (typeof showOnTasksPage === "boolean" && !showOnTasksPage) {
+    return false;
+  }
   const defaultRange = blob?.default_scheduled_timerange || null;
   const schedulableRange = blob?.schedulable_timerange || null;
   if (

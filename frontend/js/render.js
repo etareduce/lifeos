@@ -38,7 +38,9 @@ function getPolicyFlags(policy = {}) {
       : Boolean(mask & 2);
   const invisible =
     typeof policy.is_invisible === "boolean" ? policy.is_invisible : Boolean(mask & 4);
-  return { splittable, overlappable, invisible };
+  const showOnTasksPage =
+    typeof policy.show_on_tasks_page === "boolean" ? policy.show_on_tasks_page : true;
+  return { splittable, overlappable, invisible, showOnTasksPage };
 }
 
 function getCalendarViewIdFromBlob(blob) {
@@ -109,6 +111,9 @@ function renderPolicyBadges(policy, { compact = false } = {}) {
   }
   if (flags.invisible) {
     items.push({ key: "invisible", label: "Invisible" });
+  }
+  if (!flags.showOnTasksPage) {
+    items.push({ key: "hidden-from-tasks", label: "Hidden from Tasks" });
   }
   if (items.length === 0) {
     return "";

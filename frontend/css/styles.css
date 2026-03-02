@@ -1142,6 +1142,10 @@ body.modal-open .info-card {
   display: none;
 }
 
+.task-tracking-row.hidden {
+  display: none;
+}
+
 .tag-label {
   font-size: 13px;
   color: var(--muted);
@@ -2128,6 +2132,10 @@ body.modal-open .info-card {
 .weekly-slot-row.blob-type-row {
   grid-template-columns: auto;
   align-items: start;
+}
+
+.weekly-slot-row.task-tracking-row {
+  grid-template-columns: 1fr;
 }
 
 .weekly-slot-row.policy-label-row {
@@ -3863,6 +3871,12 @@ html[data-zoomed="true"] .views {
   background: rgba(192, 125, 107, 0.18);
   border-color: rgba(192, 125, 107, 0.5);
   color: #5a4a3f;
+}
+
+.policy-badge.hidden-from-tasks {
+  background: rgba(58, 110, 122, 0.1);
+  border-color: rgba(58, 110, 122, 0.32);
+  color: var(--ocean);
 }
 
 .policy-badge.summary {

@@ -323,3 +323,51 @@ async def test_schedule_includes_overlapping_schedulable_window_started_before_n
     )
     assert occurrence is not None
     assert occurrence.get("realized_timerange") is not None
+
+
+@pytest.mark.asyncio
+async def test_occurrences_preserve_show_on_tasks_page_policy(api_client):
+    schedulable_start = datetime(2026, 3, 3, 14, 0, tzinfo=timezone.utc)
+    schedulable_end = datetime(2026, 3, 3, 16, 0, tzinfo=timezone.utc)
+    default_start = datetime(2026, 3, 3, 14, 30, tzinfo=timezone.utc)
+    default_end = datetime(2026, 3, 3, 15, 0, tzinfo=timezone.utc)
+
+    recurrence_payload = {
+        "type": "single",
+        "payload": {
+            "blob": {
+                "name": "Quiet task",
+                "description": "Should stay off the Tasks page",
+                "tz": "UTC",
+                "default_scheduled_timerange": {
+                    "start": default_start.isoformat(),
+                    "end": default_end.isoformat(),
+                },
+                "schedulable_timerange": {
+                    "start": schedulable_start.isoformat(),
+                    "end": schedulable_end.isoformat(),
+                },
+                "policy": {"show_on_tasks_page": False},
+                "dependencies": [],
+                "tags": [],
+            }
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json=recurrence_payload)
+        assert create_resp.status_code == 201
+
+        occurrence_resp = await client.get(
+            "/occurrences",
+            params={
+                "start": datetime(2026, 3, 1, tzinfo=timezone.utc).isoformat(),
+                "end": datetime(2026, 3, 10, tzinfo=timezone.utc).isoformat(),
+            },
+        )
+        assert occurrence_resp.status_code == 200
+
+    occurrences = occurrence_resp.json()
+    occurrence = next((item for item in occurrences if item.get("name") == "Quiet task"), None)
+    assert occurrence is not None
+    assert occurrence["policy"]["show_on_tasks_page"] is False

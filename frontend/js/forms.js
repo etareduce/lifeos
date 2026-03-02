@@ -469,6 +469,12 @@ function normalizeBlobType(value) {
   return value === BLOB_TYPES.EVENT ? BLOB_TYPES.EVENT : BLOB_TYPES.TASK;
 }
 
+function isBlobShownOnTasksPage(policy = {}) {
+  return typeof policy?.show_on_tasks_page === "boolean"
+    ? policy.show_on_tasks_page
+    : true;
+}
+
 function getRangeInputs(container) {
   if (!container) return null;
   const direct = {
@@ -516,6 +522,12 @@ function setBlobTypeOnContainer(container, nextType) {
   const type = normalizeBlobType(nextType);
   container.dataset.blobType = type;
   container.classList.toggle("is-event", type === BLOB_TYPES.EVENT);
+  container.querySelectorAll("[data-task-tracking-row]").forEach((row) => {
+    row.classList.toggle("hidden", type !== BLOB_TYPES.TASK);
+  });
+  container.querySelectorAll("[data-track-on-tasks-page]").forEach((input) => {
+    input.disabled = type !== BLOB_TYPES.TASK;
+  });
   const rangeInputs = getRangeInputs(container);
   if (rangeInputs?.defaultStart && rangeInputs?.defaultEnd) {
     const shouldRequireDefault = type === BLOB_TYPES.TASK;
@@ -610,7 +622,16 @@ function getPolicyFlagsFromPolicy(policy = {}) {
     typeof policy.round_to_granularity === "boolean"
       ? policy.round_to_granularity
       : Boolean(mask & 8);
-  return { splittable, overlappable, invisible, maxSplits, minSplitDurationMinutes, roundToGranularity };
+  const showOnTasksPage = isBlobShownOnTasksPage(policy);
+  return {
+    splittable,
+    overlappable,
+    invisible,
+    maxSplits,
+    minSplitDurationMinutes,
+    roundToGranularity,
+    showOnTasksPage,
+  };
 }
 
 function getPolicyPayloadFromForm() {
@@ -631,7 +652,8 @@ function getPolicyPayloadFromForm() {
     Boolean(dom.blobForm.policyInvisible?.checked),
     maxSplits,
     minSplitMinutes * 60,
-    roundToGranularity
+    roundToGranularity,
+    Boolean(dom.blobForm.trackOnTasksPage?.checked ?? true)
   );
 }
 
@@ -641,7 +663,8 @@ function getPolicyPayloadFromFlags(
   invisible,
   maxSplits = DEFAULT_MAX_SPLITS,
   minSplitDurationSeconds = DEFAULT_MIN_SPLIT_MINUTES * 60,
-  roundToGranularity = false
+  roundToGranularity = false,
+  showOnTasksPage = true
 ) {
   const schedulingPolicies =
     (splittable ? 1 : 0)
@@ -656,6 +679,7 @@ function getPolicyPayloadFromFlags(
     min_split_duration_seconds: minSplitDurationSeconds,
     round_to_granularity: roundToGranularity,
     scheduling_policies: schedulingPolicies,
+    show_on_tasks_page: showOnTasksPage,
   };
 }
 
@@ -1219,6 +1243,9 @@ function applyPolicyToForm(policy) {
   if (dom.blobForm.policyRoundToGranularity) {
     dom.blobForm.policyRoundToGranularity.checked = flags.roundToGranularity;
   }
+  if (dom.blobForm.trackOnTasksPage) {
+    dom.blobForm.trackOnTasksPage.checked = flags.showOnTasksPage;
+  }
   setPolicyAdvancedVisibility(dom.blobForm.policySplittable || dom.blobForm, flags.splittable);
 }
 
@@ -1239,6 +1266,10 @@ function applyPolicyToSlot(slot, policy) {
   }
   if (roundToGranularityEl) {
     roundToGranularityEl.checked = flags.roundToGranularity;
+  }
+  const trackOnTasksPageEl = slot.querySelector('[data-track-on-tasks-page]');
+  if (trackOnTasksPageEl) {
+    trackOnTasksPageEl.checked = flags.showOnTasksPage;
   }
   setPolicyAdvancedVisibility(slot, flags.splittable);
 }
@@ -1516,6 +1547,10 @@ function createWeeklySlot(slotData = {}) {
       ? BLOB_TYPES.EVENT
       : BLOB_TYPES.TASK)
   );
+  const trackOnTasksPage =
+    typeof slotData.trackOnTasksPage === "boolean"
+      ? slotData.trackOnTasksPage
+      : policyFlags.showOnTasksPage;
   slot.innerHTML = `
     <div class="weekly-slot-row slot-day-row">
       <div class="slot-day-field">
@@ -1538,6 +1573,17 @@ function createWeeklySlot(slotData = {}) {
         </button>
       </div>
       <input type="hidden" name="slotBlobType" value="${slotType}" data-blob-type-input />
+    </div>
+    <div class="weekly-slot-row task-tracking-row ${slotType === BLOB_TYPES.TASK ? "" : "hidden"}" data-task-tracking-row>
+      <label class="policy-option task-tracking-toggle">
+        <input
+          type="checkbox"
+          name="slotTrackOnTasksPage"
+          ${trackOnTasksPage ? "checked" : ""}
+          data-track-on-tasks-page
+        />
+        <span>Show on Tasks page</span>
+      </label>
     </div>
     <div class="weekly-slot-row time-range-row schedulable-range-row">
       <label>
@@ -1758,6 +1804,9 @@ function getWeeklySlotSelections() {
       slot.querySelector('[name="slotPolicyRoundToGranularity"]')?.checked
     );
     const slotType = normalizeBlobType(slot.querySelector('[name="slotBlobType"]')?.value);
+    const trackOnTasksPage = Boolean(
+      slot.querySelector('[name="slotTrackOnTasksPage"]')?.checked ?? true
+    );
     const schedStart = slot.querySelector('[name="slotSchedStart"]').value;
     const schedEnd = slot.querySelector('[name="slotSchedEnd"]').value;
     const defaultStart = slotType === BLOB_TYPES.EVENT
@@ -1782,7 +1831,8 @@ function getWeeklySlotSelections() {
         invisible,
         maxSplits,
         minSplitMinutes * 60,
-        roundToGranularity
+        roundToGranularity,
+        trackOnTasksPage
       ),
     });
   });
@@ -1882,6 +1932,10 @@ function createMultipleSlot(slotData = {}) {
       ? BLOB_TYPES.EVENT
       : BLOB_TYPES.TASK)
   );
+  const trackOnTasksPage =
+    typeof slotData.trackOnTasksPage === "boolean"
+      ? slotData.trackOnTasksPage
+      : policyFlags.showOnTasksPage;
 
   slot.innerHTML = `
     <div class="weekly-slot-row blob-type-row">
@@ -1894,6 +1948,17 @@ function createMultipleSlot(slotData = {}) {
         </button>
       </div>
       <input type="hidden" name="multiBlobType" value="${slotType}" data-blob-type-input />
+    </div>
+    <div class="weekly-slot-row task-tracking-row ${slotType === BLOB_TYPES.TASK ? "" : "hidden"}" data-task-tracking-row>
+      <label class="policy-option task-tracking-toggle">
+        <input
+          type="checkbox"
+          name="multiTrackOnTasksPage"
+          ${trackOnTasksPage ? "checked" : ""}
+          data-track-on-tasks-page
+        />
+        <span>Show on Tasks page</span>
+      </label>
     </div>
     <div class="weekly-slot-row time-range-row schedulable-range-row">
       <label>
@@ -2211,7 +2276,8 @@ function getMultipleSlots() {
         Boolean(slot.querySelector('[name="slotPolicyInvisible"]')?.checked),
         Number(slot.querySelector('[name="slotPolicyMaxSplits"]')?.value || 0),
         Number(slot.querySelector('[name="slotPolicyMinSplitDuration"]')?.value || 0),
-        Boolean(slot.querySelector('[name="slotPolicyRoundToGranularity"]')?.checked)
+        Boolean(slot.querySelector('[name="slotPolicyRoundToGranularity"]')?.checked),
+        Boolean(slot.querySelector('[name="multiTrackOnTasksPage"]')?.checked ?? true)
       ),
     });
   });
@@ -2454,6 +2520,7 @@ function openEditForm(blob) {
         tags,
         policy: weeklyBlob.policy || {},
         days: [dayValue],
+        trackOnTasksPage: isBlobShownOnTasksPage(weeklyBlob.policy || {}),
         blobType: isEventFromRanges(
           timeValueFromDate(start, "09:00", slotTimeZone),
           timeValueFromDate(end, "10:00", slotTimeZone),
@@ -2472,6 +2539,7 @@ function openEditForm(blob) {
         description: slot.description,
         tags: normalizedTags,
         policy: policyFlags,
+        trackOnTasksPage: slot.trackOnTasksPage,
       });
       const existing = groupedSlots.get(key);
       if (existing) {
@@ -2493,6 +2561,7 @@ function openEditForm(blob) {
         description: slot.description,
         tags: slot.tags,
         policy: slot.policy,
+        trackOnTasksPage: slot.trackOnTasksPage,
         blobType: slot.blobType,
       });
     });
@@ -2531,6 +2600,7 @@ function openEditForm(blob) {
           tags: Array.isArray(multiBlob.tags) ? multiBlob.tags : [],
           dependencies: Array.isArray(multiBlob.dependencies) ? multiBlob.dependencies : [],
           policy: multiBlob.policy || {},
+          trackOnTasksPage: isBlobShownOnTasksPage(multiBlob.policy || {}),
           blobType: isEventFromRanges(defaultStart, defaultEnd, schedStart, schedEnd)
             ? BLOB_TYPES.EVENT
             : BLOB_TYPES.TASK,
@@ -2826,7 +2896,10 @@ async function handleBlobSubmit(event) {
           start: schedStart,
           end: schedEnd,
         },
-        policy: perSlot ? slot.policy : sharedPolicy,
+        policy: {
+          ...(perSlot ? slot.policy : sharedPolicy),
+          show_on_tasks_page: isBlobShownOnTasksPage(slot.policy || {}),
+        },
         dependencies,
         tags: perSlot ? slot.tags : tags,
       };
@@ -2915,7 +2988,8 @@ async function handleBlobSubmit(event) {
       true,
       DEFAULT_MAX_SPLITS,
       DEFAULT_MIN_SPLIT_MINUTES * 60,
-      false
+      false,
+      true
     );
     const dayStart = toProjectIsoFromLocalInput(
       `${annualDate}T00:00`,
