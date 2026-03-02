@@ -644,6 +644,7 @@ html[data-workspace-mode="search"] #homeBtn {
   box-shadow: none;
 }
 
+html[data-workspace-mode="home"] #homeBtn,
 html[data-workspace-mode="tasks"] #tasksBtn,
 html[data-workspace-mode="search"] #searchBtn {
   background: var(--paper);
