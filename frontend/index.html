@@ -221,6 +221,7 @@
                       <option value="sage">Sage</option>
                       <option value="ocean">Ocean</option>
                       <option value="ember">Ember</option>
+                      <option value="midnight">Midnight</option>
                     </select>
                   </label>
                   <label>
@@ -339,6 +340,10 @@
                 </article>
                 <article class="settings-card">
                   <div class="settings-card-title">Execution options</div>
+                  <label>
+                    Tasks window (days)
+                    <input type="number" name="tasksDisplayDays" min="1" step="1" />
+                  </label>
                   <label>
                     Finish early buffer (minutes)
                     <input type="number" name="finishEarlyBufferMinutes" min="1" step="1" />
@@ -561,6 +566,46 @@
             <button type="button" class="ghost alert-action alt" id="alertAltBtn">Delete</button>
             <button type="button" class="primary alert-action confirm" id="alertConfirmBtn">OK</button>
           </div>
+        </section>
+      </div>
+
+      <div class="modal" id="taskCompletionModal" aria-hidden="true">
+        <div class="modal-backdrop" id="taskCompletionBackdrop"></div>
+        <section
+          class="panel modal-panel task-completion-panel"
+          id="taskCompletionPanel"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div class="form-header">
+            <div>
+              <div class="form-title">Complete overdue task</div>
+              <div class="form-subtitle" id="taskCompletionSummary">
+                Estimate how long it took so we can store completion timing.
+              </div>
+            </div>
+            <button type="button" class="ghost small" id="taskCompletionCloseBtn">Close</button>
+          </div>
+          <form id="taskCompletionForm" class="blob-form task-completion-form">
+            <label>
+              Minutes spent
+              <input
+                type="number"
+                id="taskCompletionMinutesInput"
+                name="taskCompletionMinutes"
+                min="1"
+                step="1"
+                inputmode="numeric"
+              />
+            </label>
+            <div class="form-actions">
+              <button type="button" class="ghost" id="taskCompletionCancelBtn">Cancel</button>
+              <button type="submit" class="primary" id="taskCompletionSubmitBtn">
+                Mark complete
+              </button>
+              <span class="form-status" id="taskCompletionStatus"></span>
+            </div>
+          </form>
         </section>
       </div>
 
@@ -1158,15 +1203,15 @@
           <div class="tasks-metrics">
             <div class="tasks-metric">
               <div class="tasks-metric-value" id="tasksUpcomingCount">0</div>
-              <div class="tasks-metric-label">Upcoming</div>
+              <div class="tasks-metric-label">Window</div>
             </div>
             <div class="tasks-metric">
               <div class="tasks-metric-value" id="tasksTodayCount">0</div>
-              <div class="tasks-metric-label">Today</div>
+              <div class="tasks-metric-label">In progress</div>
             </div>
             <div class="tasks-metric">
               <div class="tasks-metric-value" id="tasksWeekCount">0</div>
-              <div class="tasks-metric-label">This week</div>
+              <div class="tasks-metric-label">Overdue</div>
             </div>
           </div>
         </div>

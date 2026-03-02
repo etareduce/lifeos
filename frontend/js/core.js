@@ -134,6 +134,7 @@ const defaultConfig = {
   scheduleName: window.APP_CONFIG?.scheduleName || "Elastisched",
   subtitle: window.APP_CONFIG?.subtitle || "Schedule at a glance",
   minuteGranularity: Math.max(1, Number(window.APP_CONFIG?.minuteGranularity || 5)),
+  tasksDisplayDays: Math.max(1, Number(window.APP_CONFIG?.tasksDisplayDays || 3)),
   finishEarlyBufferMinutes: Math.max(
     1,
     Number(window.APP_CONFIG?.finishEarlyBufferMinutes || 15)

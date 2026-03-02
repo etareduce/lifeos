@@ -60,6 +60,7 @@ const WORKSPACE_MODE = {
   SEARCH: "search",
 };
 const WORKSPACE_LOOKAHEAD_DAYS = 90;
+const TASKS_OVERDUE_LOOKBACK_DAYS = 30;
 const ZOOM_SCROLL_THRESHOLD = 1.05;
 const BASE_DEVICE_PIXEL_RATIO =
   Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
@@ -69,6 +70,8 @@ const BASE_VISUAL_VIEWPORT_SCALE =
   window.visualViewport && Number.isFinite(window.visualViewport.scale)
     ? window.visualViewport.scale || 1
     : 1;
+let pendingRetroactiveCompletionId = null;
+let taskCompletionLastFocusedElement = null;
 
 function getCurrentZoomFactor() {
   const viewportScale =
@@ -96,6 +99,59 @@ function syncZoomScrollMode() {
   document.documentElement.dataset.zoomed = zoomed ? "true" : "false";
 }
 
+function setTaskCompletionStatus(message = "", error = false) {
+  if (!dom.taskCompletionStatus) return;
+  dom.taskCompletionStatus.textContent = message;
+  dom.taskCompletionStatus.classList.toggle("error", Boolean(error));
+}
+
+function toggleTaskCompletionModal(show) {
+  if (!dom.taskCompletionModal || !dom.taskCompletionPanel) return;
+  const active = Boolean(show);
+  if (active) {
+    taskCompletionLastFocusedElement = document.activeElement;
+  }
+  dom.taskCompletionModal.classList.toggle("active", active);
+  dom.taskCompletionPanel.classList.toggle("active", active);
+  dom.taskCompletionModal.setAttribute("aria-hidden", (!active).toString());
+  document.body.classList.toggle("modal-open", active);
+  if (!active) {
+    dom.taskCompletionModal.setAttribute("inert", "");
+    pendingRetroactiveCompletionId = null;
+    if (dom.taskCompletionForm) {
+      dom.taskCompletionForm.reset();
+    }
+    setTaskCompletionStatus("");
+    if (
+      taskCompletionLastFocusedElement &&
+      typeof taskCompletionLastFocusedElement.focus === "function"
+    ) {
+      taskCompletionLastFocusedElement.focus();
+    }
+    taskCompletionLastFocusedElement = null;
+    return;
+  }
+  dom.taskCompletionModal.removeAttribute("inert");
+  dom.taskCompletionMinutesInput?.focus();
+}
+
+function openRetroactiveCompletionModal(blob) {
+  if (!blob) return;
+  pendingRetroactiveCompletionId = blob.id;
+  const effective = getEffectiveOccurrenceRange(blob);
+  const defaultMinutes = effective
+    ? Math.max(1, Math.round((effective.end.getTime() - effective.start.getTime()) / 60000))
+    : 30;
+  if (dom.taskCompletionSummary) {
+    dom.taskCompletionSummary.textContent = `Estimate how long "${blob.name || "this task"}" took to complete.`;
+  }
+  if (dom.taskCompletionMinutesInput) {
+    dom.taskCompletionMinutesInput.value = String(defaultMinutes);
+  }
+  setTaskCompletionStatus("");
+  toggleTaskCompletionModal(true);
+}
+
 syncZoomScrollMode();
 window.addEventListener("resize", syncZoomScrollMode, { passive: true });
 if (window.visualViewport) {
@@ -105,8 +161,9 @@ if (window.visualViewport) {
 }
 
 function getWorkspaceDataRange() {
-  const start = new Date();
-  const end = addDays(start, WORKSPACE_LOOKAHEAD_DAYS);
+  const now = new Date();
+  const start = addDays(now, -TASKS_OVERDUE_LOOKBACK_DAYS);
+  const end = addDays(now, WORKSPACE_LOOKAHEAD_DAYS);
   return { start, end };
 }
 
@@ -242,21 +299,37 @@ function escapeHtml(value) {
 
 function renderTasksPanel() {
   if (!dom.tasksList) return;
-  const items = getUpcomingOccurrences().filter(({ blob }) => isTaskOccurrence(blob));
   const userZone = appConfig.userTimeZone;
   const now = new Date();
-  const todayKey = dayKeyInZone(now, userZone);
-  const weekLimit = addDays(now, 7);
-  const todayCount = items.filter(({ range }) => dayKeyInZone(range.start, userZone) === todayKey).length;
-  const weekCount = items.filter(({ range }) => range.start < weekLimit).length;
-  if (dom.tasksUpcomingCount) dom.tasksUpcomingCount.textContent = `${items.length}`;
-  if (dom.tasksTodayCount) dom.tasksTodayCount.textContent = `${todayCount}`;
-  if (dom.tasksWeekCount) dom.tasksWeekCount.textContent = `${weekCount}`;
-
-  if (!items.length) {
-    dom.tasksList.innerHTML = `<div class="tasks-empty">No upcoming tasks in the loaded range.</div>`;
-    return;
-  }
+  const windowEnd = addDays(now, Math.max(1, Number(appConfig.tasksDisplayDays || 3)));
+  const taskItems = state.blobs
+    .filter((blob) => isTaskOccurrence(blob))
+    .map((blob) => {
+      const effective = getEffectiveOccurrenceRange(blob);
+      if (!effective?.start || !effective?.effectiveEnd) return null;
+      return {
+        blob,
+        range: {
+          start: effective.start,
+          end: effective.effectiveEnd,
+        },
+        finishedAt: effective.finishedAt || null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.range.start - b.range.start);
+  const overdueItems = taskItems.filter(
+    (item) => !item.finishedAt && item.range.end < now
+  );
+  const windowItems = taskItems.filter(
+    (item) => !item.finishedAt && item.range.end >= now && item.range.start < windowEnd
+  );
+  const inProgressCount = windowItems.filter(
+    (item) => item.range.start <= now && now < item.range.end
+  ).length;
+  if (dom.tasksUpcomingCount) dom.tasksUpcomingCount.textContent = `${windowItems.length}`;
+  if (dom.tasksTodayCount) dom.tasksTodayCount.textContent = `${inProgressCount}`;
+  if (dom.tasksWeekCount) dom.tasksWeekCount.textContent = `${overdueItems.length}`;
 
   const dateFormatter = new Intl.DateTimeFormat(undefined, {
     timeZone: userZone,
@@ -264,29 +337,85 @@ function renderTasksPanel() {
     month: "short",
     day: "numeric",
   });
-  const markup = items
-    .slice(0, 80)
-    .map(({ blob, range }) => {
-      const timeZone = blob?.tz || userZone;
-      const title = escapeHtml(blob.name || "Untitled");
-      const description = escapeHtml(blob.description || "");
-      const dayLabel = dateFormatter.format(range.start);
-      const timeLabel = formatTimeRangeInTimeZone(range.start, range.end, timeZone);
-      return `
-        <article class="task-card">
-          <div class="task-card-main">
-            <div class="task-card-title">${title}</div>
-            ${description ? `<div class="task-card-copy">${description}</div>` : ""}
-          </div>
-          <div class="task-card-meta">
-            <div class="task-card-day">${escapeHtml(dayLabel)}</div>
-            <div class="task-card-time">${escapeHtml(timeLabel)}</div>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-  dom.tasksList.innerHTML = markup;
+  const renderTaskCards = (items, options = {}) => {
+    const emptyMessage = options.emptyMessage || "No tasks.";
+    if (!items.length) {
+      return `<div class="tasks-empty">${escapeHtml(emptyMessage)}</div>`;
+    }
+    return items
+      .slice(0, 80)
+      .map((item) => {
+        const { blob, range } = item;
+        const timeZone = blob?.tz || userZone;
+        const title = escapeHtml(blob.name || "Untitled");
+        const description = escapeHtml(blob.description || "");
+        const dayLabel = dateFormatter.format(range.start);
+        const timeLabel = formatTimeRangeInTimeZone(range.start, range.end, timeZone);
+        const isInProgress = range.start <= now && now < range.end;
+        const completeAction = options.allowRetroactiveCompletion
+          ? `
+            <button type="button" class="ghost small" data-complete-task="retroactive" data-occurrence-id="${blob.id}">
+              Mark complete
+            </button>
+          `
+          : isInProgress
+            ? `
+              <button type="button" class="ghost small" data-complete-task="now" data-occurrence-id="${blob.id}">
+                Finish now
+              </button>
+            `
+            : "";
+        const statusBadge = options.allowRetroactiveCompletion
+          ? '<span class="task-card-status overdue">Overdue</span>'
+          : isInProgress
+            ? '<span class="task-card-status active">In progress</span>'
+            : "";
+        return `
+          <article class="task-card">
+            <div class="task-card-main">
+              <div class="task-card-head">
+                <div class="task-card-title">${title}</div>
+                ${statusBadge}
+              </div>
+              ${description ? `<div class="task-card-copy">${description}</div>` : ""}
+            </div>
+            <div class="task-card-meta">
+              <div class="task-card-day">${escapeHtml(dayLabel)}</div>
+              <div class="task-card-time">${escapeHtml(timeLabel)}</div>
+              ${completeAction}
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  };
+  const windowLabel = Math.max(1, Number(appConfig.tasksDisplayDays || 3));
+  dom.tasksList.innerHTML = `
+    <section class="tasks-column">
+      <div class="tasks-column-header">
+        <h3 class="tasks-column-title">Next ${windowLabel} day${windowLabel === 1 ? "" : "s"}</h3>
+        <div class="tasks-column-copy">Current and upcoming tasks in the active window.</div>
+      </div>
+      <div class="tasks-column-list">
+        ${renderTaskCards(windowItems, {
+          allowRetroactiveCompletion: false,
+          emptyMessage: "No tasks in this window.",
+        })}
+      </div>
+    </section>
+    <section class="tasks-column">
+      <div class="tasks-column-header">
+        <h3 class="tasks-column-title">Overdue</h3>
+        <div class="tasks-column-copy">Unfinished tasks from the past.</div>
+      </div>
+      <div class="tasks-column-list">
+        ${renderTaskCards(overdueItems, {
+          allowRetroactiveCompletion: true,
+          emptyMessage: "No overdue tasks.",
+        })}
+      </div>
+    </section>
+  `;
 }
 
 function renderSearchPanel() {
@@ -603,21 +732,30 @@ async function extendOccurrenceByMinutes(minutes) {
 async function handleFinishNow() {
   const blob = getSelectedOccurrence();
   if (!blob) return;
+  await completeTaskOccurrence(blob, { finishedAt: new Date(), rerunIfEarly: true });
+}
+
+async function completeTaskOccurrence(blob, options = {}) {
+  if (!blob) return false;
   const effective = getEffectiveOccurrenceRange(blob);
-  if (!effective) return;
+  if (!effective) return false;
+  const now = new Date();
+  const finishedAt =
+    options.finishedAt instanceof Date && !Number.isNaN(options.finishedAt.getTime())
+      ? options.finishedAt
+      : now;
+  const occurrenceKey = blob.schedulable_timerange?.start;
+  if (!occurrenceKey) return false;
   const bufferMinutes = Math.max(1, Number(appConfig.finishEarlyBufferMinutes || 15));
   const threshold = new Date(
     effective.effectiveEnd.getTime() - bufferMinutes * 60000
   );
-  const now = new Date();
-  const occurrenceKey = blob.schedulable_timerange?.start;
-  if (!occurrenceKey) return;
   let previous = null;
   try {
     previous = await getRecurrence(blob.recurrence_id);
   } catch (error) {
     await alertDialog(error?.message || "Unable to load recurrence.");
-    return;
+    return false;
   }
   const payload = previous.payload || {};
   const overrides =
@@ -627,7 +765,7 @@ async function handleFinishNow() {
   const currentOverride = overrides[occurrenceKey] || {};
   overrides[occurrenceKey] = {
     ...(currentOverride || {}),
-    finished_at: toProjectIsoFromDate(now, appConfig.projectTimeZone),
+    finished_at: toProjectIsoFromDate(finishedAt, appConfig.projectTimeZone),
   };
   const nextPayload = { ...payload, occurrence_overrides: overrides };
   try {
@@ -647,11 +785,82 @@ async function handleFinishNow() {
     });
     state.loadedRange = null;
     await refreshView(state.view);
-    if (now < threshold) {
+    if (options.rerunIfEarly && finishedAt < threshold) {
       await handleRunSchedule();
     }
+    return true;
   } catch (error) {
     await alertDialog(error?.message || "Failed to finish occurrence.");
+    return false;
+  }
+}
+
+async function handleTaskCompletionAction(button) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  const occurrenceId = button.getAttribute("data-occurrence-id");
+  if (!occurrenceId) return;
+  const blob = state.blobs.find((item) => item.id === occurrenceId);
+  if (!blob) {
+    await alertDialog("Task occurrence not found.");
+    return;
+  }
+  const mode = button.getAttribute("data-complete-task");
+  if (mode === "retroactive") {
+    openRetroactiveCompletionModal(blob);
+    return;
+  }
+  await completeTaskOccurrence(blob, { finishedAt: new Date(), rerunIfEarly: true });
+}
+
+async function handleRetroactiveCompletionSubmit(event) {
+  event.preventDefault();
+  const occurrenceId = pendingRetroactiveCompletionId;
+  if (!occurrenceId) {
+    toggleTaskCompletionModal(false);
+    return;
+  }
+  const blob = state.blobs.find((item) => item.id === occurrenceId);
+  if (!blob) {
+    setTaskCompletionStatus("Task occurrence not found.", true);
+    return;
+  }
+  const effective = getEffectiveOccurrenceRange(blob);
+  if (!effective) {
+    setTaskCompletionStatus("Unable to read task timing.", true);
+    return;
+  }
+  const estimatedMinutes = Math.max(
+    0,
+    Math.round(Number(dom.taskCompletionMinutesInput?.value || 0))
+  );
+  if (!Number.isFinite(estimatedMinutes) || estimatedMinutes <= 0) {
+    setTaskCompletionStatus("Enter a positive number of minutes.", true);
+    dom.taskCompletionMinutesInput?.focus();
+    return;
+  }
+  const retroactiveFinish = new Date(
+    Math.min(Date.now(), effective.start.getTime() + estimatedMinutes * 60000)
+  );
+  if (dom.taskCompletionSubmitBtn) {
+    dom.taskCompletionSubmitBtn.disabled = true;
+  }
+  setTaskCompletionStatus("Saving...");
+  try {
+    const completed = await completeTaskOccurrence(blob, {
+      finishedAt: retroactiveFinish,
+      rerunIfEarly: false,
+    });
+    if (completed) {
+      toggleTaskCompletionModal(false);
+    } else {
+      setTaskCompletionStatus("Unable to mark task complete.", true);
+    }
+  } catch (error) {
+    setTaskCompletionStatus(error?.message || "Unable to mark task complete.", true);
+  } finally {
+    if (dom.taskCompletionSubmitBtn) {
+      dom.taskCompletionSubmitBtn.disabled = false;
+    }
   }
 }
 
@@ -703,6 +912,24 @@ if (dom.finishNowBtn) {
     handleFinishNow();
   });
 }
+
+if (dom.tasksList) {
+  dom.tasksList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-complete-task]");
+    if (!(button instanceof HTMLButtonElement)) return;
+    handleTaskCompletionAction(button);
+  });
+}
+
+dom.taskCompletionForm?.addEventListener("submit", handleRetroactiveCompletionSubmit);
+dom.taskCompletionCancelBtn?.addEventListener("click", () => toggleTaskCompletionModal(false));
+dom.taskCompletionCloseBtn?.addEventListener("click", () => toggleTaskCompletionModal(false));
+dom.taskCompletionBackdrop?.addEventListener("click", () => toggleTaskCompletionModal(false));
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!dom.taskCompletionModal?.classList.contains("active")) return;
+  toggleTaskCompletionModal(false);
+});
 
 if (dom.addTimePopover) {
   dom.addTimePopover.addEventListener("click", (event) => {

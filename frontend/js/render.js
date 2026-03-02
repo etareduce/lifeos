@@ -26,6 +26,11 @@ import {
 } from "./utils.js";
 
 let infoCardEventsBound = false;
+let infoCardAnchorEl = null;
+
+function setInfoCardAnchor(element) {
+  infoCardAnchorEl = element instanceof Element ? element : null;
+}
 
 function getPolicyFlags(policy = {}) {
   const rawMask = Number(policy.scheduling_policies);
@@ -281,14 +286,12 @@ function clearInfoCardHideTimeout() {
 }
 
 function isInfoCardAnchorHovered() {
-  return Boolean(
-    document.querySelector(".day-block:hover, .full-day-chip:hover, .month-day:hover")
-  );
+  return Boolean(infoCardAnchorEl?.matches(":hover"));
 }
 
 function isInfoCardAnchorTarget(target) {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(".day-block, .full-day-chip, .month-day"));
+  return Boolean(infoCardAnchorEl && (target === infoCardAnchorEl || infoCardAnchorEl.contains(target)));
 }
 
 function clearInfoCardOverlays() {
@@ -563,6 +566,7 @@ function hideInfoCard() {
   clearInfoCardHideTimeout();
   state.infoCardHovering = false;
   state.infoCardAnchorHovering = false;
+  setInfoCardAnchor(null);
   clearInfoCardOverlays();
   card.classList.remove("active");
   card.setAttribute("aria-hidden", "true");
@@ -1024,11 +1028,15 @@ function renderDay() {
     blockEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       state.infoCardAnchorHovering = true;
+      setInfoCardAnchor(blockEl);
       clearInfoCardHideTimeout();
       applyInfoCardAndOverlay(blockEl);
     });
     blockEl.addEventListener("mouseleave", (event) => {
       state.infoCardAnchorHovering = false;
+      if (infoCardAnchorEl === blockEl) {
+        setInfoCardAnchor(null);
+      }
       if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
         return;
       }
@@ -1071,12 +1079,16 @@ function renderDay() {
     chipEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       state.infoCardAnchorHovering = true;
+      setInfoCardAnchor(chipEl);
       clearInfoCardHideTimeout();
       const blob = getBlobById(chipEl.dataset.blobId);
       showInfoCard(blob, chipEl.getBoundingClientRect());
     });
     chipEl.addEventListener("mouseleave", (event) => {
       state.infoCardAnchorHovering = false;
+      if (infoCardAnchorEl === chipEl) {
+        setInfoCardAnchor(null);
+      }
       if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
         return;
       }
@@ -1545,12 +1557,16 @@ function renderWeek() {
       chipEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         state.infoCardAnchorHovering = true;
+        setInfoCardAnchor(chipEl);
         clearInfoCardHideTimeout();
         const blob = getBlobById(chipEl.dataset.blobId);
         showInfoCard(blob, chipEl.getBoundingClientRect());
       });
       chipEl.addEventListener("mouseleave", (event) => {
         state.infoCardAnchorHovering = false;
+        if (infoCardAnchorEl === chipEl) {
+          setInfoCardAnchor(null);
+        }
         if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
           return;
         }
@@ -1635,11 +1651,15 @@ function renderWeek() {
       blockEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         state.infoCardAnchorHovering = true;
+        setInfoCardAnchor(blockEl);
         clearInfoCardHideTimeout();
         applyInfoCardAndOverlay();
       });
       blockEl.addEventListener("mouseleave", (event) => {
         state.infoCardAnchorHovering = false;
+        if (infoCardAnchorEl === blockEl) {
+          setInfoCardAnchor(null);
+        }
         if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
           return;
         }
@@ -2017,6 +2037,7 @@ function renderMonth() {
   dom.views.month.querySelectorAll(".month-day").forEach((dayEl) => {
     dayEl.addEventListener("mouseenter", () => {
       state.infoCardAnchorHovering = true;
+      setInfoCardAnchor(dayEl);
       clearInfoCardHideTimeout();
       let stars = [];
       try {
@@ -2025,7 +2046,11 @@ function renderMonth() {
       } catch (error) {
         stars = [];
       }
-      if (!stars.length) return;
+      if (!stars.length) {
+        hideInfoCard();
+        state.infoCardAnchorHovering = false;
+        return;
+      }
       const dateIso = dayEl.getAttribute("data-date");
       const date = dateIso ? new Date(dateIso) : null;
       const dateLabel = date
@@ -2046,6 +2071,9 @@ function renderMonth() {
     });
     dayEl.addEventListener("mouseleave", (event) => {
       state.infoCardAnchorHovering = false;
+      if (infoCardAnchorEl === dayEl) {
+        setInfoCardAnchor(null);
+      }
       if (event.relatedTarget instanceof Element && event.relatedTarget.closest(".info-card")) {
         return;
       }
