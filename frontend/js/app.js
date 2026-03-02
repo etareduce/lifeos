@@ -40,6 +40,7 @@ import {
   getEffectiveOccurrenceRange,
   getViewRange,
   shiftAnchorDate,
+  startOfDay,
   toProjectIsoFromDate,
 } from "./utils.js";
 
@@ -367,7 +368,15 @@ async function refreshView(nextView = state.view, options = {}) {
     state.workspaceMode === WORKSPACE_MODE.HOME
       ? getViewRange(view, state.anchorDate)
       : getWorkspaceDataRange();
-  await ensureOccurrences(range.start, range.end);
+  let rangeStart = range.start;
+  let rangeEnd = range.end;
+  if (state.workspaceMode === WORKSPACE_MODE.HOME) {
+    const todayStart = startOfDay(new Date());
+    const todayEnd = addDays(todayStart, 1);
+    if (todayStart < rangeStart) rangeStart = todayStart;
+    if (todayEnd > rangeEnd) rangeEnd = todayEnd;
+  }
+  await ensureOccurrences(rangeStart, rangeEnd);
   setActive(view);
   refreshScheduleStatus();
   renderNowPanel();
