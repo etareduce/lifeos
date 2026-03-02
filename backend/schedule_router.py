@@ -396,7 +396,18 @@ async def run_schedule(
                 )
             )
 
-    epoch_start_utc = _epoch_start_utc(start_utc, user_tz)
+    epoch_reference_utc = start_utc
+    if occurrences:
+        earliest_occurrence_start = min(
+            min(
+                _as_utc(occurrence.schedulable_timerange.start),
+                _as_utc(occurrence.default_scheduled_timerange.start),
+            )
+            for occurrence in occurrences
+        )
+        if earliest_occurrence_start < epoch_reference_utc:
+            epoch_reference_utc = earliest_occurrence_start
+    epoch_start_utc = _epoch_start_utc(epoch_reference_utc, user_tz)
     granularity_minutes = max(1, int(payload.granularity_minutes or 5))
     granularity_seconds = granularity_minutes * 60
     initial_temp = float(payload.initial_temp or 10.0)
