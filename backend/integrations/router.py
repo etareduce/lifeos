@@ -807,7 +807,7 @@ async def export_calendar_views(
                         },
                     },
                     ensure_ascii=True,
-                    separators=(",", ":"),
+                    sort_keys=True,
                 )
             )
 
