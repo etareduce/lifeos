@@ -2,6 +2,7 @@ import uuid
 import logging
 from datetime import datetime, timedelta, timezone
 
+from backend.analytics import record_recurrence_update_signals
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,10 @@ recurrence_router = APIRouter(prefix="/recurrences", tags=["recurrences"])
 occurrence_router = APIRouter(prefix="/occurrences", tags=["occurrences"])
 MAX_OCCURRENCES_RESPONSE = 15000
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def _mark_schedule_dirty(session: AsyncSession) -> None:
@@ -385,11 +390,14 @@ async def create_recurrence(
         for item in payload:
             normalized_type = _normalize_recurrence_type(item.type)
             _recurrence_from_payload(normalized_type, item.payload)
+            now = _utcnow()
             recurrences.append(
                 RecurrenceModel(
                     id=str(uuid.uuid4()),
                     type=normalized_type,
                     payload=item.payload,
+                    created_at=now,
+                    updated_at=now,
                 )
             )
         session.add_all(recurrences)
@@ -405,6 +413,8 @@ async def create_recurrence(
         id=str(uuid.uuid4()),
         type=normalized_type,
         payload=payload.payload,
+        created_at=_utcnow(),
+        updated_at=_utcnow(),
     )
     session.add(recurrence)
     await session.commit()
@@ -425,11 +435,14 @@ async def create_recurrences_bulk(
     for item in payload:
         normalized_type = _normalize_recurrence_type(item.type)
         _recurrence_from_payload(normalized_type, item.payload)
+        now = _utcnow()
         recurrences.append(
             RecurrenceModel(
                 id=str(uuid.uuid4()),
                 type=normalized_type,
                 payload=item.payload,
+                created_at=now,
+                updated_at=now,
             )
         )
     session.add_all(recurrences)
@@ -482,13 +495,33 @@ async def update_recurrence(
     if not recurrence:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurrence not found")
 
+    previous_type = recurrence.type
+    previous_payload = dict(recurrence.payload or {})
+    previous_created_at = recurrence.created_at
+    previous_updated_at = recurrence.updated_at
     new_type = _normalize_recurrence_type(payload.type or recurrence.type)
     new_payload = payload.payload if payload.payload is not None else recurrence.payload
     _recurrence_from_payload(new_type, new_payload)
+    next_updated_at = _utcnow()
     recurrence.type = new_type
     recurrence.payload = new_payload
+    recurrence.updated_at = next_updated_at
     await session.commit()
     await session.refresh(recurrence)
+    try:
+        await record_recurrence_update_signals(
+            session,
+            recurrence_id=recurrence.id,
+            previous_type=previous_type,
+            previous_payload=previous_payload,
+            previous_created_at=previous_created_at,
+            previous_updated_at=previous_updated_at,
+            next_type=new_type,
+            next_payload=new_payload,
+            next_updated_at=next_updated_at,
+        )
+    except Exception:
+        logger.exception("Failed to record analytics for recurrence update: %s", recurrence.id)
     await _mark_schedule_dirty(session)
     return RecurrenceRead(id=recurrence.id, type=recurrence.type, payload=recurrence.payload)
 

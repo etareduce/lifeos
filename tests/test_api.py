@@ -1,6 +1,7 @@
 import os
 import importlib
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -8,20 +9,41 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 
-@pytest_asyncio.fixture
-async def api_client(tmp_path_factory):
+async def _build_api_client(tmp_path_factory, *, batch_size: int | None = None):
     db_path = tmp_path_factory.mktemp("db") / "test.db"
+    analytics_db_path = db_path.parent / "analytics.db"
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path}"
+    os.environ["ANALYTICS_DATABASE_URL"] = f"sqlite+aiosqlite:///{analytics_db_path}"
+    if batch_size is None:
+        os.environ.pop("PREFERENCE_BATCH_SIZE", None)
+    else:
+        os.environ["PREFERENCE_BATCH_SIZE"] = str(batch_size)
 
+    from backend import analytics as analytics_module
+    from backend import analytics_db as analytics_db_module
     from backend import db as db_module
     from backend import main as main_module
+    from backend import models as models_module
+    from backend import recurrence_router as recurrence_router_module
 
+    importlib.reload(analytics_db_module)
     importlib.reload(db_module)
+    importlib.reload(models_module)
+    importlib.reload(analytics_module)
+    importlib.reload(recurrence_router_module)
     importlib.reload(main_module)
 
     await db_module.init_db()
+    await analytics_db_module.init_analytics_db()
     transport = ASGITransport(app=main_module.app)
-    return AsyncClient(transport=transport, base_url="http://test")
+    client = AsyncClient(transport=transport, base_url="http://test")
+    client._analytics_db_path = analytics_db_path
+    return client
+
+
+@pytest_asyncio.fixture
+async def api_client(tmp_path_factory):
+    return await _build_api_client(tmp_path_factory)
 
 
 @pytest.mark.asyncio
@@ -212,3 +234,274 @@ async def test_export_calendar_views_as_ndjson(api_client):
     exported = [json.loads(line) for line in lines]
     assert {item["calendar_view"]["id"] for item in exported} == {"main", "custom:export-test"}
     assert {item["recurrence"]["type"] for item in exported} == {"single"}
+
+
+@pytest.mark.asyncio
+async def test_logs_occurrence_completion_analytics(tmp_path_factory):
+    api_client = await _build_api_client(tmp_path_factory)
+    start = datetime(2024, 5, 1, 9, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    payload = {
+        "recurrence_name": "Write report",
+        "recurrence_description": "Quarterly review",
+        "blob": {
+            "name": "Write report",
+            "description": "Quarterly review",
+            "tz": "UTC",
+            "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "schedulable_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "policy": {"show_on_tasks_page": True},
+            "dependencies": ["dep-1"],
+            "tags": ["work", "writing"],
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json={"type": "single", "payload": payload})
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+        occurrence_key = payload["blob"]["schedulable_timerange"]["start"]
+        finished_at = (start + timedelta(minutes=35)).isoformat()
+        update_resp = await client.put(
+            f"/recurrences/{created['id']}",
+            json={
+                "type": "single",
+                "payload": {
+                    **payload,
+                    "occurrence_overrides": {
+                        occurrence_key: {
+                            "finished_at": finished_at,
+                        }
+                    },
+                },
+            },
+        )
+        assert update_resp.status_code == 200
+
+    conn = sqlite3.connect(api_client._analytics_db_path)
+    try:
+        row = conn.execute(
+            "SELECT recurrence_id, duration_seconds, occurrence_snapshot, recurrence_snapshot "
+            "FROM occurrence_completion_events"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row[0] == created["id"]
+    assert row[1] == 35 * 60
+    occurrence_snapshot = json.loads(row[2])
+    recurrence_snapshot = json.loads(row[3])
+    assert occurrence_snapshot["after"]["name"] == "Write report"
+    assert sorted(occurrence_snapshot["after"]["tags"]) == ["work", "writing"]
+    assert recurrence_snapshot["after"]["payload"]["recurrence_name"] == "Write report"
+
+
+@pytest.mark.asyncio
+async def test_batches_manual_schedule_preference_updates(tmp_path_factory):
+    api_client = await _build_api_client(tmp_path_factory, batch_size=2)
+    start = datetime(2024, 6, 1, 9, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    occurrence_key = start.isoformat()
+    payload = {
+        "recurrence_name": "Prepare slides",
+        "blob": {
+            "name": "Prepare slides",
+            "description": "Deck work",
+            "tz": "UTC",
+            "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "schedulable_timerange": {
+                "start": start.isoformat(),
+                "end": (end + timedelta(hours=2)).isoformat(),
+            },
+            "policy": {},
+            "dependencies": [],
+            "tags": ["deep-work"],
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json={"type": "single", "payload": payload})
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+
+        first_payload = {
+            **payload,
+            "occurrence_overrides": {
+                occurrence_key: {
+                    "schedulable_timerange": {
+                        "start": (start + timedelta(minutes=30)).isoformat(),
+                        "end": (end + timedelta(minutes=30)).isoformat(),
+                    }
+                }
+            },
+        }
+        first_resp = await client.put(
+            f"/recurrences/{created['id']}",
+            json={"type": "single", "payload": first_payload},
+        )
+        assert first_resp.status_code == 200
+
+        second_payload = {
+            **payload,
+            "occurrence_overrides": {
+                occurrence_key: {
+                    "schedulable_timerange": {
+                        "start": (start + timedelta(hours=1)).isoformat(),
+                        "end": (end + timedelta(hours=1)).isoformat(),
+                    }
+                }
+            },
+        }
+        second_resp = await client.put(
+            f"/recurrences/{created['id']}",
+            json={"type": "single", "payload": second_payload},
+        )
+        assert second_resp.status_code == 200
+
+    conn = sqlite3.connect(api_client._analytics_db_path)
+    try:
+        row = conn.execute(
+            "SELECT edit_count, closed_at, before_state, after_state, edits "
+            "FROM schedule_feedback_batches"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row[0] == 2
+    assert row[1] is not None
+    before_state = json.loads(row[2])
+    after_state = json.loads(row[3])
+    edits = json.loads(row[4])
+    assert before_state["recurrence_count"] == 1
+    assert after_state["recurrence_count"] == 1
+    assert len(edits) == 2
+    assert edits[0]["occurrence_before"]["name"] == "Prepare slides"
+    assert edits[-1]["after_schedulable_timerange"]["start"] == (
+        start + timedelta(hours=1)
+    ).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_flush_preference_batches_closes_partial_batch(tmp_path_factory):
+    api_client = await _build_api_client(tmp_path_factory, batch_size=20)
+    start = datetime(2024, 7, 1, 9, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    occurrence_key = start.isoformat()
+    payload = {
+        "recurrence_name": "Planning block",
+        "blob": {
+            "name": "Planning block",
+            "description": "Weekly planning",
+            "tz": "UTC",
+            "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "schedulable_timerange": {
+                "start": start.isoformat(),
+                "end": (end + timedelta(hours=2)).isoformat(),
+            },
+            "policy": {},
+            "dependencies": [],
+            "tags": ["planning"],
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json={"type": "single", "payload": payload})
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+
+        update_payload = {
+            **payload,
+            "occurrence_overrides": {
+                occurrence_key: {
+                    "schedulable_timerange": {
+                        "start": (start + timedelta(minutes=45)).isoformat(),
+                        "end": (end + timedelta(minutes=45)).isoformat(),
+                    }
+                }
+            },
+        }
+        update_resp = await client.put(
+            f"/recurrences/{created['id']}",
+            json={"type": "single", "payload": update_payload},
+        )
+        assert update_resp.status_code == 200
+
+        flush_resp = await client.post("/analytics/flush-preference-batches")
+        assert flush_resp.status_code == 204
+
+    conn = sqlite3.connect(api_client._analytics_db_path)
+    try:
+        row = conn.execute(
+            "SELECT edit_count, closed_at FROM schedule_feedback_batches"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row[0] == 1
+    assert row[1] is not None
+
+
+@pytest.mark.asyncio
+async def test_export_user_data_archive(tmp_path_factory):
+    api_client = await _build_api_client(tmp_path_factory, batch_size=2)
+    start = datetime(2024, 8, 1, 9, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    occurrence_key = start.isoformat()
+    payload = {
+        "recurrence_name": "Export me",
+        "recurrence_description": "Archive test",
+        "blob": {
+            "name": "Export me",
+            "description": "Archive test",
+            "tz": "UTC",
+            "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "schedulable_timerange": {
+                "start": start.isoformat(),
+                "end": (end + timedelta(hours=2)).isoformat(),
+            },
+            "policy": {},
+            "dependencies": [],
+            "tags": ["archive"],
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json={"type": "single", "payload": payload})
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+
+        update_resp = await client.put(
+            f"/recurrences/{created['id']}",
+            json={
+                "type": "single",
+                "payload": {
+                    **payload,
+                    "occurrence_overrides": {
+                        occurrence_key: {
+                            "finished_at": (start + timedelta(minutes=25)).isoformat(),
+                            "schedulable_timerange": {
+                                "start": (start + timedelta(minutes=15)).isoformat(),
+                                "end": (end + timedelta(minutes=15)).isoformat(),
+                            },
+                        }
+                    },
+                },
+            },
+        )
+        assert update_resp.status_code == 200
+
+        export_resp = await client.post(
+            "/integrations/user-data/export",
+            json={"client_settings": {"app_config": {"theme": "midnight"}}},
+        )
+        assert export_resp.status_code == 200
+
+    archive = json.loads(export_resp.text)
+    assert archive["format"] == "elastisched-user-data-v1"
+    assert archive["client_settings"]["app_config"]["theme"] == "midnight"
+    assert archive["recurrences"][0]["id"] == created["id"]
+    assert archive["analytics"]["occurrence_completion_events"]
+    assert archive["analytics"]["schedule_feedback_batches"]

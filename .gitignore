@@ -22,6 +22,7 @@ offline-packages
 # local database
 elastisched.db
 elastischedcopy.db
+analytics.db
 
 # env variables
 .env

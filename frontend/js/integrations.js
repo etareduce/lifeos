@@ -8,6 +8,7 @@ import {
   deleteCalendarView,
   disconnectGoogleAccount,
   exportCalendarViews,
+  exportUserData,
   getGoogleIntegrationStatus,
   listCalendarViews,
   listGoogleCalendars,
@@ -448,6 +449,12 @@ function setExportMessage(message = "", error = false) {
   if (!dom.exportStatus) return;
   dom.exportStatus.textContent = message;
   dom.exportStatus.classList.toggle("error", Boolean(error));
+}
+
+function setUserDataExportMessage(message = "", error = false) {
+  if (!dom.userDataExportStatus) return;
+  dom.userDataExportStatus.textContent = message;
+  dom.userDataExportStatus.classList.toggle("error", Boolean(error));
 }
 
 function syncExportSelections() {
@@ -1039,6 +1046,28 @@ async function handleExportCalendars() {
   }
 }
 
+async function handleExportUserData() {
+  setUserDataExportMessage("Preparing user data export...");
+  if (dom.userDataExportBtn) {
+    dom.userDataExportBtn.disabled = true;
+  }
+  try {
+    const result = await exportUserData({
+      client_settings: {
+        app_config: { ...appConfig },
+      },
+    });
+    triggerBlobDownload(result.blob, result.filename || "elastisched-user-data.json");
+    setUserDataExportMessage("User data export ready.");
+  } catch (error) {
+    setUserDataExportMessage(error?.message || "Unable to export user data.", true);
+  } finally {
+    if (dom.userDataExportBtn) {
+      dom.userDataExportBtn.disabled = false;
+    }
+  }
+}
+
 function openGoogleSyncSettings() {
   dom.settingsBtn?.click();
   const tab = document.querySelector('[data-settings-tab="integrations"]');
@@ -1129,6 +1158,7 @@ function bindIntegrationHandlers(onRefresh) {
   dom.exportSelectAllBtn?.addEventListener("click", () => setAllExportSelections(true));
   dom.exportClearAllBtn?.addEventListener("click", () => setAllExportSelections(false));
   dom.exportDownloadBtn?.addEventListener("click", handleExportCalendars);
+  dom.userDataExportBtn?.addEventListener("click", handleExportUserData);
   dom.exportCalendarList?.addEventListener("change", (event) => {
     const input = event.target;
     if (!(input instanceof Element)) return;

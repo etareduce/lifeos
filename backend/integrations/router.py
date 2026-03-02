@@ -44,9 +44,16 @@ from .schemas import (
     GoogleSyncResponse,
     IntegrationCalendarRead,
     MoveOccurrenceToMainRequest,
+    UserDataExportRequest,
 )
 from .utils import DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD
-from backend.models import IntegrationConnectionModel, RecurrenceModel
+from backend.models import (
+    BlobModel,
+    IntegrationConnectionModel,
+    RecurrenceModel,
+    ScheduledOccurrenceModel,
+    ScheduleStateModel,
+)
 from backend.schemas import RecurrenceRead
 from backend.recurrence_router import (
     _coerce_timerange,
@@ -821,6 +828,151 @@ async def export_calendar_views(
     return Response(
         content=content,
         media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@integration_router.post(
+    "/user-data/export",
+    operation_id="export_user_data",
+)
+async def export_user_data(
+    payload: UserDataExportRequest,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    from backend.analytics_db import AnalyticsSessionLocal
+    from backend.analytics_models import (
+        OccurrenceCompletionEventModel,
+        ScheduleFeedbackBatchModel,
+    )
+
+    recurrences = (await session.execute(select(RecurrenceModel))).scalars().all()
+    blobs = (await session.execute(select(BlobModel))).scalars().all()
+    scheduled_occurrences = (await session.execute(select(ScheduledOccurrenceModel))).scalars().all()
+    schedule_state = (await session.execute(select(ScheduleStateModel))).scalars().all()
+    integration_connections = (
+        await session.execute(select(IntegrationConnectionModel))
+    ).scalars().all()
+    calendar_views = await list_calendar_views(session)
+
+    async with AnalyticsSessionLocal() as analytics_session:
+        completion_events = (
+            await analytics_session.execute(select(OccurrenceCompletionEventModel))
+        ).scalars().all()
+        feedback_batches = (
+            await analytics_session.execute(select(ScheduleFeedbackBatchModel))
+        ).scalars().all()
+
+    archive = {
+        "exported_at": datetime.now(tz=timezone.utc).isoformat(),
+        "format": "elastisched-user-data-v1",
+        "client_settings": dict(payload.client_settings or {}),
+        "calendar_views": [view.model_dump(mode="json") for view in calendar_views],
+        "recurrences": [
+            {
+                "id": row.id,
+                "type": row.type,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                "payload": row.payload or {},
+            }
+            for row in recurrences
+        ],
+        "blobs": [
+            {
+                "id": row.id,
+                "name": row.name,
+                "description": row.description,
+                "tz": row.tz,
+                "default_scheduled_start": row.default_scheduled_start.isoformat(),
+                "default_scheduled_end": row.default_scheduled_end.isoformat(),
+                "schedulable_start": row.schedulable_start.isoformat(),
+                "schedulable_end": row.schedulable_end.isoformat(),
+                "realized_start": row.realized_start.isoformat() if row.realized_start else None,
+                "realized_end": row.realized_end.isoformat() if row.realized_end else None,
+                "policy": row.policy or {},
+                "dependencies": row.dependencies or [],
+                "tags": row.tags or [],
+            }
+            for row in blobs
+        ],
+        "scheduled_occurrences": [
+            {
+                "id": row.id,
+                "segment_index": row.segment_index,
+                "realized_start": row.realized_start.isoformat(),
+                "realized_end": row.realized_end.isoformat(),
+            }
+            for row in scheduled_occurrences
+        ],
+        "schedule_state": [
+            {
+                "id": row.id,
+                "dirty": row.dirty,
+                "last_run": row.last_run.isoformat() if row.last_run else None,
+            }
+            for row in schedule_state
+        ],
+        "integration_connections": [
+            {
+                "provider": row.provider,
+                "account_id": row.account_id,
+                "account_name": row.account_name,
+                "metadata_json": row.metadata_json or {},
+                "has_access_token": bool(row.access_token),
+            }
+            for row in integration_connections
+        ],
+        "analytics": {
+            "occurrence_completion_events": [
+                {
+                    "id": row.id,
+                    "recurrence_id": row.recurrence_id,
+                    "recurrence_type": row.recurrence_type,
+                    "occurrence_key": row.occurrence_key,
+                    "logged_at": row.logged_at.isoformat(),
+                    "finished_at": row.finished_at.isoformat(),
+                    "duration_seconds": row.duration_seconds,
+                    "completion_kind": row.completion_kind,
+                    "recurrence_created_at": (
+                        row.recurrence_created_at.isoformat()
+                        if row.recurrence_created_at
+                        else None
+                    ),
+                    "recurrence_updated_at": (
+                        row.recurrence_updated_at.isoformat()
+                        if row.recurrence_updated_at
+                        else None
+                    ),
+                    "occurrence_snapshot": row.occurrence_snapshot or {},
+                    "recurrence_snapshot": row.recurrence_snapshot or {},
+                }
+                for row in completion_events
+            ],
+            "schedule_feedback_batches": [
+                {
+                    "id": row.id,
+                    "opened_at": row.opened_at.isoformat(),
+                    "updated_at": row.updated_at.isoformat(),
+                    "closed_at": row.closed_at.isoformat() if row.closed_at else None,
+                    "batch_size": row.batch_size,
+                    "edit_count": row.edit_count,
+                    "before_state": row.before_state or {},
+                    "after_state": row.after_state or {},
+                    "edits": row.edits or [],
+                }
+                for row in feedback_batches
+            ],
+        },
+    }
+
+    filename = (
+        "elastisched-user-data-"
+        f"{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+    )
+    return Response(
+        content=json.dumps(archive, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+        media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

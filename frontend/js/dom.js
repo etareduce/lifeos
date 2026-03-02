@@ -132,6 +132,8 @@ const dom = {
   exportSelectAllBtn: document.getElementById("exportSelectAllBtn"),
   exportClearAllBtn: document.getElementById("exportClearAllBtn"),
   exportDownloadBtn: document.getElementById("exportDownloadBtn"),
+  userDataExportBtn: document.getElementById("userDataExportBtn"),
+  userDataExportStatus: document.getElementById("userDataExportStatus"),
   sidebarGoogleMeta: document.getElementById("sidebarGoogleMeta"),
   sidebarGoogleConnectBtn: document.getElementById("sidebarGoogleConnectBtn"),
   sidebarGoogleQuickSyncBtn: document.getElementById("sidebarGoogleQuickSyncBtn"),

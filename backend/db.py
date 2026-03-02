@@ -33,6 +33,7 @@ async def init_db() -> None:
         if conn.dialect.name == "sqlite":
             await _ensure_sqlite_blob_columns(conn)
             await _ensure_sqlite_scheduled_occurrence_columns(conn)
+            await _ensure_sqlite_recurrence_columns(conn)
 
 
 async def _ensure_sqlite_blob_columns(conn) -> None:
@@ -56,4 +57,24 @@ async def _ensure_sqlite_scheduled_occurrence_columns(conn) -> None:
     for name, col_type in missing:
         await conn.execute(
             text(f"ALTER TABLE scheduled_occurrences ADD COLUMN {name} {col_type}")
+        )
+
+
+async def _ensure_sqlite_recurrence_columns(conn) -> None:
+    result = await conn.execute(text("PRAGMA table_info(recurrences)"))
+    columns = {row[1] for row in result.fetchall()}
+    missing = []
+    if "created_at" not in columns:
+        missing.append(("created_at", "DATETIME"))
+    if "updated_at" not in columns:
+        missing.append(("updated_at", "DATETIME"))
+    for name, col_type in missing:
+        await conn.execute(text(f"ALTER TABLE recurrences ADD COLUMN {name} {col_type}"))
+    if missing:
+        await conn.execute(
+            text(
+                "UPDATE recurrences "
+                "SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP), "
+                "updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)"
+            )
         )

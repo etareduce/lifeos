@@ -80,6 +80,10 @@ class CalendarExportRequest(BaseModel):
     calendar_view_ids: list[str] = Field(default_factory=list)
 
 
+class UserDataExportRequest(BaseModel):
+    client_settings: dict = Field(default_factory=dict)
+
+
 class CopyToMainResponse(BaseModel):
     created_count: int
     merged_count: int

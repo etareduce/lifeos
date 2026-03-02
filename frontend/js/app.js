@@ -14,6 +14,7 @@ import { dom } from "./dom.js";
 import {
   ensureOccurrences,
   fetchScheduleStatus,
+  flushPreferenceBatches,
   getRecurrence,
   runSchedule,
   updateRecurrence,
@@ -72,6 +73,7 @@ const BASE_VISUAL_VIEWPORT_SCALE =
     : 1;
 let pendingRetroactiveCompletionId = null;
 let taskCompletionLastFocusedElement = null;
+let preferenceFlushQueued = false;
 
 function getCurrentZoomFactor() {
   const viewportScale =
@@ -97,6 +99,12 @@ function syncZoomScrollMode() {
   const zoomFactor = getCurrentZoomFactor();
   const zoomed = zoomFactor > ZOOM_SCROLL_THRESHOLD;
   document.documentElement.dataset.zoomed = zoomed ? "true" : "false";
+}
+
+function queuePreferenceBatchFlush() {
+  if (preferenceFlushQueued) return;
+  preferenceFlushQueued = true;
+  flushPreferenceBatches();
 }
 
 function setTaskCompletionStatus(message = "", error = false) {
@@ -1175,6 +1183,12 @@ window.elastischedRefresh = () => {
 };
 window.addEventListener("elastisched:refresh", () => {
   window.elastischedRefresh?.();
+});
+window.addEventListener("pagehide", queuePreferenceBatchFlush);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    queuePreferenceBatchFlush();
+  }
 });
 const savedView = loadView();
 const savedWorkspaceMode = loadWorkspaceMode();
