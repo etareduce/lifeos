@@ -18,8 +18,6 @@ Elastisched is an elastic scheduling system for time-constrained tasks and recur
 - `learning/`: Preference-learning and embedding scaffolding.
 
 ## Repository Docs
-Each major folder has its own README:
-
 - [`backend/README.md`](backend/README.md)
 - [`core/README.md`](core/README.md)
 - [`docs/README.md`](docs/README.md)

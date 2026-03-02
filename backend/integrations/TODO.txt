@@ -1,3 +1,0 @@
-TODO:
-
-Add integrations for google calendar here
