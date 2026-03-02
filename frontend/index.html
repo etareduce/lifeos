@@ -95,7 +95,7 @@
               <div class="sidebar-calendar-actions">
                 <button type="button" class="ghost small" id="sidebarGoogleConnectBtn">Connect</button>
                 <button type="button" class="primary small" id="sidebarGoogleQuickSyncBtn">
-                  Quick sync
+                  Sync
                 </button>
               </div>
               <div class="sidebar-calendar-subtitle">Source calendars</div>
@@ -395,7 +395,7 @@
               <div class="settings-section-header">
                 <div class="settings-section-title">Calendar integrations</div>
                 <div class="settings-section-copy">
-                  Connect external calendars, preview merge decisions, then apply a sync.
+                  Connect external calendars and sync selected Google calendars into separate imported views.
                 </div>
               </div>
               <div class="settings-grid integration-settings" data-settings-ignore="true">
@@ -437,25 +437,21 @@
                   <div class="form-status" id="googleConnectionMessage"></div>
                 </article>
                 <article class="settings-card">
-                  <div class="settings-card-title">Sync preview</div>
+                  <div class="settings-card-title">Google calendars</div>
                   <div class="settings-card-copy">
-                    Sync selected Google calendars into imported calendar views. This does not edit
-                    your main calendar.
+                    Load calendars from connected Google accounts, choose which ones to sync, and
+                    import them into independent calendar views. This does not edit your main calendar.
                   </div>
                   <div class="integration-actions" data-settings-ignore="true">
                     <button type="button" class="ghost" id="googleLoadCalendarsBtn">
                       Load Google calendars
                     </button>
-                    <button type="button" class="ghost" id="googlePreviewBtn">
-                      Generate preview
-                    </button>
                     <button type="button" class="primary" id="googleApplyBtn">
-                      Apply sync
+                      Sync selected
                     </button>
                   </div>
                   <div class="form-status" id="googleSyncMessage"></div>
                   <div class="integration-calendars" id="googleCalendarList"></div>
-                  <div class="integration-preview" id="googlePreviewList"></div>
                   <div class="settings-card-title">Displayed calendar views</div>
                   <div class="settings-card-copy">
                     Toggle which calendars appear in the UI and copy imported calendars into main.
@@ -520,25 +516,6 @@
           </div>
         </form>
       </section>
-
-      <div class="modal" id="copyMergeModal" aria-hidden="true">
-        <div class="modal-backdrop" id="copyMergeBackdrop"></div>
-        <section class="panel form-panel modal-panel copy-merge-panel" id="copyMergePanel" role="dialog" aria-modal="true">
-          <div class="form-header">
-            <div>
-              <div class="form-title">Copy To Main</div>
-              <div class="form-subtitle" id="copyMergeSummary">Review deduplication recommendations.</div>
-            </div>
-            <button type="button" class="ghost small" id="copyMergeCloseBtn">Close</button>
-          </div>
-          <div class="integration-preview copy-merge-list" id="copyMergeList"></div>
-          <div class="form-actions">
-            <button type="button" class="ghost" id="copyMergeCancelBtn">Cancel</button>
-            <button type="button" class="primary" id="copyMergeApplyBtn">Apply copy to main</button>
-            <span class="form-status" id="copyMergeStatus"></span>
-          </div>
-        </section>
-      </div>
 
       <div class="modal" id="alertModal" aria-hidden="true">
         <div class="modal-backdrop" id="alertBackdrop"></div>

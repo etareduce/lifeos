@@ -5,7 +5,7 @@ import hashlib
 import logging
 import secrets
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -33,23 +33,15 @@ from .schemas import (
     CalendarViewRead,
     CalendarViewCreateRequest,
     CalendarVisibilityUpdateRequest,
-    CopyToMainApplyRequest,
-    CopyToMainPreviewItem,
-    CopyToMainPreviewResponse,
     CopyToMainResponse,
     GoogleCalendarSelectionUpdateRequest,
     GoogleConnectRequest,
     GoogleConnectedAccountRead,
     GoogleConnectionStatus,
-    GoogleSyncApplyRequest,
-    GoogleSyncApplyResponse,
-    GoogleSyncPreviewItem,
-    GoogleSyncPreviewRequest,
-    GoogleSyncPreviewResponse,
+    GoogleSyncRequest,
+    GoogleSyncResponse,
     IntegrationCalendarRead,
-    MergeCandidatePreview,
     MoveOccurrenceToMainRequest,
-    SyncEventPreview,
 )
 from .utils import DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD
 from backend.models import IntegrationConnectionModel, RecurrenceModel
@@ -67,7 +59,6 @@ from core.timerange import TimeRange
 
 integration_router = APIRouter(prefix="/integrations", tags=["integrations"])
 
-PREVIEW_TTL_SECONDS = 15 * 60
 MAX_SYNC_PREVIEW_RANGE_DAYS = 90
 OAUTH_STATE_TTL_SECONDS = 10 * 60
 SYNC_COLOR_SEQUENCE = [
@@ -92,32 +83,12 @@ GOOGLE_PROVIDER = "google"
 CUSTOM_PROVIDER = "custom"
 logger = logging.getLogger(__name__)
 
-
-@dataclass(slots=True)
-class _PreviewItem:
-    imported: RecurrencePrimitive
-    account_key: str
-    account_id: str | None
-    account_name: str | None
-    calendar_view_id: str
-    candidate_ids: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class _PreviewSession:
-    created_at: datetime
-    items: dict[str, _PreviewItem]
-    calendar_ids: list[str]
-
-
 @dataclass(slots=True)
 class _OAuthSession:
     created_at: datetime
     code_verifier: str
     return_to: str
 
-
-_PREVIEW_SESSIONS: dict[str, _PreviewSession] = {}
 _OAUTH_SESSIONS: dict[str, _OAuthSession] = {}
 
 
@@ -919,14 +890,14 @@ async def delete_calendar_view(
 
 
 @integration_router.post(
-    "/google/preview",
-    response_model=GoogleSyncPreviewResponse,
-    operation_id="google_preview_sync",
+    "/google/sync",
+    response_model=GoogleSyncResponse,
+    operation_id="google_sync",
 )
-async def preview_google_sync(
-    payload: GoogleSyncPreviewRequest,
+async def sync_google_calendars(
+    payload: GoogleSyncRequest,
     session: AsyncSession = Depends(get_session),
-) -> GoogleSyncPreviewResponse:
+) -> GoogleSyncResponse:
     if payload.range_end <= payload.range_start:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -967,12 +938,12 @@ async def preview_google_sync(
         except GoogleCalendarAPIError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unable to preview Google sync: {exc}",
+                detail=f"Unable to sync Google calendars: {exc}",
             ) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Google sync preview failed: {exc}",
+                detail=f"Google sync failed: {exc}",
             ) from exc
         for recurrence in imported:
             imported_items.append(
@@ -987,102 +958,11 @@ async def preview_google_sync(
                 )
             )
 
-    existing = await _build_local_recurrence_primitives(
-        session=session,
-        range_start=payload.range_start,
-        range_end=bounded_end,
-        include_imported=False,
-    )
-    preview_items: list[GoogleSyncPreviewItem] = []
-    session_items: dict[str, _PreviewItem] = {}
-    for account, calendar_view_id, imported_recurrence in imported_items:
-        matches = find_recurrence_matches(
-            imported_recurrence,
-            existing,
-            DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
-        )
-        suggested_action = "create"
-        if len(matches) == 1:
-            suggested_action = "merge"
-        elif len(matches) > 1:
-            suggested_action = "review"
-        account_key = str(account.get("id") or "")
-        item_id = f"{account_key}:{imported_recurrence.key}"
-        candidate_items = [
-            MergeCandidatePreview(
-                recurrence_id=match.key,
-                recurrence_name=match.title,
-                event_count=len(match.events),
-            )
-            for match in matches
-        ]
-        preview_items.append(
-            GoogleSyncPreviewItem(
-                item_id=item_id,
-                provider="google",
-                account_key=account_key,
-                account_name=account.get("account_name"),
-                calendar_view_id=calendar_view_id,
-                calendar_id=imported_recurrence.calendar_id,
-                calendar_name=imported_recurrence.calendar_name,
-                recurrence_name=imported_recurrence.title,
-                recurrence_description=imported_recurrence.description,
-                event_count=len(imported_recurrence.events),
-                suggested_action=suggested_action,
-                events=[
-                    SyncEventPreview(
-                        name=event.name,
-                        start=event.default_start,
-                        end=event.default_end,
-                    )
-                    for event in imported_recurrence.events[:8]
-                ],
-                match_candidates=candidate_items,
-            )
-        )
-        session_items[item_id] = _PreviewItem(
-            imported=imported_recurrence,
-            account_key=account_key,
-            account_id=account.get("account_id"),
-            account_name=account.get("account_name"),
-            calendar_view_id=calendar_view_id,
-            candidate_ids=[candidate.recurrence_id for candidate in candidate_items],
-        )
-    preview_id = str(uuid.uuid4())
-    _cleanup_preview_sessions()
-    _PREVIEW_SESSIONS[preview_id] = _PreviewSession(
-        created_at=datetime.now(tz=timezone.utc),
-        items=session_items,
-        calendar_ids=calendar_ids,
-    )
-    return GoogleSyncPreviewResponse(
-        preview_id=preview_id,
-        name_distance_threshold=DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
-        calendar_ids=calendar_ids,
-        items=preview_items,
-    )
-
-
-@integration_router.post(
-    "/google/apply",
-    response_model=GoogleSyncApplyResponse,
-    operation_id="google_apply_sync",
-)
-async def apply_google_sync(
-    payload: GoogleSyncApplyRequest,
-    session: AsyncSession = Depends(get_session),
-) -> GoogleSyncApplyResponse:
-    preview = _PREVIEW_SESSIONS.get(payload.preview_id)
-    if preview is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sync preview session not found or expired.",
-        )
     created_count = 0
-    merged_count = 0
+    updated_count = 0
     skipped_count = 0
     deleted_count = 0
-    selected_calendar_ids = set(preview.calendar_ids or [])
+    selected_calendar_ids = set(calendar_ids)
     result = await session.execute(select(RecurrenceModel))
     existing_rows = result.scalars().all()
     existing_imported = {
@@ -1094,20 +974,13 @@ async def apply_google_sync(
     }
     touched_source_keys: set[tuple[str, str, str, str]] = set()
 
-    for decision in payload.decisions:
-        item = preview.items.get(decision.item_id)
-        if item is None:
-            skipped_count += 1
-            continue
-        if decision.action == "skip":
-            skipped_count += 1
-            continue
+    for account, calendar_view_id, imported_recurrence in imported_items:
         recurrence_type, recurrence_payload = _build_recurrence_payload(
-            item.imported,
-            account_key=item.account_key,
-            account_id=item.account_id,
-            account_name=item.account_name,
-            calendar_view_id=item.calendar_view_id,
+            imported_recurrence,
+            account_key=str(account.get("id") or ""),
+            account_id=account.get("account_id"),
+            account_name=account.get("account_name"),
+            calendar_view_id=calendar_view_id,
         )
         source_key = _integration_source_key(_integration_source(recurrence_payload))
         if source_key is None:
@@ -1127,7 +1000,7 @@ async def apply_google_sync(
             continue
         existing.type = recurrence_type
         existing.payload = recurrence_payload
-        merged_count += 1
+        updated_count += 1
 
     for source_key, recurrence in existing_imported.items():
         if source_key in touched_source_keys:
@@ -1135,203 +1008,13 @@ async def apply_google_sync(
         await session.delete(recurrence)
         deleted_count += 1
 
-    if created_count or merged_count or deleted_count:
+    if created_count or updated_count or deleted_count:
         await session.commit()
-    _PREVIEW_SESSIONS.pop(payload.preview_id, None)
-    return GoogleSyncApplyResponse(
+    return GoogleSyncResponse(
         created_count=created_count,
-        merged_count=merged_count,
+        updated_count=updated_count,
         skipped_count=skipped_count,
         deleted_count=deleted_count,
-    )
-
-
-@integration_router.post(
-    "/calendars/{calendar_view_id}/copy-to-main/preview",
-    response_model=CopyToMainPreviewResponse,
-    operation_id="preview_copy_calendar_to_main",
-)
-async def preview_copy_calendar_to_main(
-    calendar_view_id: str,
-    session: AsyncSession = Depends(get_session),
-) -> CopyToMainPreviewResponse:
-    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Main calendar is already the ground-truth calendar.",
-        )
-    rows = await _calendar_rows_for_view(session, calendar_view_id)
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No imported recurrences found for that calendar.",
-        )
-
-    now = datetime.now(tz=timezone.utc)
-    range_start = now - timedelta(days=1)
-    range_end = now + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
-    existing_main = await _build_main_recurrence_primitives(
-        session=session,
-        range_start=range_start,
-        range_end=range_end,
-    )
-
-    items: list[CopyToMainPreviewItem] = []
-    for row in rows:
-        source_payload = dict(row.payload or {})
-        imported_primitive = _stored_recurrence_to_primitive(
-            recurrence_id=row.id,
-            recurrence_type=row.type,
-            payload=source_payload,
-            range_start=range_start,
-            range_end=range_end,
-        )
-        if imported_primitive is None:
-            continue
-        matches = find_recurrence_matches(
-            imported_primitive,
-            existing_main,
-            DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
-        )
-        suggested_action = "create"
-        if len(matches) == 1:
-            suggested_action = "merge"
-        elif len(matches) > 1:
-            suggested_action = "review"
-        items.append(
-            CopyToMainPreviewItem(
-                recurrence_id=row.id,
-                recurrence_name=imported_primitive.title,
-                event_count=len(imported_primitive.events),
-                suggested_action=suggested_action,
-                match_candidates=[
-                    MergeCandidatePreview(
-                        recurrence_id=match.key,
-                        recurrence_name=match.title,
-                        event_count=len(match.events),
-                    )
-                    for match in matches
-                ],
-            )
-        )
-
-    if not items:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No copyable recurrences found for that calendar.",
-        )
-    return CopyToMainPreviewResponse(
-        calendar_view_id=calendar_view_id,
-        calendar_view_name=_calendar_view_name_from_payload(rows[0].payload) or calendar_view_id,
-        items=items,
-    )
-
-
-@integration_router.post(
-    "/calendars/{calendar_view_id}/copy-to-main/apply",
-    response_model=CopyToMainResponse,
-    operation_id="apply_copy_calendar_to_main",
-)
-async def apply_copy_calendar_to_main(
-    calendar_view_id: str,
-    payload: CopyToMainApplyRequest,
-    session: AsyncSession = Depends(get_session),
-) -> CopyToMainResponse:
-    if calendar_view_id == MAIN_CALENDAR_VIEW_ID:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Main calendar is already the ground-truth calendar.",
-        )
-    rows = await _calendar_rows_for_view(session, calendar_view_id)
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No imported recurrences found for that calendar.",
-        )
-    rows_by_id = {row.id: row for row in rows}
-
-    now = datetime.now(tz=timezone.utc)
-    range_start = now - timedelta(days=1)
-    range_end = now + timedelta(days=MAX_SYNC_PREVIEW_RANGE_DAYS)
-    existing_main_rows = await _main_recurrence_rows(session)
-    existing_main_by_id = {row.id: row for row in existing_main_rows}
-    existing_main = await _build_main_recurrence_primitives(
-        session=session,
-        range_start=range_start,
-        range_end=range_end,
-    )
-    imported_cache: dict[str, RecurrencePrimitive] = {}
-    created_count = 0
-    merged_count = 0
-    skipped_count = 0
-
-    for decision in payload.decisions:
-        source_row = rows_by_id.get(decision.recurrence_id)
-        if source_row is None:
-            skipped_count += 1
-            continue
-        if decision.action == "skip":
-            skipped_count += 1
-            continue
-
-        imported = imported_cache.get(source_row.id)
-        if imported is None:
-            imported = _stored_recurrence_to_primitive(
-                recurrence_id=source_row.id,
-                recurrence_type=source_row.type,
-                payload=dict(source_row.payload or {}),
-                range_start=range_start,
-                range_end=range_end,
-            )
-            if imported is None:
-                skipped_count += 1
-                continue
-            imported_cache[source_row.id] = imported
-
-        if decision.action == "merge":
-            matches = find_recurrence_matches(
-                imported,
-                existing_main,
-                DEFAULT_NAME_EDIT_DISTANCE_THRESHOLD,
-            )
-            target_id = (decision.merge_recurrence_id or "").strip() or None
-            if target_id is None and len(matches) == 1:
-                target_id = matches[0].key
-            if not target_id:
-                skipped_count += 1
-                continue
-            target_row = existing_main_by_id.get(target_id)
-            if target_row is None:
-                skipped_count += 1
-                continue
-            target_row.payload = _append_integration_link(
-                target_row.payload,
-                imported=imported,
-            )
-            merged_count += 1
-            continue
-
-        if decision.action == "create":
-            new_payload = _main_payload_from_imported_payload(dict(source_row.payload or {}))
-            new_row = RecurrenceModel(
-                id=str(uuid.uuid4()),
-                type=source_row.type,
-                payload=new_payload,
-            )
-            session.add(new_row)
-            created_count += 1
-            continue
-
-        skipped_count += 1
-
-    if created_count or merged_count:
-        await session.commit()
-        await _mark_schedule_dirty(session)
-
-    return CopyToMainResponse(
-        created_count=created_count,
-        merged_count=merged_count,
-        skipped_count=skipped_count,
     )
 
 
@@ -2044,18 +1727,6 @@ def _oauth_result_redirect(
         params.pop("google_oauth_message", None)
     query = urlencode(params)
     return urlunsplit(("", "", split.path, query, split.fragment))
-
-
-def _cleanup_preview_sessions() -> None:
-    now = datetime.now(tz=timezone.utc)
-    stale_ids = [
-        key
-        for key, value in _PREVIEW_SESSIONS.items()
-        if (now - value.created_at).total_seconds() > PREVIEW_TTL_SECONDS
-    ]
-    for key in stale_ids:
-        _PREVIEW_SESSIONS.pop(key, None)
-
 
 def _cleanup_oauth_sessions() -> None:
     now = datetime.now(tz=timezone.utc)

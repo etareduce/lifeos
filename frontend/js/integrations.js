@@ -1,35 +1,27 @@
 import { appConfig, state } from "./core.js";
 import { dom } from "./dom.js";
 import {
-  applyCopyCalendarToMain,
-  applyGoogleSync,
   buildGoogleOAuthStartUrl,
   connectGoogleAccount,
+  copyCalendarToMain,
   createCustomCalendar,
   deleteCalendarView,
   disconnectGoogleAccount,
   getGoogleIntegrationStatus,
   listCalendarViews,
   listGoogleCalendars,
-  previewCopyCalendarToMain,
-  previewGoogleSync,
   setCalendarVisibility as apiSetCalendarVisibility,
   setGoogleCalendarSelection as apiSetGoogleCalendarSelection,
+  syncGoogleCalendars,
 } from "./api.js";
 import { addDays, toProjectIsoFromDate } from "./utils.js";
 
 const googleState = {
   accounts: [],
   calendars: [],
-  preview: null,
   calendarViews: [],
 };
-const copyMergeState = {
-  calendarViewId: null,
-  calendarViewName: "",
-  items: [],
-};
-const MAX_PREVIEW_DAYS = 90;
+const MAX_SYNC_DAYS = 90;
 
 let refreshHandler = null;
 let forceReloadTimerId = null;
@@ -484,62 +476,6 @@ function applyCalendarViewVisibilityToState(viewIds, visible) {
   renderCalendarViews();
 }
 
-function renderPreview() {
-  if (!dom.googlePreviewList) return;
-  const preview = googleState.preview;
-  if (!preview?.items?.length) {
-    dom.googlePreviewList.innerHTML = "";
-    return;
-  }
-  dom.googlePreviewList.innerHTML = preview.items
-    .map((item) => {
-      const events = (item.events || [])
-        .map((event) => {
-          const start = new Date(event.start);
-          const end = new Date(event.end);
-          const timeLabel = `${start.toLocaleString()} - ${end.toLocaleString()}`;
-          return `<div class="integration-event-row"><span>${event.name}</span><span>${timeLabel}</span></div>`;
-        })
-        .join("");
-      const accountLabel = item.account_name || "Google account";
-      return `
-        <article class="integration-preview-item" data-item-id="${item.item_id}">
-          <div class="integration-preview-header">
-            <div>
-              <div class="integration-preview-title">${item.recurrence_name}</div>
-              <div class="integration-preview-subtitle">${accountLabel} · ${item.calendar_name} · ${item.event_count} event(s)</div>
-            </div>
-          </div>
-          <div class="integration-preview-controls">
-            <label>
-              Action
-              <select data-sync-action>
-                <option value="create" selected>Update imported calendar</option>
-                <option value="skip">Skip</option>
-              </select>
-            </label>
-          </div>
-          <div class="integration-event-list">${events}</div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function collectDecisions() {
-  if (!dom.googlePreviewList) return [];
-  const rows = Array.from(dom.googlePreviewList.querySelectorAll(".integration-preview-item"));
-  return rows.map((row) => {
-    const itemId = row.getAttribute("data-item-id");
-    const action = row.querySelector("[data-sync-action]")?.value || "skip";
-    return {
-      item_id: itemId,
-      action,
-      merge_recurrence_id: null,
-    };
-  });
-}
-
 function mergeCalendarSelections(nextCalendars) {
   return (Array.isArray(nextCalendars) ? nextCalendars : []).map((calendar) => ({
     ...calendar,
@@ -596,9 +532,7 @@ async function handleDisconnectGoogle(accountKey = null) {
     await disconnectGoogleAccount(accountKey);
     await hydrateConnectionStatus();
     googleState.calendars = [];
-    googleState.preview = null;
     renderCalendarList();
-    renderPreview();
     await hydrateCalendarViews();
     setConnectionMessage(accountKey ? "Account disconnected." : "All Google accounts disconnected.");
     setSyncMessage("");
@@ -622,7 +556,7 @@ async function handleLoadCalendars(options = {}) {
     if (!silent) {
       setSyncMessage(
         googleState.calendars.length
-          ? "Choose calendars, then generate a preview or quick sync."
+          ? "Choose calendars to sync."
           : "No calendars available for connected accounts."
       );
     }
@@ -633,72 +567,16 @@ async function handleLoadCalendars(options = {}) {
   }
 }
 
-function buildPreviewRange() {
+function buildSyncRange() {
   const rangeStart = new Date();
-  const boundedEnd = addDays(rangeStart, MAX_PREVIEW_DAYS);
+  const boundedEnd = addDays(rangeStart, MAX_SYNC_DAYS);
   return {
-    boundedEnd,
     range_start: toProjectIsoFromDate(rangeStart, appConfig.projectTimeZone),
     range_end: toProjectIsoFromDate(boundedEnd, appConfig.projectTimeZone),
   };
 }
 
-async function handlePreviewSync() {
-  const calendarIds = selectedCalendarIds();
-  if (!calendarIds.length) {
-    setSyncMessage("Select at least one calendar first.", true);
-    return;
-  }
-  const { boundedEnd, range_start, range_end } = buildPreviewRange();
-  setSyncMessage("Generating preview...");
-  try {
-    const preview = await previewGoogleSync({
-      calendar_ids: calendarIds,
-      range_start,
-      range_end,
-    });
-    googleState.preview = preview;
-    renderPreview();
-    const suffix = ` (${MAX_PREVIEW_DAYS}-day import window)`;
-    setSyncMessage(`Preview ready (${preview.items?.length || 0} recurrence group(s))${suffix}.`);
-  } catch (error) {
-    setSyncMessage(error?.message || "Unable to generate preview.", true);
-  }
-}
-
-async function applyPreviewDecisions(decisions, progressLabel = "Applying sync...") {
-  if (!googleState.preview?.preview_id) {
-    setSyncMessage("Generate a preview before applying sync.", true);
-    return null;
-  }
-  setSyncMessage(progressLabel);
-  const result = await applyGoogleSync({
-    preview_id: googleState.preview.preview_id,
-    decisions,
-  });
-  googleState.preview = null;
-  renderPreview();
-  await hydrateCalendarViews();
-  if (refreshHandler) {
-    await refreshHandler(state.view);
-  }
-  return result;
-}
-
-async function handleApplySync() {
-  try {
-    const decisions = collectDecisions();
-    const result = await applyPreviewDecisions(decisions, "Applying sync...");
-    if (!result) return;
-    setSyncMessage(
-      `Sync complete. Created ${result.created_count}, updated ${result.merged_count}, removed ${result.deleted_count || 0}, skipped ${result.skipped_count}.`
-    );
-  } catch (error) {
-    setSyncMessage(error?.message || "Unable to apply sync.", true);
-  }
-}
-
-async function handleQuickSyncSelected() {
+async function handleSyncSelected() {
   if (!googleState.accounts.length) {
     setSyncMessage("Connect a Google account first.", true);
     return;
@@ -710,32 +588,28 @@ async function handleQuickSyncSelected() {
     setSyncMessage("No Google calendars available to sync.", true);
     return;
   }
-  if (!selectedCalendarIds().length) {
-    googleState.calendars = googleState.calendars.map((calendar) => ({ ...calendar, selected: true }));
-    renderCalendarList();
-  }
   const calendarIds = selectedCalendarIds();
-  const { range_start, range_end } = buildPreviewRange();
-  setSyncMessage("Quick sync in progress...");
+  if (!calendarIds.length) {
+    setSyncMessage("Select at least one calendar first.", true);
+    return;
+  }
+  const { range_start, range_end } = buildSyncRange();
+  setSyncMessage("Syncing selected calendars...");
   try {
-    const preview = await previewGoogleSync({
+    const result = await syncGoogleCalendars({
       calendar_ids: calendarIds,
       range_start,
       range_end,
     });
-    googleState.preview = preview;
-    const decisions = (preview.items || []).map((item) => ({
-      item_id: item.item_id,
-      action: "create",
-      merge_recurrence_id: null,
-    }));
-    const result = await applyPreviewDecisions(decisions, "Applying quick sync...");
-    if (!result) return;
+    await hydrateCalendarViews();
+    if (refreshHandler) {
+      await refreshHandler(state.view);
+    }
     setSyncMessage(
-      `Quick sync complete. Created ${result.created_count}, updated ${result.merged_count}, removed ${result.deleted_count || 0}, skipped ${result.skipped_count}.`
+      `Sync complete. Created ${result.created_count}, updated ${result.updated_count}, removed ${result.deleted_count || 0}, skipped ${result.skipped_count}.`
     );
   } catch (error) {
-    setSyncMessage(error?.message || "Quick sync failed.", true);
+    setSyncMessage(error?.message || "Sync failed.", true);
   }
 }
 
@@ -976,158 +850,23 @@ async function setAllGoogleCalendarSelections(selected) {
   }
 }
 
-function setCopyMergeStatus(message = "", error = false) {
-  if (!dom.copyMergeStatus) return;
-  dom.copyMergeStatus.textContent = message;
-  dom.copyMergeStatus.classList.toggle("error", Boolean(error));
-}
-
-function toggleCopyMergeModal(show) {
-  if (!dom.copyMergeModal) return;
-  const isActive = Boolean(show);
-  dom.copyMergeModal.classList.toggle("active", isActive);
-  dom.copyMergeModal.setAttribute("aria-hidden", (!isActive).toString());
-  document.body.classList.toggle("modal-open", isActive);
-  if (!isActive) {
-    copyMergeState.calendarViewId = null;
-    copyMergeState.calendarViewName = "";
-    copyMergeState.items = [];
-    if (dom.copyMergeList) dom.copyMergeList.innerHTML = "";
-    setCopyMergeStatus("");
-  }
-}
-
-function renderCopyMergePreview() {
-  if (!dom.copyMergeList) return;
-  if (!copyMergeState.items.length) {
-    dom.copyMergeList.innerHTML = "";
-    return;
-  }
-  dom.copyMergeList.innerHTML = copyMergeState.items
-    .map((item) => {
-      const suggested = item.suggested_action || "create";
-      const candidateOptions = (item.match_candidates || [])
-        .map(
-          (candidate) =>
-            `<option value="${candidate.recurrence_id}">${candidate.recurrence_name} (${candidate.event_count} events)</option>`
-        )
-        .join("");
-      const actionOptions = [
-        { value: "create", label: "Create in main" },
-        { value: "merge", label: "Merge with existing" },
-        { value: "skip", label: "Skip" },
-      ]
-        .map(
-          (entry) =>
-            `<option value="${entry.value}" ${entry.value === suggested ? "selected" : ""}>${entry.label}</option>`
-        )
-        .join("");
-      const showMergeTargets = suggested === "merge";
-      return `
-        <article class="copy-merge-item" data-recurrence-id="${item.recurrence_id}">
-          <div class="integration-preview-header">
-            <div>
-              <div class="integration-preview-title">${item.recurrence_name}</div>
-              <div class="integration-preview-subtitle">${item.event_count || 0} event(s)</div>
-            </div>
-            <span class="integration-suggestion">Recommended: ${suggested}</span>
-          </div>
-          <div class="copy-merge-controls">
-            <label>
-              Action
-              <select data-copy-action>
-                ${actionOptions}
-              </select>
-            </label>
-            <label data-copy-target-wrap ${showMergeTargets ? "" : 'class="integration-merge-target is-hidden"'}>
-              Merge target
-              <select data-copy-target>
-                <option value="">Auto-select recommended</option>
-                ${candidateOptions}
-              </select>
-            </label>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function collectCopyMergeDecisions() {
-  if (!dom.copyMergeList) return [];
-  const rows = Array.from(dom.copyMergeList.querySelectorAll("[data-recurrence-id]"));
-  return rows.map((row) => {
-    const recurrenceId = row.getAttribute("data-recurrence-id");
-    const action = row.querySelector("[data-copy-action]")?.value || "skip";
-    const mergeRecurrenceId = row.querySelector("[data-copy-target]")?.value?.trim() || null;
-    return {
-      recurrence_id: recurrenceId,
-      action,
-      merge_recurrence_id: action === "merge" ? mergeRecurrenceId : null,
-    };
-  });
-}
-
-async function openCopyMergeFlow(calendarViewId) {
-  copyMergeState.calendarViewId = calendarViewId;
-  setCopyMergeStatus("Loading recommended deduplications...");
-  if (dom.copyMergeApplyBtn) {
-    dom.copyMergeApplyBtn.disabled = true;
-  }
-  toggleCopyMergeModal(true);
-  try {
-    const preview = await previewCopyCalendarToMain(calendarViewId);
-    copyMergeState.calendarViewName = preview.calendar_view_name || calendarViewId;
-    copyMergeState.items = Array.isArray(preview.items) ? preview.items : [];
-    if (dom.copyMergeSummary) {
-      dom.copyMergeSummary.textContent = `Calendar: ${copyMergeState.calendarViewName}`;
-    }
-    renderCopyMergePreview();
-    setCopyMergeStatus(
-      `Loaded ${copyMergeState.items.length} recurrence(s). Review recommended deduplications before applying.`
-    );
-    if (dom.copyMergeApplyBtn) {
-      dom.copyMergeApplyBtn.disabled = !copyMergeState.items.length;
-    }
-  } catch (error) {
-    setCopyMergeStatus(error?.message || "Unable to load copy-to-main preview.", true);
-    if (dom.copyMergeApplyBtn) {
-      dom.copyMergeApplyBtn.disabled = true;
-    }
-  }
-}
-
-async function applyCopyMergeFlow() {
-  const calendarViewId = copyMergeState.calendarViewId;
+async function handleCopyCalendarToMain(button) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  const calendarViewId = button.getAttribute("data-copy-calendar-view-id");
   if (!calendarViewId) return;
-  const decisions = collectCopyMergeDecisions();
-  setCopyMergeStatus("Applying copy to main...");
-  if (dom.copyMergeApplyBtn) {
-    dom.copyMergeApplyBtn.disabled = true;
-  }
+  setSyncMessage("Copying calendar to main...");
   try {
-    const result = await applyCopyCalendarToMain(calendarViewId, decisions);
+    const result = await copyCalendarToMain(calendarViewId);
     setSyncMessage(
       `Copied to main. Created ${result.created_count}, merged ${result.merged_count}, skipped ${result.skipped_count || 0}.`
     );
-    toggleCopyMergeModal(false);
     await hydrateCalendarViews();
     if (refreshHandler) {
       await refreshHandler(state.view);
     }
   } catch (error) {
-    setCopyMergeStatus(error?.message || "Unable to copy calendar to main.", true);
-    if (dom.copyMergeApplyBtn) {
-      dom.copyMergeApplyBtn.disabled = false;
-    }
+    setSyncMessage(error?.message || "Unable to copy calendar to main.", true);
   }
-}
-
-async function handleCopyCalendarToMain(button) {
-  if (!(button instanceof HTMLButtonElement)) return;
-  const calendarViewId = button.getAttribute("data-copy-calendar-view-id");
-  if (!calendarViewId) return;
-  await openCopyMergeFlow(calendarViewId);
 }
 
 async function handleDeleteCalendarView(button) {
@@ -1255,10 +994,8 @@ function bindIntegrationHandlers(onRefresh) {
     await handleLoadCalendars();
     await hydrateCalendarViews();
   });
-  dom.sidebarGoogleQuickSyncBtn?.addEventListener("click", handleQuickSyncSelected);
-
-  dom.googlePreviewBtn?.addEventListener("click", handlePreviewSync);
-  dom.googleApplyBtn?.addEventListener("click", handleApplySync);
+  dom.sidebarGoogleQuickSyncBtn?.addEventListener("click", handleSyncSelected);
+  dom.googleApplyBtn?.addEventListener("click", handleSyncSelected);
   dom.googleRefreshViewsBtn?.addEventListener("click", hydrateCalendarViews);
 
   dom.createCustomCalendarBtn?.addEventListener("click", () =>
@@ -1296,24 +1033,6 @@ function bindIntegrationHandlers(onRefresh) {
   bindCalendarListHandlers(dom.sidebarGoogleCalendarList);
   bindCalendarViewHandlers(dom.calendarViewList);
   bindCalendarViewHandlers(dom.sidebarCalendarViewList);
-
-  dom.copyMergeApplyBtn?.addEventListener("click", applyCopyMergeFlow);
-  dom.copyMergeCancelBtn?.addEventListener("click", () => toggleCopyMergeModal(false));
-  dom.copyMergeCloseBtn?.addEventListener("click", () => toggleCopyMergeModal(false));
-  dom.copyMergeBackdrop?.addEventListener("click", () => toggleCopyMergeModal(false));
-  dom.copyMergeList?.addEventListener("change", (event) => {
-    const element = event.target;
-    if (!(element instanceof Element)) return;
-    if (!element.matches("select[data-copy-action]")) return;
-    const row = element.closest("[data-recurrence-id]");
-    const targetWrap = row?.querySelector("[data-copy-target-wrap]");
-    targetWrap?.classList.toggle("is-hidden", element.value !== "merge");
-  });
-  window.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    if (!dom.copyMergeModal?.classList.contains("active")) return;
-    toggleCopyMergeModal(false);
-  });
 
   dom.settingsBtn?.addEventListener("click", () => {
     hydrateConnectionStatus();

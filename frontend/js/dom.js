@@ -106,7 +106,6 @@ const dom = {
   googleManualConnectBtn: document.getElementById("googleManualConnectBtn"),
   googleDisconnectBtn: document.getElementById("googleDisconnectBtn"),
   googleLoadCalendarsBtn: document.getElementById("googleLoadCalendarsBtn"),
-  googlePreviewBtn: document.getElementById("googlePreviewBtn"),
   googleApplyBtn: document.getElementById("googleApplyBtn"),
   googleConnectionStatus: document.getElementById("googleConnectionStatus"),
   googleConnectionMeta: document.getElementById("googleConnectionMeta"),
@@ -114,7 +113,6 @@ const dom = {
   googleConnectionMessage: document.getElementById("googleConnectionMessage"),
   googleSyncMessage: document.getElementById("googleSyncMessage"),
   googleCalendarList: document.getElementById("googleCalendarList"),
-  googlePreviewList: document.getElementById("googlePreviewList"),
   googleRefreshViewsBtn: document.getElementById("googleRefreshViewsBtn"),
   calendarViewList: document.getElementById("calendarViewList"),
   createCustomCalendarBtn: document.getElementById("createCustomCalendarBtn"),
@@ -131,15 +129,6 @@ const dom = {
   sidebarCalendarViewList: document.getElementById("sidebarCalendarViewList"),
   sidebarCreateCustomCalendarBtn: document.getElementById("sidebarCreateCustomCalendarBtn"),
   sidebarCustomCalendarNameInput: document.getElementById("sidebarCustomCalendarNameInput"),
-  copyMergeModal: document.getElementById("copyMergeModal"),
-  copyMergeBackdrop: document.getElementById("copyMergeBackdrop"),
-  copyMergePanel: document.getElementById("copyMergePanel"),
-  copyMergeSummary: document.getElementById("copyMergeSummary"),
-  copyMergeList: document.getElementById("copyMergeList"),
-  copyMergeStatus: document.getElementById("copyMergeStatus"),
-  copyMergeApplyBtn: document.getElementById("copyMergeApplyBtn"),
-  copyMergeCancelBtn: document.getElementById("copyMergeCancelBtn"),
-  copyMergeCloseBtn: document.getElementById("copyMergeCloseBtn"),
 };
 
 export { dom };
