@@ -7,6 +7,7 @@ import {
   createCustomCalendar,
   deleteCalendarView,
   disconnectGoogleAccount,
+  exportCalendarViews,
   getGoogleIntegrationStatus,
   listCalendarViews,
   listGoogleCalendars,
@@ -20,6 +21,7 @@ const googleState = {
   accounts: [],
   calendars: [],
   calendarViews: [],
+  exportSelectionByViewId: {},
 };
 const MAX_SYNC_DAYS = 90;
 
@@ -428,6 +430,80 @@ function renderCalendarViews() {
     );
     dom.sidebarCalendarViewList.innerHTML = renderRows(topLevelViews, { showSourceBadge: true });
   }
+  renderExportCalendarViews();
+}
+
+function selectedExportCalendarViewIds() {
+  return googleState.calendarViews
+    .filter(
+      (view) =>
+        googleState.exportSelectionByViewId[String(view.id)] !== false &&
+        Number(view.recurrence_count || 0) > 0
+    )
+    .map((view) => String(view.id))
+    .filter(Boolean);
+}
+
+function setExportMessage(message = "", error = false) {
+  if (!dom.exportStatus) return;
+  dom.exportStatus.textContent = message;
+  dom.exportStatus.classList.toggle("error", Boolean(error));
+}
+
+function syncExportSelections() {
+  const previous = googleState.exportSelectionByViewId || {};
+  const next = {};
+  for (const view of Array.isArray(googleState.calendarViews) ? googleState.calendarViews : []) {
+    const viewId = String(view.id || "");
+    if (!viewId) continue;
+    if (Object.prototype.hasOwnProperty.call(previous, viewId)) {
+      next[viewId] = Boolean(previous[viewId]);
+      continue;
+    }
+    next[viewId] = Number(view.recurrence_count || 0) > 0;
+  }
+  googleState.exportSelectionByViewId = next;
+}
+
+function updateExportControls() {
+  if (!dom.exportDownloadBtn) return;
+  dom.exportDownloadBtn.disabled = selectedExportCalendarViewIds().length === 0;
+}
+
+function renderExportCalendarViews() {
+  if (!dom.exportCalendarList) return;
+  const views = Array.isArray(googleState.calendarViews) ? googleState.calendarViews : [];
+  if (!views.length) {
+    dom.exportCalendarList.innerHTML =
+      '<div class="settings-card-copy">No calendars available to export yet.</div>';
+    updateExportControls();
+    return;
+  }
+  dom.exportCalendarList.innerHTML = views
+    .map((view) => {
+      const viewId = String(view.id || "");
+      const selected = googleState.exportSelectionByViewId[viewId] !== false;
+      const recurrenceCount = Number(view.recurrence_count || 0);
+      const disabled = recurrenceCount <= 0;
+      const sourceLabel = view.is_main ? "Main" : view.source || "calendar";
+      return `
+        <label class="integration-calendar-item ${disabled ? "is-disabled" : ""}">
+          <input
+            type="checkbox"
+            data-export-calendar-view-id="${viewId}"
+            ${selected ? "checked" : ""}
+            ${disabled ? "disabled" : ""}
+          />
+          <div class="integration-calendar-meta">
+            <span class="integration-calendar-name">${view.name}</span>
+            <span class="integration-calendar-tz">${recurrenceCount} recurrence(s)</span>
+          </div>
+          <span class="integration-calendar-badge">${sourceLabel}</span>
+        </label>
+      `;
+    })
+    .join("");
+  updateExportControls();
 }
 
 function selectedCalendarIds() {
@@ -496,9 +572,11 @@ async function hydrateConnectionStatus() {
 async function hydrateCalendarViews() {
   try {
     googleState.calendarViews = await listCalendarViews();
+    syncExportSelections();
     renderCalendarViews();
   } catch (error) {
     setSyncMessage(error?.message || "Unable to load calendar views.", true);
+    setExportMessage(error?.message || "Unable to load calendar views.", true);
   }
 }
 
@@ -910,6 +988,57 @@ async function handleCreateCustomCalendar(inputElement) {
   }
 }
 
+function handleExportSelectionChange(input) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const calendarViewId = String(input.getAttribute("data-export-calendar-view-id") || "").trim();
+  if (!calendarViewId) return;
+  googleState.exportSelectionByViewId = {
+    ...googleState.exportSelectionByViewId,
+    [calendarViewId]: input.checked,
+  };
+  updateExportControls();
+}
+
+function setAllExportSelections(selected) {
+  const next = Boolean(selected);
+  const selection = { ...googleState.exportSelectionByViewId };
+  googleState.calendarViews.forEach((view) => {
+    if (Number(view.recurrence_count || 0) <= 0) {
+      return;
+    }
+    selection[String(view.id)] = next;
+  });
+  googleState.exportSelectionByViewId = selection;
+  renderExportCalendarViews();
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename || "elastisched-export.ndjson";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function handleExportCalendars() {
+  const calendarViewIds = selectedExportCalendarViewIds();
+  if (!calendarViewIds.length) {
+    setExportMessage("Select at least one calendar with recurrences first.", true);
+    return;
+  }
+  setExportMessage("Preparing export...");
+  try {
+    const result = await exportCalendarViews({ calendar_view_ids: calendarViewIds });
+    triggerBlobDownload(result.blob, result.filename);
+    setExportMessage(`Exported ${calendarViewIds.length} calendar(s).`);
+  } catch (error) {
+    setExportMessage(error?.message || "Unable to export calendars.", true);
+  }
+}
+
 function openGoogleSyncSettings() {
   dom.settingsBtn?.click();
   const tab = document.querySelector('[data-settings-tab="integrations"]');
@@ -997,6 +1126,16 @@ function bindIntegrationHandlers(onRefresh) {
   dom.sidebarGoogleQuickSyncBtn?.addEventListener("click", handleSyncSelected);
   dom.googleApplyBtn?.addEventListener("click", handleSyncSelected);
   dom.googleRefreshViewsBtn?.addEventListener("click", hydrateCalendarViews);
+  dom.exportSelectAllBtn?.addEventListener("click", () => setAllExportSelections(true));
+  dom.exportClearAllBtn?.addEventListener("click", () => setAllExportSelections(false));
+  dom.exportDownloadBtn?.addEventListener("click", handleExportCalendars);
+  dom.exportCalendarList?.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof Element)) return;
+    if (input.matches("input[data-export-calendar-view-id]")) {
+      handleExportSelectionChange(input);
+    }
+  });
 
   dom.createCustomCalendarBtn?.addEventListener("click", () =>
     handleCreateCustomCalendar(dom.customCalendarNameInput)

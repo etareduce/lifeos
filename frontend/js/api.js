@@ -352,6 +352,50 @@ async function listCalendarViews() {
   return response.json();
 }
 
+function parseFilenameFromDisposition(value) {
+  const header = String(value || "");
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch (error) {
+      return utf8Match[1];
+    }
+  }
+  const quotedMatch = header.match(/filename=\"([^\"]+)\"/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+  const plainMatch = header.match(/filename=([^;]+)/i);
+  if (plainMatch?.[1]) {
+    return plainMatch[1].trim();
+  }
+  return null;
+}
+
+async function exportCalendarViews(payload) {
+  const response = await fetch(`${API_BASE}/integrations/calendars/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let detail = "Failed to export calendars";
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } else {
+      detail = (await response.text()) || detail;
+    }
+    throw new Error(detail);
+  }
+  return {
+    blob: await response.blob(),
+    filename: parseFilenameFromDisposition(response.headers.get("content-disposition")),
+  };
+}
+
 async function setCalendarVisibility(calendarViewId, visible) {
   const response = await fetch(`${API_BASE}/integrations/calendars/${encodeURIComponent(calendarViewId)}/visibility`, {
     method: "PUT",
@@ -529,6 +573,7 @@ export {
   listGoogleCalendars,
   syncGoogleCalendars,
   listCalendarViews,
+  exportCalendarViews,
   setCalendarVisibility,
   setGoogleCalendarSelection,
   copyCalendarToMain,

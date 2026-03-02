@@ -1474,6 +1474,10 @@ body.modal-open .info-card {
   height: 16px;
 }
 
+.integration-calendar-item.is-disabled {
+  opacity: 0.62;
+}
+
 .integration-calendar-meta {
   display: grid;
   gap: 2px;

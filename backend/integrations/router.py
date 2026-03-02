@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
 import uuid
@@ -30,6 +31,7 @@ from .google_calendar.client import (
 from .merge import find_recurrence_matches
 from .primitives import EventPrimitive, RecurrencePrimitive
 from .schemas import (
+    CalendarExportRequest,
     CalendarViewRead,
     CalendarViewCreateRequest,
     CalendarVisibilityUpdateRequest,
@@ -734,6 +736,93 @@ async def list_calendar_views(
         )
     )
     return ordered
+
+
+@integration_router.post(
+    "/calendars/export",
+    operation_id="export_calendar_views",
+)
+async def export_calendar_views(
+    payload: CalendarExportRequest,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    selected_view_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for raw_view_id in payload.calendar_view_ids:
+        view_id = str(raw_view_id or "").strip()
+        if not view_id or view_id in seen_ids:
+            continue
+        selected_view_ids.append(view_id)
+        seen_ids.add(view_id)
+    if not selected_view_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select at least one calendar to export.",
+        )
+
+    views = await list_calendar_views(session)
+    views_by_id = {view.id: view for view in views}
+    missing_view_ids = [view_id for view_id in selected_view_ids if view_id not in views_by_id]
+    if missing_view_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Calendar view not found: {missing_view_ids[0]}",
+        )
+
+    result = await session.execute(select(RecurrenceModel))
+    rows_by_view_id: dict[str, list[RecurrenceModel]] = {
+        view_id: [] for view_id in selected_view_ids
+    }
+    for row in result.scalars().all():
+        payload = row.payload or {}
+        view_id = (
+            MAIN_CALENDAR_VIEW_ID
+            if _is_main_calendar_payload(payload)
+            else _calendar_view_id_from_payload(payload)
+        )
+        if view_id in rows_by_view_id:
+            rows_by_view_id[view_id].append(row)
+
+    lines: list[str] = []
+    for view_id in selected_view_ids:
+        view = views_by_id[view_id]
+        view_payload = {
+            "id": view.id,
+            "name": view.name,
+            "source": view.source,
+            "is_main": view.is_main,
+            "account_key": view.account_key,
+            "account_name": view.account_name,
+            "calendar_id": view.calendar_id,
+        }
+        for row in rows_by_view_id[view_id]:
+            lines.append(
+                json.dumps(
+                    {
+                        "calendar_view": view_payload,
+                        "recurrence": {
+                            "id": row.id,
+                            "type": row.type,
+                            "payload": row.payload or {},
+                        },
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                )
+            )
+
+    filename = (
+        "elastisched-export-"
+        f"{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.ndjson"
+    )
+    content = "\n".join(lines)
+    if content:
+        content += "\n"
+    return Response(
+        content=content,
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @integration_router.post(

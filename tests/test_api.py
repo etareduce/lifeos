@@ -1,5 +1,6 @@
 import os
 import importlib
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -149,3 +150,65 @@ async def test_list_blobs_with_overlap_filter(api_client):
 
     assert len(listed) == 1
     assert listed[0]["name"] == "Morning"
+
+
+@pytest.mark.asyncio
+async def test_export_calendar_views_as_ndjson(api_client):
+    start = datetime(2024, 4, 1, 9, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    base_blob = {
+        "name": "Exported recurrence",
+        "description": "Included in export",
+        "tz": "UTC",
+        "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+        "schedulable_timerange": {
+            "start": (start - timedelta(hours=1)).isoformat(),
+            "end": (end + timedelta(hours=1)).isoformat(),
+        },
+        "policy": {},
+        "dependencies": [],
+        "tags": ["export"],
+    }
+
+    async with api_client as client:
+        main_resp = await client.post(
+            "/recurrences",
+            json={"type": "single", "payload": {"blob": base_blob}},
+        )
+        assert main_resp.status_code == 201
+
+        custom_resp = await client.post(
+            "/recurrences",
+            json={
+                "type": "single",
+                "payload": {
+                    "blob": {
+                        **base_blob,
+                        "name": "Custom export recurrence",
+                    },
+                    "calendar_view": {
+                        "id": "custom:export-test",
+                        "name": "Export test calendar",
+                        "source": "custom",
+                        "is_main": False,
+                    },
+                },
+            },
+        )
+        assert custom_resp.status_code == 201
+
+        export_resp = await client.post(
+            "/integrations/calendars/export",
+            json={"calendar_view_ids": ["main", "custom:export-test"]},
+        )
+        assert export_resp.status_code == 200
+
+    assert export_resp.headers["content-type"].startswith("application/x-ndjson")
+    assert "attachment;" in export_resp.headers["content-disposition"]
+
+    lines = [line for line in export_resp.text.splitlines() if line.strip()]
+    assert len(lines) == 2
+
+    exported = [json.loads(line) for line in lines]
+    assert {item["calendar_view"]["id"] for item in exported} == {"main", "custom:export-test"}
+    assert {item["recurrence"]["type"] for item in exported} == {"single"}

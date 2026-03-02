@@ -183,6 +183,9 @@
               <button class="settings-tab" type="button" data-settings-tab="integrations">
                 Integrations
               </button>
+              <button class="settings-tab" type="button" data-settings-tab="export">
+                Export
+              </button>
             </div>
             <div class="settings-section active" data-settings-section="general">
               <div class="settings-section-header">
@@ -473,6 +476,33 @@
                     </button>
                   </div>
                   <div class="integration-calendars" id="calendarViewList"></div>
+                </article>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-section="export">
+              <div class="settings-section-header">
+                <div class="settings-section-title">Export schedule</div>
+                <div class="settings-section-copy">
+                  Export selected calendar views as newline-delimited JSON. Each line contains one
+                  recurrence plus its calendar metadata.
+                </div>
+              </div>
+              <div class="settings-grid" data-settings-ignore="true">
+                <article class="settings-card">
+                  <div class="settings-card-title">NDJSON export</div>
+                  <div class="settings-card-copy">
+                    Choose one or more calendars, then download an `.ndjson` file for backup or
+                    downstream processing.
+                  </div>
+                  <div class="integration-actions" data-settings-ignore="true">
+                    <button type="button" class="ghost" id="exportSelectAllBtn">Select all</button>
+                    <button type="button" class="ghost" id="exportClearAllBtn">Clear</button>
+                    <button type="button" class="primary" id="exportDownloadBtn">
+                      Export selected
+                    </button>
+                  </div>
+                  <div class="form-status" id="exportStatus"></div>
+                  <div class="integration-calendars" id="exportCalendarList"></div>
                 </article>
               </div>
             </div>
