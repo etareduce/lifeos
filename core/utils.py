@@ -5,17 +5,6 @@ from math import ceil
 
 from .constants import *
 
-
-class Day(Enum):
-    MONDAY = 0
-    TUESDAY = 1
-    WEDNESDAY = 2
-    THURSDAY = 3
-    FRIDAY = 4
-    SATURDAY = 5
-    SUNDAY = 6
-
-
 def round_datetime_future_bias(dt: datetime, granularity: timedelta) -> datetime:
     """
     Round datetime to nearest granularity with future bias.

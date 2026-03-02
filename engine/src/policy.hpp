@@ -2,6 +2,7 @@
 #define ELASTISCHED_POLICY_HPP
 
 #include <cstdint>
+
 #include "types.hpp"
 
 /**

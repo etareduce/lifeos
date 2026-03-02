@@ -1,5 +1,5 @@
 from datetime import time
-from typing import Union
+from .constants import Day
 
 
 class daytime:
@@ -81,7 +81,7 @@ class daytime:
     @property
     def is_weekend(self) -> bool:
         """Check if this is a weekend day"""
-        return self.day_of_week in [5, 6]  # Saturday, Sunday
+        return self.day_of_week in [Day.SATURDAY, Day.SUNDAY]
 
     @property
     def is_weekday(self) -> bool:

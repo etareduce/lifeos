@@ -10,9 +10,7 @@
 #include "engine.hpp"
 
 #include <cstdlib>
-#include <set>
 #include <string>
-#include <vector>
 
 TEST_CASE("Interval basics") {
     Interval<int> a(1, 5);

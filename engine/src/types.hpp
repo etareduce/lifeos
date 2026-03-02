@@ -1,5 +1,6 @@
 #ifndef ELASTISCHED_TYPES_HPP
 #define ELASTISCHED_TYPES_HPP
+
 #include "interval.hpp"
 #include <cstdint>
 

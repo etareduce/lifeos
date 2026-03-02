@@ -3,14 +3,10 @@
 
 #include "policy.hpp"
 #include "tag.hpp"
-#include "constants.hpp"
 #include "types.hpp"
-#include "interval.hpp"
 
 #include <vector>
 #include <set>
-#include <iostream>
-#include <sstream>
 
 class Job {
 public:

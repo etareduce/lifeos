@@ -4,6 +4,8 @@
 #include <memory>
 #include <iostream>
 #include <utility>
+#include <vector>
+
 #include "interval.hpp"
 
 template<typename T, typename U>

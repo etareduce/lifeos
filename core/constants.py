@@ -1,4 +1,6 @@
 import os
+from enum import Enum
+
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,3 +26,12 @@ DEFAULT_BLOB_SCHEDULABLE_AFTER_NOW = timedelta(minutes=120)
 MINIMUM_BLOB_SPLIT_DURATION = timedelta(minutes=15)
 
 GRANULARITY = timedelta(minutes=5)
+
+class Day(Enum):
+    MONDAY = 0
+    TUESDAY = 1
+    WEDNESDAY = 2
+    THURSDAY = 3
+    FRIDAY = 4
+    SATURDAY = 5
+    SUNDAY = 6

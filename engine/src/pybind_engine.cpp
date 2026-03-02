@@ -1,7 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/operators.h>
-#include <utility>
 
 namespace py = pybind11;
 
@@ -9,8 +8,6 @@ namespace py = pybind11;
 #include "policy.hpp"
 #include "job.hpp"
 #include "engine.hpp"
-#include "constants.hpp"
-#include "interval.hpp"
 
 PYBIND11_MODULE(engine, m) {
     // Tag
