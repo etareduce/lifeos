@@ -216,6 +216,22 @@ body[data-theme="midnight"] .ghost {
   color: var(--ink);
 }
 
+body[data-theme="midnight"] .schedulable-overlay {
+  border-color: rgba(110, 169, 192, 0.72);
+  background: rgba(110, 169, 192, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(110, 169, 192, 0.12);
+}
+
+body[data-theme="midnight"] .original-overlay {
+  border-color: rgba(214, 144, 140, 0.66);
+  background: rgba(214, 144, 140, 0.14);
+}
+
+body[data-theme="midnight"] .schedulable-overlay.overflow-top::before,
+body[data-theme="midnight"] .schedulable-overlay.overflow-bottom::after {
+  background: linear-gradient(to bottom, rgba(110, 169, 192, 0.42), transparent);
+}
+
 body[data-theme="midnight"] .primary {
   background: color-mix(in srgb, var(--ocean) 72%, var(--ink) 28%);
   color: #0b1219;
@@ -3646,8 +3662,8 @@ html[data-zoomed="true"] .views {
   left: 0;
   right: 0;
   border-radius: 12px;
-  border: 1px dashed rgba(27, 26, 22, 0.35);
-  background: rgba(27, 26, 22, 0.08);
+  border: 1px dashed color-mix(in srgb, var(--ocean) 58%, transparent);
+  background: color-mix(in srgb, var(--ocean) 14%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -3663,8 +3679,8 @@ html[data-zoomed="true"] .views {
   left: 0;
   right: 0;
   border-radius: 12px;
-  border: 1px dashed rgba(58, 110, 122, 0.35);
-  background: rgba(58, 110, 122, 0.1);
+  border: 1px dashed color-mix(in srgb, var(--rose) 52%, transparent);
+  background: color-mix(in srgb, var(--rose) 16%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -3761,7 +3777,7 @@ html[data-zoomed="true"] .views {
   border-radius: 999px;
   background: linear-gradient(
     to bottom,
-    rgba(27, 26, 22, 0.25),
+    color-mix(in srgb, var(--ocean) 36%, transparent),
     transparent
   );
 }
