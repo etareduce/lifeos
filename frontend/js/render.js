@@ -32,10 +32,31 @@ import {
 let infoCardEventsBound = false;
 let infoCardAnchorEl = null;
 let occurrenceDragSession = null;
+let occurrenceCreateSession = null;
 let selectedTimelineBlobId = null;
+let suppressTimelineClearClick = false;
+let timelineHighlightSession = null;
 
 const DRAG_START_THRESHOLD_PX = 4;
 const TRACK_MINUTES = 24 * 60;
+
+function normalizeTimelineBlobId(blobId) {
+  if (blobId === null || blobId === undefined) return null;
+  const normalized = String(blobId).trim();
+  return normalized || null;
+}
+
+function setTimelineDragSourceState(viewRoot, blobId, dragging) {
+  const normalizedBlobId = normalizeTimelineBlobId(blobId);
+  if (!viewRoot || !normalizedBlobId) return;
+  viewRoot
+    .querySelectorAll(
+      `.day-block[data-blob-id="${normalizedBlobId}"], .full-day-chip[data-blob-id="${normalizedBlobId}"]`
+    )
+    .forEach((element) => {
+      element.classList.toggle("drag-source", Boolean(dragging));
+    });
+}
 
 function setInfoCardAnchor(element) {
   infoCardAnchorEl = element instanceof Element ? element : null;
@@ -66,26 +87,286 @@ function applyTimelineSelection(viewRoot) {
 }
 
 function activateTimelineSelection(viewRoot, blobId, options = {}) {
-  if (!viewRoot || !blobId) return;
+  const normalizedBlobId = normalizeTimelineBlobId(blobId);
+  if (!viewRoot || !normalizedBlobId) return;
   const additive = Boolean(options.additive);
   const current = new Set(state.selectedOccurrenceIds || []);
   if (additive) {
-    if (current.has(blobId)) {
-      current.delete(blobId);
-      if (selectedTimelineBlobId === blobId) {
+    if (current.has(normalizedBlobId)) {
+      current.delete(normalizedBlobId);
+      if (selectedTimelineBlobId === normalizedBlobId) {
         selectedTimelineBlobId = Array.from(current).at(-1) || null;
       }
     } else {
-      current.add(blobId);
-      selectedTimelineBlobId = blobId;
+      current.add(normalizedBlobId);
+      selectedTimelineBlobId = normalizedBlobId;
     }
   } else {
     current.clear();
-    current.add(blobId);
-    selectedTimelineBlobId = blobId;
+    current.add(normalizedBlobId);
+    selectedTimelineBlobId = normalizedBlobId;
   }
   state.selectedOccurrenceIds = Array.from(current);
   applyTimelineSelection(viewRoot);
+}
+
+function setTimelineSelection(viewRoot, blobIds, options = {}) {
+  if (!viewRoot) return;
+  const additive = Boolean(options.additive);
+  const nextIds = (Array.isArray(blobIds) ? blobIds : [])
+    .map((blobId) => normalizeTimelineBlobId(blobId))
+    .filter(Boolean);
+  const current = additive
+    ? new Set(state.selectedOccurrenceIds || [])
+    : new Set();
+  nextIds.forEach((blobId) => current.add(blobId));
+  state.selectedOccurrenceIds = Array.from(current);
+  selectedTimelineBlobId = state.selectedOccurrenceIds.at(-1) || null;
+  applyTimelineSelection(viewRoot);
+}
+
+function removeTimelineHighlightBox() {
+  timelineHighlightSession?.box?.remove();
+}
+
+function cleanupTimelineHighlight() {
+  if (!timelineHighlightSession) return;
+  document.removeEventListener("pointermove", timelineHighlightSession.onPointerMove);
+  document.removeEventListener("pointerup", timelineHighlightSession.onPointerUp);
+  document.removeEventListener("pointercancel", timelineHighlightSession.onPointerCancel);
+  removeTimelineHighlightBox();
+  timelineHighlightSession = null;
+}
+
+function clearRangeSelectionArtifacts(root) {
+  root?.querySelectorAll(".selection-overlay").forEach((overlay) => {
+    overlay.classList.remove("active");
+    overlay.style.top = "";
+    overlay.style.height = "";
+  });
+  root?.querySelectorAll(".selection-caret").forEach((caret) => {
+    caret.classList.remove("active");
+    caret.style.top = "";
+  });
+}
+
+function renderRangePreviewOnOverlays(viewRoot, range, overlaySelector, options = {}) {
+  if (!viewRoot || !range?.start || !range?.end) return;
+  const timeZone = options.timeZone || appConfig.userTimeZone;
+  const hourHeight = options.hourHeight || 54;
+  const overlays = Array.from(viewRoot.querySelectorAll(overlaySelector));
+  if (!overlays.length) return;
+  const startParts = getZonedParts(range.start, timeZone);
+  const endParts = getZonedParts(range.end, timeZone);
+  if (!startParts || !endParts) return;
+  if (options.view === "week") {
+    const dayColumns = Array.from(viewRoot.querySelectorAll(".week-day-column"));
+    dayColumns.forEach((column, index) => {
+      const overlay = overlays[index];
+      if (!overlay) return;
+      const dayDateRaw = column.getAttribute("data-date");
+      if (!dayDateRaw) return;
+      const dayDate = new Date(dayDateRaw);
+      const viewStamp = partsToDayStamp(getZonedParts(dayDate, timeZone));
+      const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+      if (!clamped) return;
+      updateSelectionOverlay(overlay, clamped.startMin, clamped.endMin, hourHeight);
+    });
+    return;
+  }
+  const viewStamp = partsToDayStamp(getZonedParts(state.anchorDate, timeZone));
+  const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+  if (!clamped || !overlays[0]) return;
+  updateSelectionOverlay(overlays[0], clamped.startMin, clamped.endMin, hourHeight);
+}
+
+function showCapturedCreatePreview(defaultRange, schedulableRange) {
+  const viewRoot =
+    state.view === "week" ? dom.views.week : state.view === "day" ? dom.views.day : null;
+  if (!viewRoot) return;
+  clearRangeSelectionArtifacts(viewRoot);
+  if (defaultRange) {
+    renderRangePreviewOnOverlays(viewRoot, defaultRange, ".selection-overlay.default-range", {
+      view: state.view,
+    });
+  }
+  if (schedulableRange) {
+    renderRangePreviewOnOverlays(viewRoot, schedulableRange, ".selection-overlay.schedulable-range", {
+      view: state.view,
+    });
+  }
+}
+
+function rectsIntersect(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function startTimelineHighlight(viewRoot, event, options = {}) {
+  cleanupOccurrenceCreate();
+  cleanupTimelineHighlight();
+  const rootRect = viewRoot?.getBoundingClientRect?.();
+  if (!viewRoot || !rootRect) return;
+  timelineHighlightSession = {
+    viewRoot,
+    originX: event.clientX,
+    originY: event.clientY,
+    additive: Boolean(options.additive),
+    active: false,
+    box: null,
+    onPointerMove: null,
+    onPointerUp: null,
+    onPointerCancel: null,
+  };
+  timelineHighlightSession.onPointerMove = (moveEvent) => {
+    const session = timelineHighlightSession;
+    if (!session) return;
+    const travelX = moveEvent.clientX - session.originX;
+    const travelY = moveEvent.clientY - session.originY;
+    if (!session.active) {
+      if (Math.hypot(travelX, travelY) < DRAG_START_THRESHOLD_PX) {
+        return;
+      }
+      session.active = true;
+      const box = document.createElement("div");
+      box.className = "timeline-highlight-box";
+      session.box = box;
+      session.viewRoot.appendChild(box);
+    }
+    const rect = session.viewRoot.getBoundingClientRect();
+    const left = Math.max(0, Math.min(session.originX, moveEvent.clientX) - rect.left);
+    const top = Math.max(0, Math.min(session.originY, moveEvent.clientY) - rect.top);
+    const right = Math.min(rect.width, Math.max(session.originX, moveEvent.clientX) - rect.left);
+    const bottom = Math.min(rect.height, Math.max(session.originY, moveEvent.clientY) - rect.top);
+    if (!session.box) return;
+    session.box.style.left = `${left}px`;
+    session.box.style.top = `${top}px`;
+    session.box.style.width = `${Math.max(0, right - left)}px`;
+    session.box.style.height = `${Math.max(0, bottom - top)}px`;
+  };
+  timelineHighlightSession.onPointerUp = (upEvent) => {
+    const session = timelineHighlightSession;
+    const selectionRect = session?.box?.getBoundingClientRect?.() || null;
+    cleanupTimelineHighlight();
+    if (!session?.active || !selectionRect) {
+      return;
+    }
+    const selectedIds = Array.from(
+      new Set(
+        Array.from(
+          session.viewRoot.querySelectorAll(".day-block[data-blob-id], .full-day-chip[data-blob-id]")
+        )
+          .filter((element) => rectsIntersect(element.getBoundingClientRect(), selectionRect))
+          .map((element) => element.getAttribute("data-blob-id"))
+          .filter(Boolean)
+      )
+    );
+    state.infoCardLocked = false;
+    state.lockedBlobId = null;
+    hideInfoCard();
+    clearOverlayEditability(session.viewRoot);
+    setTimelineSelection(session.viewRoot, selectedIds, { additive: session.additive });
+    suppressTimelineClearClick = true;
+    upEvent.preventDefault();
+  };
+  timelineHighlightSession.onPointerCancel = () => {
+    cleanupTimelineHighlight();
+  };
+  document.addEventListener("pointermove", timelineHighlightSession.onPointerMove);
+  document.addEventListener("pointerup", timelineHighlightSession.onPointerUp);
+  document.addEventListener("pointercancel", timelineHighlightSession.onPointerCancel);
+}
+
+function cleanupOccurrenceCreate(options = {}) {
+  if (!occurrenceCreateSession) return;
+  const active = occurrenceCreateSession;
+  document.removeEventListener("pointermove", active.onPointerMove);
+  document.removeEventListener("pointerup", active.onPointerUp);
+  document.removeEventListener("pointercancel", active.onPointerCancel);
+  if (options.clearPreview !== false) {
+    clearRangeSelectionArtifacts(active.viewRoot);
+  }
+  occurrenceCreateSession = null;
+}
+
+function renderOccurrenceCreatePreview(session, range) {
+  if (!session?.viewRoot || !range?.start || !range?.end) return;
+  const overlays = session.view === "day"
+    ? [session.selectionOverlayDefault]
+    : session.selectionOverlays;
+  clearRangeSelectionArtifacts(session.viewRoot);
+  if (session.view === "day") {
+    const viewStamp = partsToDayStamp(getZonedParts(state.anchorDate, session.timeZone));
+    const startParts = getZonedParts(range.start, session.timeZone);
+    const endParts = getZonedParts(range.end, session.timeZone);
+    const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+    if (!clamped || !overlays[0]) return;
+    updateSelectionOverlay(overlays[0], clamped.startMin, clamped.endMin, session.hourHeight);
+    return;
+  }
+  const startParts = getZonedParts(range.start, session.timeZone);
+  const endParts = getZonedParts(range.end, session.timeZone);
+  session.days.forEach((day, index) => {
+    const overlay = overlays[index];
+    if (!overlay) return;
+    const viewStamp = partsToDayStamp(getZonedParts(day, session.timeZone));
+    const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+    if (!clamped) return;
+    updateSelectionOverlay(overlay, clamped.startMin, clamped.endMin, session.hourHeight);
+  });
+}
+
+function normalizedCreateRange(anchorDate, pointerDate) {
+  if (!(anchorDate instanceof Date) || !(pointerDate instanceof Date)) return null;
+  const startMs = Math.min(anchorDate.getTime(), pointerDate.getTime());
+  const endMs = Math.max(anchorDate.getTime(), pointerDate.getTime());
+  const minEndMs = startMs + minuteGranularity * 60000;
+  return {
+    start: new Date(startMs),
+    end: new Date(Math.max(endMs, minEndMs)),
+  };
+}
+
+function beginOccurrenceCreate(session) {
+  cleanupTimelineHighlight();
+  cleanupOccurrenceCreate();
+  occurrenceCreateSession = session;
+  session.onPointerMove = (event) => {
+    const active = occurrenceCreateSession;
+    if (!active) return;
+    const travelX = event.clientX - active.initialClientX;
+    const travelY = event.clientY - active.initialClientY;
+    if (!active.dragging) {
+      if (Math.hypot(travelX, travelY) < DRAG_START_THRESHOLD_PX) {
+        return;
+      }
+      active.dragging = true;
+    }
+    const pointerDate = active.getPointerDate(event);
+    if (!pointerDate) return;
+    active.range = normalizedCreateRange(active.anchorDate, pointerDate);
+    renderOccurrenceCreatePreview(active, active.range);
+  };
+  session.onPointerUp = async () => {
+    const active = occurrenceCreateSession;
+    const range = active?.range;
+    const shouldOpen = Boolean(active?.dragging && range?.start && range?.end);
+    cleanupOccurrenceCreate();
+    if (!shouldOpen) {
+      return;
+    }
+    try {
+      const { openCreateFormWithRanges } = await import("./forms.js");
+      openCreateFormWithRanges("event", range, range);
+    } catch (error) {
+      await alertDialog(error?.message || "Unable to open create form.");
+    }
+  };
+  session.onPointerCancel = () => {
+    cleanupOccurrenceCreate();
+  };
+  document.addEventListener("pointermove", session.onPointerMove);
+  document.addEventListener("pointerup", session.onPointerUp);
+  document.addEventListener("pointercancel", session.onPointerCancel);
 }
 
 function clearOverlayEditability(root) {
@@ -102,8 +383,9 @@ function configureOverlayEditability(overlay, { blobId = null, editable = false,
   overlay.classList.toggle("editable", Boolean(editable));
   overlay.classList.toggle("handle-start", Boolean(start));
   overlay.classList.toggle("handle-end", Boolean(end));
-  if (editable && blobId) {
-    overlay.dataset.blobId = blobId;
+  const normalizedBlobId = normalizeTimelineBlobId(blobId);
+  if (editable && normalizedBlobId) {
+    overlay.dataset.blobId = normalizedBlobId;
   } else {
     delete overlay.dataset.blobId;
   }
@@ -260,11 +542,16 @@ function getCalendarBlobs() {
 }
 
 function getBlobById(blobId) {
-  if (!blobId) return null;
-  const primary = state.blobs.find((item) => item.id === blobId);
+  const normalizedBlobId = normalizeTimelineBlobId(blobId);
+  if (!normalizedBlobId) return null;
+  const primary = state.blobs.find(
+    (item) => normalizeTimelineBlobId(item.id) === normalizedBlobId
+  );
   if (primary) return primary;
   const preview = Array.isArray(state.previewBlobs) ? state.previewBlobs : [];
-  return preview.find((item) => item.id === blobId) || null;
+  return (
+    preview.find((item) => normalizeTimelineBlobId(item.id) === normalizedBlobId) || null
+  );
 }
 
 function isOccurrenceStarred(blob) {
@@ -479,6 +766,9 @@ function renderOccurrencePreview(session, nextDefaultRange, invalid) {
 
 function renderSchedulablePreview(session, nextSchedulableRange) {
   if (!session || !nextSchedulableRange) return;
+  if (session.mode === "move" || session.mode === "default-start" || session.mode === "default-end") {
+    return;
+  }
   const timeZone = session.blobTimeZone;
   const startParts = getZonedParts(nextSchedulableRange.start, timeZone);
   const endParts = getZonedParts(nextSchedulableRange.end, timeZone);
@@ -559,11 +849,6 @@ function createNextRangesFromSession(session, pointerDate) {
       start: shiftedStart,
       end: new Date(shiftedStart.getTime() + durationMs),
     };
-    const deltaMs = shiftedStart.getTime() - baseDefault.start.getTime();
-    nextSched = {
-      start: new Date(baseSched.start.getTime() + deltaMs),
-      end: new Date(baseSched.end.getTime() + deltaMs),
-    };
   } else if (session.mode === "default-start") {
     const nextStart = roundDateToGranularity(pointerDate);
     nextDefault = {
@@ -623,6 +908,7 @@ function cleanupOccurrenceDrag(options = {}) {
   document.removeEventListener("pointermove", occurrenceDragSession.onPointerMove);
   document.removeEventListener("pointerup", occurrenceDragSession.onPointerUp);
   document.removeEventListener("pointercancel", occurrenceDragSession.onPointerCancel);
+  setTimelineDragSourceState(active.view === "week" ? dom.views.week : dom.views.day, active.blob?.id, false);
   removeDragPreview();
   if (options.restore !== false && typeof active.restoreUi === "function") {
     active.restoreUi();
@@ -630,15 +916,31 @@ function cleanupOccurrenceDrag(options = {}) {
   occurrenceDragSession = null;
 }
 
+function consumeSuppressedTimelineClearClick() {
+  if (!suppressTimelineClearClick) return false;
+  suppressTimelineClearClick = false;
+  return true;
+}
+
 async function commitOccurrenceDrag(session) {
   if (!session?.nextDefaultRange || !session?.nextSchedulableRange) return;
+  const defaultScheduledRange =
+    session.mode === "move" || session.mode === "default-start" || session.mode === "default-end"
+      ? session.nextDefaultRange
+      : null;
+  const schedulableRange =
+    session.mode === "sched-start" || session.mode === "sched-end"
+      ? session.nextSchedulableRange
+      : null;
   await updateOccurrenceTimingWithUndo(session.blob, {
-    defaultScheduledRange: session.nextDefaultRange,
-    schedulableRange: session.nextSchedulableRange,
+    defaultScheduledRange,
+    schedulableRange,
   });
 }
 
 function beginOccurrenceDrag(session) {
+  cleanupOccurrenceCreate();
+  cleanupTimelineHighlight();
   cleanupOccurrenceDrag();
   occurrenceDragSession = session;
   session.onPointerMove = (event) => {
@@ -650,6 +952,11 @@ function beginOccurrenceDrag(session) {
       }
       session.dragging = true;
       document.body.classList.add("occurrence-dragging");
+      setTimelineDragSourceState(
+        session.view === "week" ? dom.views.week : dom.views.day,
+        session.blob?.id,
+        true
+      );
     }
     const pointerDate = getPointerDateForSession(session, event.clientX, event.clientY);
     const nextRanges = createNextRangesFromSession(session, pointerDate);
@@ -668,6 +975,9 @@ function beginOccurrenceDrag(session) {
   session.onPointerUp = async () => {
     const active = occurrenceDragSession;
     document.body.classList.remove("occurrence-dragging");
+    if (active?.dragging) {
+      suppressTimelineClearClick = true;
+    }
     cleanupOccurrenceDrag({ restore: !active?.valid });
     if (!active?.dragging || !active.valid) {
       return;
@@ -765,6 +1075,9 @@ function scheduleInfoCardHide(cleanup) {
   clearInfoCardHideTimeout();
   state.infoCardHideTimeout = window.setTimeout(() => {
     state.infoCardHideTimeout = null;
+    if (state.infoCardLocked) {
+      return;
+    }
     const cardHovered = Boolean(dom.infoCard?.matches(":hover"));
     const anchorHovered = isInfoCardAnchorHovered();
     state.infoCardHovering = cardHovered;
@@ -1010,7 +1323,7 @@ function showInfoCard(blob, anchorRect) {
   showInfoCardHtml(html, anchorRect);
   const card = dom.infoCard;
   if (card) {
-    card.dataset.blobId = blob.id || "";
+    card.dataset.blobId = normalizeTimelineBlobId(blob.id) || "";
   }
 }
 
@@ -1095,8 +1408,9 @@ function updateCaret(caretEl, minutes, hourHeight) {
 async function toggleStarFromCalendar(blob) {
   if (!blob?.recurrence_id || blob.preview) return;
   const wasLocked = state.infoCardLocked;
-  const lockedId = state.lockedBlobId;
-  const activeInfoBlobId = dom.infoCard?.dataset?.blobId || null;
+  const lockedId = normalizeTimelineBlobId(state.lockedBlobId);
+  const activeInfoBlobId = normalizeTimelineBlobId(dom.infoCard?.dataset?.blobId);
+  const blobId = normalizeTimelineBlobId(blob.id);
   const occurrenceKey = getOccurrenceKeyFromBlob(blob);
   if (!occurrenceKey) return;
   const payload = blob.recurrence_payload || {};
@@ -1122,19 +1436,21 @@ async function toggleStarFromCalendar(blob) {
   );
   setActive(state.view);
   const shouldRestoreInfoCard =
-    (wasLocked && lockedId === blob.id) || activeInfoBlobId === blob.id;
+    (wasLocked && lockedId === blobId) || activeInfoBlobId === blobId;
   if (shouldRestoreInfoCard) {
     const viewRoot = state.view === "week" ? dom.views.week : dom.views.day;
     const blockEl =
-      viewRoot?.querySelector(`.day-block[data-blob-id="${blob.id}"]`) ||
-      viewRoot?.querySelector(`.full-day-chip[data-blob-id="${blob.id}"]`);
-    const updatedBlob = state.blobs.find((item) => item.id === blob.id);
+      viewRoot?.querySelector(`.day-block[data-blob-id="${blobId}"]`) ||
+      viewRoot?.querySelector(`.full-day-chip[data-blob-id="${blobId}"]`);
+    const updatedBlob = state.blobs.find(
+      (item) => normalizeTimelineBlobId(item.id) === blobId
+    );
     if (blockEl && updatedBlob) {
       state.infoCardLocked = false;
       showInfoCard(updatedBlob, blockEl.getBoundingClientRect());
-      if (wasLocked && lockedId === blob.id) {
+      if (wasLocked && lockedId === blobId) {
         state.infoCardLocked = true;
-        state.lockedBlobId = blob.id;
+        state.lockedBlobId = blobId;
         blockEl.classList.add("active");
       }
     }
@@ -1451,7 +1767,7 @@ function renderDay() {
     overlay.classList.add("active");
     configureOverlayEditability(overlay, {
       blobId: blob.id,
-      editable: selectedTimelineBlobId === blob.id,
+      editable: selectedTimelineBlobId === normalizeTimelineBlobId(blob.id),
       start: partsToDayStamp(schedStartParts) === viewStamp,
       end: partsToDayStamp(schedEndParts) === viewStamp,
     });
@@ -1518,9 +1834,33 @@ function renderDay() {
     });
   };
 
+  const startDayCreate = (event) => {
+    const anchorMinutes = getTrackMinutesFromPointer(dayTrack, event.clientY);
+    const anchorDate = dateFromTrackPosition(state.anchorDate, anchorMinutes, appConfig.userTimeZone);
+    if (!anchorDate) return;
+    beginOccurrenceCreate({
+      view: "day",
+      viewRoot: dom.views.day,
+      dayTrack,
+      selectionOverlayDefault,
+      timeZone: appConfig.userTimeZone,
+      hourHeight,
+      initialClientX: event.clientX,
+      initialClientY: event.clientY,
+      anchorDate,
+      range: null,
+      dragging: false,
+      getPointerDate: (pointerEvent) => {
+        const minutes = getTrackMinutesFromPointer(dayTrack, pointerEvent.clientY);
+        return dateFromTrackPosition(state.anchorDate, minutes, appConfig.userTimeZone);
+      },
+    });
+  };
+
   blocksEls.forEach((blockEl) => {
     blockEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+      if (state.infoCardLocked && state.lockedBlobId !== blockEl.dataset.blobId) return;
       state.infoCardAnchorHovering = true;
       setInfoCardAnchor(blockEl);
       clearInfoCardHideTimeout();
@@ -1541,12 +1881,18 @@ function renderDay() {
       });
     });
     blockEl.addEventListener("click", (event) => {
+      if (consumeSuppressedTimelineClearClick()) return;
       if (event.shiftKey) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (event.target.closest(".star-toggle")) return;
+      const additive = event.metaKey || event.ctrlKey;
       activateTimelineSelection(dom.views.day, blockEl.dataset.blobId, {
-        additive: event.metaKey || event.ctrlKey,
+        additive,
       });
+      if (!additive) {
+        state.infoCardLocked = true;
+        state.lockedBlobId = blockEl.dataset.blobId;
+      }
       applyInfoCardAndOverlay(blockEl);
     });
     blockEl.addEventListener("pointerdown", (event) => {
@@ -1556,14 +1902,19 @@ function renderDay() {
       if (!canEditTiming(blob)) return;
       const handle = event.target.closest("[data-drag-handle]");
       const mode = handle?.getAttribute("data-drag-handle") || "move";
-      if (mode !== "move" && selectedTimelineBlobId !== blob.id) {
+      const blobId = normalizeTimelineBlobId(blob.id);
+      if (mode === "move" && selectedTimelineBlobId !== blobId) {
+        activateTimelineSelection(dom.views.day, blobId);
+        state.infoCardLocked = true;
+        state.lockedBlobId = blobId;
+        applyInfoCardAndOverlay(blockEl);
+      }
+      if (mode !== "move" && selectedTimelineBlobId !== blobId) {
         return;
       }
       if (mode === "default-start" && blockEl.dataset.pieceStart !== "true") return;
       if (mode === "default-end" && blockEl.dataset.pieceEnd !== "true") return;
-      if (mode !== "move") {
-        event.preventDefault();
-      }
+      event.preventDefault();
       startDayDrag(blob, mode, event);
     });
     const starBtn = blockEl.querySelector(".star-toggle");
@@ -1591,6 +1942,7 @@ function renderDay() {
     }
     chipEl.addEventListener("mouseenter", () => {
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+      if (state.infoCardLocked && state.lockedBlobId !== chipEl.dataset.blobId) return;
       state.infoCardAnchorHovering = true;
       setInfoCardAnchor(chipEl);
       clearInfoCardHideTimeout();
@@ -1608,12 +1960,18 @@ function renderDay() {
       scheduleInfoCardHide();
     });
     chipEl.addEventListener("click", (event) => {
+      if (consumeSuppressedTimelineClearClick()) return;
       if (event.shiftKey) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (event.target.closest(".full-day-star-toggle")) return;
+      const additive = event.metaKey || event.ctrlKey;
       activateTimelineSelection(dom.views.day, chipEl.dataset.blobId, {
-        additive: event.metaKey || event.ctrlKey,
+        additive,
       });
+      if (!additive) {
+        state.infoCardLocked = true;
+        state.lockedBlobId = chipEl.dataset.blobId;
+      }
       const blob = getBlobById(chipEl.dataset.blobId);
       showInfoCard(blob, chipEl.getBoundingClientRect());
     });
@@ -1624,7 +1982,7 @@ function renderDay() {
     if (!handle) return;
     const blobId = overlay.dataset.blobId;
     const blob = getBlobById(blobId);
-    if (!blob || selectedTimelineBlobId !== blob.id) return;
+    if (!blob || selectedTimelineBlobId !== normalizeTimelineBlobId(blob.id)) return;
     event.preventDefault();
     startDayDrag(blob, handle.getAttribute("data-drag-handle"), event);
   });
@@ -1632,6 +1990,7 @@ function renderDay() {
     document.removeEventListener("click", state.activeBlockClickHandler);
   }
   state.activeBlockClickHandler = (event) => {
+    if (consumeSuppressedTimelineClearClick()) return;
     if (event.button !== 0) return;
     if (event.target.closest(".day-block")) return;
     if (event.target.closest(".full-day-chip")) return;
@@ -1673,6 +2032,9 @@ function renderDay() {
   document.addEventListener("click", state.infoCardActionHandler);
 
   if (state.selectionMode) {
+    if (dom.views.day) {
+      dom.views.day.onpointerdown = null;
+    }
     let clickStart = null;
     const trackMinutes = 24 * 60;
 
@@ -1812,6 +2174,30 @@ function renderDay() {
     };
     window.addEventListener("scroll", state.selectionScrollHandler, { passive: true });
     window.addEventListener("resize", state.selectionScrollHandler);
+  } else {
+    if (dom.views.day) {
+      dom.views.day.onpointerdown = (event) => {
+        if (event.button !== 0) return;
+        if (dom.formPanel?.classList.contains("active")) return;
+        if (!event.target.closest(".all-day-row, .day-track")) return;
+        const isTimedTrack = Boolean(event.target.closest(".day-track"));
+        const additive = event.metaKey || event.ctrlKey;
+        if (
+          event.target.closest("[data-blob-id]") ||
+          event.target.closest(".schedulable-overlay") ||
+          event.target.closest(".selection-overlay") ||
+          event.target.closest(".selection-caret")
+        ) {
+          return;
+        }
+        event.preventDefault();
+        if (isTimedTrack && !additive) {
+          startDayCreate(event);
+          return;
+        }
+        startTimelineHighlight(dom.views.day, event, { additive });
+      };
+    }
   }
 
   applyTimelineSelection(dom.views.day);
@@ -2126,6 +2512,36 @@ function renderWeek() {
     });
   };
 
+  const startWeekCreate = (event) => {
+    const columnIndex = getWeekColumnIndex(dayColumns, event.clientX);
+    const track = dayColumns[columnIndex]?.querySelector(".week-day-track");
+    const anchorMinutes = getTrackMinutesFromPointer(track, event.clientY);
+    const anchorDate = dateFromTrackPosition(days[columnIndex], anchorMinutes, appConfig.userTimeZone);
+    if (!anchorDate) return;
+    beginOccurrenceCreate({
+      view: "week",
+      viewRoot: dom.views.week,
+      dayColumns,
+      days,
+      selectionOverlays: dayColumns.map((column) =>
+        column.querySelector(".selection-overlay.default-range")
+      ),
+      timeZone: appConfig.userTimeZone,
+      hourHeight,
+      initialClientX: event.clientX,
+      initialClientY: event.clientY,
+      anchorDate,
+      range: null,
+      dragging: false,
+      getPointerDate: (pointerEvent) => {
+        const nextColumnIndex = getWeekColumnIndex(dayColumns, pointerEvent.clientX);
+        const nextTrack = dayColumns[nextColumnIndex]?.querySelector(".week-day-track");
+        const minutes = getTrackMinutesFromPointer(nextTrack, pointerEvent.clientY);
+        return dateFromTrackPosition(days[nextColumnIndex], minutes, appConfig.userTimeZone);
+      },
+    });
+  };
+
   allDayColumns.forEach((column) => {
     column.querySelectorAll(".full-day-chip").forEach((chipEl) => {
       if (!chipEl.dataset.blobId) return;
@@ -2141,6 +2557,7 @@ function renderWeek() {
       }
       chipEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+        if (state.infoCardLocked && state.lockedBlobId !== chipEl.dataset.blobId) return;
         state.infoCardAnchorHovering = true;
         setInfoCardAnchor(chipEl);
         clearInfoCardHideTimeout();
@@ -2158,12 +2575,18 @@ function renderWeek() {
         scheduleInfoCardHide();
       });
       chipEl.addEventListener("click", (event) => {
+        if (consumeSuppressedTimelineClearClick()) return;
         if (event.shiftKey) return;
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         if (event.target.closest(".full-day-star-toggle")) return;
+        const additive = event.metaKey || event.ctrlKey;
         activateTimelineSelection(dom.views.week, chipEl.dataset.blobId, {
-          additive: event.metaKey || event.ctrlKey,
+          additive,
         });
+        if (!additive) {
+          state.infoCardLocked = true;
+          state.lockedBlobId = chipEl.dataset.blobId;
+        }
         const blob = getBlobById(chipEl.dataset.blobId);
         showInfoCard(blob, chipEl.getBoundingClientRect());
       });
@@ -2214,7 +2637,7 @@ function renderWeek() {
           overlay.classList.add("active");
           configureOverlayEditability(overlay, {
             blobId: blob.id,
-            editable: selectedTimelineBlobId === blob.id,
+            editable: selectedTimelineBlobId === normalizeTimelineBlobId(blob.id),
             start: schedStartStamp === viewStamp,
             end: schedEndStamp === viewStamp,
           });
@@ -2240,6 +2663,7 @@ function renderWeek() {
 
       blockEl.addEventListener("mouseenter", () => {
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+        if (state.infoCardLocked && state.lockedBlobId !== blockEl.dataset.blobId) return;
         state.infoCardAnchorHovering = true;
         setInfoCardAnchor(blockEl);
         clearInfoCardHideTimeout();
@@ -2262,14 +2686,18 @@ function renderWeek() {
         });
       });
       blockEl.addEventListener("click", (event) => {
+        if (consumeSuppressedTimelineClearClick()) return;
         if (event.shiftKey) return;
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         if (event.target.closest(".star-toggle")) return;
-        state.infoCardLocked = false;
-        state.lockedBlobId = null;
+        const additive = event.metaKey || event.ctrlKey;
         activateTimelineSelection(dom.views.week, blockEl.dataset.blobId, {
-          additive: event.metaKey || event.ctrlKey,
+          additive,
         });
+        if (!additive) {
+          state.infoCardLocked = true;
+          state.lockedBlobId = blockEl.dataset.blobId;
+        }
         applyInfoCardAndOverlay();
       });
       blockEl.addEventListener("pointerdown", (event) => {
@@ -2279,14 +2707,19 @@ function renderWeek() {
         if (!canEditTiming(blob)) return;
         const handle = event.target.closest("[data-drag-handle]");
         const mode = handle?.getAttribute("data-drag-handle") || "move";
-        if (mode !== "move" && selectedTimelineBlobId !== blob.id) {
+        const blobId = normalizeTimelineBlobId(blob.id);
+        if (mode === "move" && selectedTimelineBlobId !== blobId) {
+          activateTimelineSelection(dom.views.week, blobId);
+          state.infoCardLocked = true;
+          state.lockedBlobId = blobId;
+          applyInfoCardAndOverlay();
+        }
+        if (mode !== "move" && selectedTimelineBlobId !== blobId) {
           return;
         }
         if (mode === "default-start" && blockEl.dataset.pieceStart !== "true") return;
         if (mode === "default-end" && blockEl.dataset.pieceEnd !== "true") return;
-        if (mode !== "move") {
-          event.preventDefault();
-        }
+        event.preventDefault();
         startWeekDrag(blob, mode, event);
       });
       const starBtn = blockEl.querySelector(".star-toggle");
@@ -2308,7 +2741,7 @@ function renderWeek() {
       if (!handle) return;
       const blobId = overlay.dataset.blobId;
       const blob = getBlobById(blobId);
-      if (!blob || selectedTimelineBlobId !== blob.id) return;
+      if (!blob || selectedTimelineBlobId !== normalizeTimelineBlobId(blob.id)) return;
       event.preventDefault();
       startWeekDrag(blob, handle.getAttribute("data-drag-handle"), event);
     });
@@ -2317,6 +2750,7 @@ function renderWeek() {
     document.removeEventListener("click", state.activeBlockClickHandler);
   }
   state.activeBlockClickHandler = (event) => {
+    if (consumeSuppressedTimelineClearClick()) return;
     if (event.button !== 0) return;
     if (event.target.closest(".day-block")) return;
     if (event.target.closest(".full-day-chip")) return;
@@ -2360,6 +2794,9 @@ function renderWeek() {
   document.addEventListener("click", state.infoCardActionHandler);
 
   if (state.selectionMode) {
+    if (dom.views.week) {
+      dom.views.week.onpointerdown = null;
+    }
     let clickStart = null;
     let activeColumnIndex = null;
     const trackMinutes = 24 * 60;
@@ -2565,6 +3002,36 @@ function renderWeek() {
     };
     window.addEventListener("scroll", state.selectionScrollHandler, { passive: true });
     window.addEventListener("resize", state.selectionScrollHandler);
+  } else {
+    if (dom.views.week) {
+      dom.views.week.onpointerdown = (event) => {
+        if (event.button !== 0) return;
+        if (dom.formPanel?.classList.contains("active")) return;
+        const isTimedTrack = Boolean(event.target.closest(".week-day-track"));
+        const additive = event.metaKey || event.ctrlKey;
+        if (
+          !event.target.closest(
+            ".week-all-day-grid, .week-grid, .week-all-day-column, .week-day-column, .week-day-track"
+          )
+        ) {
+          return;
+        }
+        if (
+          event.target.closest("[data-blob-id]") ||
+          event.target.closest(".schedulable-overlay") ||
+          event.target.closest(".selection-overlay") ||
+          event.target.closest(".selection-caret")
+        ) {
+          return;
+        }
+        event.preventDefault();
+        if (isTimedTrack && !additive) {
+          startWeekCreate(event);
+          return;
+        }
+        startTimelineHighlight(dom.views.week, event, { additive });
+      };
+    }
   }
 
   applyTimelineSelection(dom.views.week);
@@ -2755,6 +3222,9 @@ function updateNowIndicators() {
 }
 
 function setActive(view, options = {}) {
+  cleanupOccurrenceCreate();
+  cleanupTimelineHighlight();
+  cleanupOccurrenceDrag({ restore: false });
   state.view = view;
   saveView(view);
   state.infoCardLocked = false;
@@ -2806,6 +3276,7 @@ export {
   renderWeek,
   renderYear,
   setActive,
+  showCapturedCreatePreview,
   startInteractiveCreate,
   updateNowIndicators,
 };

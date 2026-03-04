@@ -28,6 +28,8 @@ const state = {
   scheduleRunning: false,
   currentOccurrenceId: null,
   selectedOccurrenceIds: [],
+  batchEditOccurrenceIds: [],
+  batchEditBaseline: null,
   previewBlobs: [],
   calendarVisibilityByViewId: {},
   llmDraftRecurrences: null,

@@ -24,7 +24,7 @@ import {
   toProjectIsoFromDate,
   toProjectIsoFromLocalInput,
 } from "./utils.js";
-import { setActive, startInteractiveCreate } from "./render.js";
+import { setActive, showCapturedCreatePreview, startInteractiveCreate } from "./render.js";
 import {
   createLLMRecurrenceDraft,
   createRecurrence,
@@ -33,7 +33,11 @@ import {
 } from "./api.js";
 import { alertDialog, confirmDialog } from "./popups.js";
 import { bindDateTimePickers, syncDateTimeDisplays } from "./datetime_picker.js";
-import { deleteOccurrenceWithUndo, deleteRecurrenceWithUndo } from "./actions.js";
+import {
+  deleteOccurrenceWithUndo,
+  deleteRecurrenceWithUndo,
+  updateOccurrencesWithUndo,
+} from "./actions.js";
 
 let refreshView = null;
 const recurrenceFieldGroups = document.querySelectorAll(".recurrence-fields");
@@ -425,6 +429,35 @@ function setFormMode(mode) {
       el.classList.remove("active");
     });
   }
+}
+
+function captureBatchEditBaseline() {
+  return {
+    recurrenceName: dom.blobForm.recurrenceName?.value || "",
+    recurrenceDescription: dom.blobForm.recurrenceDescription?.value || "",
+    defaultStart: dom.blobForm.defaultStart?.value || "",
+    defaultEnd: dom.blobForm.defaultEnd?.value || "",
+    schedulableStart: dom.blobForm.schedulableStart?.value || "",
+    schedulableEnd: dom.blobForm.schedulableEnd?.value || "",
+    dependencies: getDependencies(),
+    tags: getTags(),
+    policy: getPolicyPayloadFromForm(),
+  };
+}
+
+function valuesEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function parseBatchDateTime(value) {
+  const iso = toProjectIsoFromLocalInput(
+    value,
+    appConfig.userTimeZone,
+    appConfig.projectTimeZone
+  );
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 async function refreshCalendar() {
@@ -2333,6 +2366,8 @@ function resetFormMode() {
   state.editingRecurrencePayload = null;
   state.editingWeeklyAnchorStart = null;
   state.editingOccurrenceStart = null;
+  state.batchEditOccurrenceIds = [];
+  state.batchEditBaseline = null;
   state.selectionMode = false;
   state.selectionStep = null;
   state.pendingDefaultRange = null;
@@ -2388,6 +2423,69 @@ function resetFormMode() {
     caret.classList.remove("active");
     caret.style.top = "";
   });
+  syncDateTimeDisplays();
+}
+
+function openBatchEditForm(blobs) {
+  const editable = Array.from(
+    new Map(
+      (Array.isArray(blobs) ? blobs : [])
+        .filter((blob) => isBlobEditableInMainUi(blob) && !blob.preview)
+        .map((blob) => [String(blob.id), blob])
+    ).values()
+  );
+  if (!editable.length) {
+    alertDialog("No editable occurrences selected.");
+    return;
+  }
+  const seed = editable[0];
+  resetFormMode();
+  if (dom.recurrenceType) {
+    dom.recurrenceType.value = "single";
+  }
+  dom.blobForm.recurrenceName.value = seed.name || "";
+  dom.blobForm.recurrenceDescription.value = seed.description || "";
+  const blobTimeZone = seed.tz || appConfig.userTimeZone;
+  dom.blobForm.defaultStart.value = toLocalInputValueInTimeZone(
+    seed.default_scheduled_timerange?.start,
+    blobTimeZone
+  );
+  dom.blobForm.defaultEnd.value = toLocalInputValueInTimeZone(
+    seed.default_scheduled_timerange?.end,
+    blobTimeZone
+  );
+  dom.blobForm.schedulableStart.value = toLocalInputValueInTimeZone(
+    seed.schedulable_timerange?.start,
+    blobTimeZone
+  );
+  dom.blobForm.schedulableEnd.value = toLocalInputValueInTimeZone(
+    seed.schedulable_timerange?.end,
+    blobTimeZone
+  );
+  setBlobTypeOnContainer(
+    nonWeeklyField,
+    isEventFromRanges(
+      dom.blobForm.defaultStart.value,
+      dom.blobForm.defaultEnd.value,
+      dom.blobForm.schedulableStart.value,
+      dom.blobForm.schedulableEnd.value
+    )
+      ? BLOB_TYPES.EVENT
+      : BLOB_TYPES.TASK
+  );
+  setDependencies(Array.isArray(seed.dependencies) ? seed.dependencies : []);
+  setTags(Array.isArray(seed.tags) ? seed.tags : []);
+  applyPolicyToForm(seed.policy || {});
+  updateRecurrenceUI();
+  setFormMode("create");
+  state.batchEditOccurrenceIds = editable.map((blob) => String(blob.id));
+  state.batchEditBaseline = captureBatchEditBaseline();
+  dom.formTitle.textContent =
+    editable.length === 1 ? "Edit occurrence" : `Edit ${editable.length} occurrences`;
+  dom.formSubmitBtn.textContent =
+    editable.length === 1 ? "Apply changes" : "Apply to selected";
+  dom.formStatus.textContent = "Change the fields you want to apply to the selected occurrences.";
+  toggleForm(true);
   syncDateTimeDisplays();
 }
 
@@ -2774,6 +2872,82 @@ async function handleBlobSubmit(event) {
   const defaultEnd = blobType === BLOB_TYPES.EVENT
     ? schedulableEnd
     : formData.get("defaultEnd");
+  if (state.batchEditOccurrenceIds?.length) {
+    const baseline = state.batchEditBaseline || {};
+    const policyPayload = getPolicyPayloadFromForm();
+    const dependencies = getDependencies();
+    const tags = getTags();
+    const changes = {};
+    if ((recurrenceName || "") !== (baseline.recurrenceName || "")) {
+      changes.name = recurrenceName?.toString?.().trim?.() || "";
+    }
+    if ((recurrenceDescription || "") !== (baseline.recurrenceDescription || "")) {
+      changes.description = recurrenceDescription?.toString?.() || "";
+    }
+    if ((defaultStart || "") !== (baseline.defaultStart || "")) {
+      const parsed = parseBatchDateTime(defaultStart);
+      if (!parsed) {
+        dom.formStatus.textContent = "Select a valid default start.";
+        return;
+      }
+      changes.defaultStart = parsed;
+    }
+    if ((defaultEnd || "") !== (baseline.defaultEnd || "")) {
+      const parsed = parseBatchDateTime(defaultEnd);
+      if (!parsed) {
+        dom.formStatus.textContent = "Select a valid default end.";
+        return;
+      }
+      changes.defaultEnd = parsed;
+    }
+    if ((schedulableStart || "") !== (baseline.schedulableStart || "")) {
+      const parsed = parseBatchDateTime(schedulableStart);
+      if (!parsed) {
+        dom.formStatus.textContent = "Select a valid schedulable start.";
+        return;
+      }
+      changes.schedStart = parsed;
+    }
+    if ((schedulableEnd || "") !== (baseline.schedulableEnd || "")) {
+      const parsed = parseBatchDateTime(schedulableEnd);
+      if (!parsed) {
+        dom.formStatus.textContent = "Select a valid schedulable end.";
+        return;
+      }
+      changes.schedEnd = parsed;
+    }
+    if (!valuesEqual(dependencies, baseline.dependencies || [])) {
+      changes.dependencies = dependencies;
+    }
+    if (!valuesEqual(tags, baseline.tags || [])) {
+      changes.tags = tags;
+    }
+    if (!valuesEqual(policyPayload, baseline.policy || {})) {
+      changes.policy = policyPayload;
+    }
+    if (!Object.keys(changes).length) {
+      dom.formStatus.textContent = "No changes to apply.";
+      return;
+    }
+    const selectedBlobs = (state.batchEditOccurrenceIds || [])
+      .map((blobId) => state.blobs.find((item) => String(item.id) === String(blobId)))
+      .filter(Boolean);
+    if (!selectedBlobs.length) {
+      dom.formStatus.textContent = "Selected occurrences are no longer available.";
+      return;
+    }
+    try {
+      await updateOccurrencesWithUndo(selectedBlobs, changes);
+      dom.blobForm.reset();
+      dom.formStatus.textContent = "Updated.";
+      toggleForm(false);
+      resetFormMode();
+      await refreshCalendar();
+    } catch (error) {
+      dom.formStatus.textContent = error?.message || "Error updating occurrences.";
+    }
+    return;
+  }
   if (!["weekly", "multiple", "date"].includes(recurrenceType)) {
     const defaultStartDate = new Date(defaultStart);
     const defaultEndDate = new Date(defaultEnd);
@@ -3159,6 +3333,44 @@ function openCreateForm(blobType = BLOB_TYPES.TASK) {
   setBlobTypeOnContainer(nonWeeklyField, blobType);
   toggleForm(true);
   startInteractiveCreate({ blobType });
+  syncDateTimeDisplays();
+}
+
+function openCreateFormWithRanges(blobType = BLOB_TYPES.EVENT, defaultRange = null, schedulableRange = null) {
+  resetFormMode();
+  setBlobTypeOnContainer(nonWeeklyField, blobType);
+  toggleForm(true);
+  const effectiveDefaultRange = defaultRange || schedulableRange;
+  const effectiveSchedulableRange = schedulableRange || defaultRange;
+  if (effectiveDefaultRange?.start && effectiveDefaultRange?.end) {
+    dom.blobForm.defaultStart.value = toLocalInputValueInTimeZone(
+      toProjectIsoFromDate(effectiveDefaultRange.start, appConfig.projectTimeZone),
+      appConfig.userTimeZone
+    );
+    dom.blobForm.defaultEnd.value = toLocalInputValueInTimeZone(
+      toProjectIsoFromDate(effectiveDefaultRange.end, appConfig.projectTimeZone),
+      appConfig.userTimeZone
+    );
+  }
+  if (effectiveSchedulableRange?.start && effectiveSchedulableRange?.end) {
+    dom.blobForm.schedulableStart.value = toLocalInputValueInTimeZone(
+      toProjectIsoFromDate(effectiveSchedulableRange.start, appConfig.projectTimeZone),
+      appConfig.userTimeZone
+    );
+    dom.blobForm.schedulableEnd.value = toLocalInputValueInTimeZone(
+      toProjectIsoFromDate(effectiveSchedulableRange.end, appConfig.projectTimeZone),
+      appConfig.userTimeZone
+    );
+  }
+  dom.blobForm.defaultStart.dispatchEvent(new Event("change", { bubbles: true }));
+  dom.blobForm.defaultEnd.dispatchEvent(new Event("change", { bubbles: true }));
+  dom.blobForm.schedulableStart.dispatchEvent(new Event("change", { bubbles: true }));
+  dom.blobForm.schedulableEnd.dispatchEvent(new Event("change", { bubbles: true }));
+  if (blobType === BLOB_TYPES.EVENT) {
+    syncDefaultToSched(nonWeeklyField);
+  }
+  showCapturedCreatePreview(effectiveDefaultRange, effectiveSchedulableRange);
+  dom.formStatus.textContent = "Time captured. Fill details and create.";
   syncDateTimeDisplays();
 }
 
@@ -3673,7 +3885,9 @@ function bindFormHandlers(onRefresh) {
 export {
   bindFormHandlers,
   handleAddClick,
+  openBatchEditForm,
   openCreateForm,
+  openCreateFormWithRanges,
   openEditForm,
   resetFormMode,
   toggleForm,

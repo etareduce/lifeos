@@ -25,6 +25,7 @@ import { deleteOccurrencesWithUndo } from "./actions.js";
 import {
   bindFormHandlers,
   openCreateForm,
+  openBatchEditForm,
   openEditForm,
   resetFormMode,
   toggleForm,
@@ -826,7 +827,7 @@ async function deleteSelectedOccurrences() {
   const selectedIds = Array.isArray(state.selectedOccurrenceIds) ? state.selectedOccurrenceIds : [];
   if (!selectedIds.length) return false;
   const blobs = selectedIds
-    .map((blobId) => state.blobs.find((item) => item.id === blobId))
+    .map((blobId) => state.blobs.find((item) => String(item.id) === String(blobId)))
     .filter(Boolean)
     .filter((blob) => !blob.preview);
   if (!blobs.length) return false;
@@ -1042,7 +1043,16 @@ document.addEventListener(
     event.preventDefault();
     event.stopPropagation();
     const blobId = target.getAttribute("data-blob-id");
-    const blob = state.blobs.find((item) => item.id === blobId);
+    const selectedIds = Array.isArray(state.selectedOccurrenceIds) ? state.selectedOccurrenceIds : [];
+    const selectedBlobs = selectedIds
+      .map((id) => state.blobs.find((item) => String(item.id) === String(id)))
+      .filter(Boolean)
+      .filter((blob) => !blob.preview);
+    if (selectedBlobs.length > 1) {
+      openBatchEditForm(selectedBlobs);
+      return;
+    }
+    const blob = state.blobs.find((item) => String(item.id) === String(blobId));
     if (blob) {
       openEditForm(blob);
     }
@@ -1141,6 +1151,11 @@ window.addEventListener("keydown", (event) => {
   const createEventMatch = matchesKeybind(event, keybinds.createEvent);
   const navigatePrevMatch = matchesKeybind(event, keybinds.navigatePrev);
   const navigateNextMatch = matchesKeybind(event, keybinds.navigateNext);
+  const editSelectionMatch =
+    normalizeEventKey(event) === "E" &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey;
   const deleteSelectionMatch =
     (normalizeEventKey(event) === "Delete" || normalizeEventKey(event) === "Backspace") &&
     (state.view === "day" || state.view === "week");
@@ -1159,6 +1174,21 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     deleteSelectedOccurrences();
     return;
+  }
+  if (editSelectionMatch && state.selectedOccurrenceIds?.length && (state.view === "day" || state.view === "week")) {
+    event.preventDefault();
+    const selectedBlobs = state.selectedOccurrenceIds
+      .map((blobId) => state.blobs.find((item) => String(item.id) === String(blobId)))
+      .filter(Boolean)
+      .filter((blob) => !blob.preview);
+    if (selectedBlobs.length > 1) {
+      openBatchEditForm(selectedBlobs);
+      return;
+    }
+    if (selectedBlobs.length === 1) {
+      openEditForm(selectedBlobs[0]);
+      return;
+    }
   }
   if (closePanelsMatch) {
     clearInfoCardLock();

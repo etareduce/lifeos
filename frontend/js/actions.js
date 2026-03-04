@@ -143,28 +143,113 @@ function buildSingleOccurrencePayload(blob, defaultScheduledRange, schedulableRa
   };
 }
 
+function buildUpdatedOccurrenceValues(blob, changes = {}) {
+  const defaultStart = changes.defaultStart || new Date(blob?.default_scheduled_timerange?.start);
+  const defaultEnd = changes.defaultEnd || new Date(blob?.default_scheduled_timerange?.end);
+  const schedStart = changes.schedStart || new Date(blob?.schedulable_timerange?.start);
+  const schedEnd = changes.schedEnd || new Date(blob?.schedulable_timerange?.end);
+  const defaultScheduledRange =
+    defaultStart instanceof Date && defaultEnd instanceof Date
+      ? { start: defaultStart, end: defaultEnd }
+      : null;
+  const schedulableRange =
+    schedStart instanceof Date && schedEnd instanceof Date
+      ? { start: schedStart, end: schedEnd }
+      : null;
+  const name = Object.prototype.hasOwnProperty.call(changes, "name")
+    ? changes.name
+    : blob?.name || "";
+  const description = Object.prototype.hasOwnProperty.call(changes, "description")
+    ? changes.description
+    : blob?.description || null;
+  const tags = Object.prototype.hasOwnProperty.call(changes, "tags")
+    ? (Array.isArray(changes.tags) ? changes.tags : [])
+    : (Array.isArray(blob?.tags) ? blob.tags : []);
+  const dependencies = Object.prototype.hasOwnProperty.call(changes, "dependencies")
+    ? (Array.isArray(changes.dependencies) ? changes.dependencies : [])
+    : (Array.isArray(blob?.dependencies) ? blob.dependencies : []);
+  const policy = Object.prototype.hasOwnProperty.call(changes, "policy")
+    ? (changes.policy || {})
+    : (blob?.policy || {});
+  return {
+    defaultScheduledRange,
+    schedulableRange,
+    name,
+    description,
+    tags,
+    dependencies,
+    policy,
+  };
+}
+
+function validateOccurrenceRanges(defaultScheduledRange, schedulableRange) {
+  if (!defaultScheduledRange || !schedulableRange) {
+    throw new Error("Missing occurrence timing.");
+  }
+  if (
+    Number.isNaN(defaultScheduledRange.start?.getTime?.()) ||
+    Number.isNaN(defaultScheduledRange.end?.getTime?.()) ||
+    Number.isNaN(schedulableRange.start?.getTime?.()) ||
+    Number.isNaN(schedulableRange.end?.getTime?.())
+  ) {
+    throw new Error("Invalid occurrence timing.");
+  }
+  if (defaultScheduledRange.end <= defaultScheduledRange.start) {
+    throw new Error("Default end must be after default start.");
+  }
+  if (schedulableRange.end <= schedulableRange.start) {
+    throw new Error("Schedulable end must be after schedulable start.");
+  }
+  if (
+    schedulableRange.start > defaultScheduledRange.start ||
+    schedulableRange.end < defaultScheduledRange.end
+  ) {
+    throw new Error("Schedulable range must contain default range.");
+  }
+}
+
 async function updateOccurrenceTimingWithUndo(
   blob,
   { defaultScheduledRange = null, schedulableRange = null } = {},
   options = {}
 ) {
+  return updateOccurrenceWithUndo(
+    blob,
+    {
+      ...(defaultScheduledRange ? {
+        defaultStart: defaultScheduledRange.start,
+        defaultEnd: defaultScheduledRange.end,
+      } : {}),
+      ...(schedulableRange ? {
+        schedStart: schedulableRange.start,
+        schedEnd: schedulableRange.end,
+      } : {}),
+    },
+    options
+  );
+}
+
+async function updateOccurrenceWithUndo(blob, changes = {}, options = {}) {
   if (!blob?.recurrence_id) return null;
-  if (!defaultScheduledRange && !schedulableRange) return null;
+  if (!changes || !Object.keys(changes).length) return null;
   const previous = await getRecurrence(blob.recurrence_id);
   const payload = clonePayload(previous.payload);
   const recurrenceType = previous.type || blob.recurrence_type || "single";
+  const nextValues = buildUpdatedOccurrenceValues(blob, changes);
+  validateOccurrenceRanges(nextValues.defaultScheduledRange, nextValues.schedulableRange);
 
   if (recurrenceType === "single") {
     const nextPayload = {
       ...payload,
       blob: {
         ...(payload.blob || {}),
-        default_scheduled_timerange: defaultScheduledRange
-          ? serializeRange(defaultScheduledRange)
-          : payload.blob?.default_scheduled_timerange,
-        schedulable_timerange: schedulableRange
-          ? serializeRange(schedulableRange)
-          : payload.blob?.schedulable_timerange,
+        name: nextValues.name,
+        description: nextValues.description,
+        default_scheduled_timerange: serializeRange(nextValues.defaultScheduledRange),
+        schedulable_timerange: serializeRange(nextValues.schedulableRange),
+        policy: nextValues.policy,
+        dependencies: nextValues.dependencies,
+        tags: nextValues.tags,
       },
     };
     await updateRecurrence(blob.recurrence_id, recurrenceType, nextPayload);
@@ -185,12 +270,13 @@ async function updateOccurrenceTimingWithUndo(
         }
         return {
           ...item,
-          default_scheduled_timerange: defaultScheduledRange
-            ? serializeRange(defaultScheduledRange)
-            : item.default_scheduled_timerange,
-          schedulable_timerange: schedulableRange
-            ? serializeRange(schedulableRange)
-            : item.schedulable_timerange,
+          name: nextValues.name,
+          description: nextValues.description,
+          default_scheduled_timerange: serializeRange(nextValues.defaultScheduledRange),
+          schedulable_timerange: serializeRange(nextValues.schedulableRange),
+          policy: nextValues.policy,
+          dependencies: nextValues.dependencies,
+          tags: nextValues.tags,
         };
       }),
     };
@@ -201,19 +287,18 @@ async function updateOccurrenceTimingWithUndo(
     return record;
   }
 
-  const baseDefaultRange = defaultScheduledRange || {
-    start: new Date(blob.default_scheduled_timerange?.start),
-    end: new Date(blob.default_scheduled_timerange?.end),
-  };
-  const baseSchedulableRange = schedulableRange || {
-    start: new Date(blob.schedulable_timerange?.start),
-    end: new Date(blob.schedulable_timerange?.end),
-  };
   const deleteRecord = await deleteOccurrenceInternal(blob, previous);
   const exceptionalPayload = buildSingleOccurrencePayload(
-    blob,
-    baseDefaultRange,
-    baseSchedulableRange
+    {
+      ...blob,
+      name: nextValues.name,
+      description: nextValues.description,
+      policy: nextValues.policy,
+      dependencies: nextValues.dependencies,
+      tags: nextValues.tags,
+    },
+    nextValues.defaultScheduledRange,
+    nextValues.schedulableRange
   );
   const created = await createRecurrence("single", exceptionalPayload);
   const createRecord = toCreateRecord("single", exceptionalPayload, created?.id || null);
@@ -221,6 +306,32 @@ async function updateOccurrenceTimingWithUndo(
   maybePushRecord(record, options);
   maybeRefresh(options);
   return record;
+}
+
+async function updateOccurrencesWithUndo(blobs, changes = {}) {
+  const unique = [];
+  const seen = new Set();
+  (Array.isArray(blobs) ? blobs : []).forEach((blob) => {
+    if (!blob?.id || seen.has(blob.id)) return;
+    seen.add(blob.id);
+    unique.push(blob);
+  });
+  if (!unique.length) return null;
+  const records = [];
+  for (const blob of unique) {
+    const record = await updateOccurrenceWithUndo(blob, changes, {
+      skipHistory: true,
+      skipRefresh: true,
+    });
+    if (record) {
+      records.push(record);
+    }
+  }
+  const combined = createTransactionRecord(records);
+  if (!combined) return null;
+  pushHistoryAction(combined);
+  refreshCalendar();
+  return combined;
 }
 
 async function deleteRecurrenceWithUndo(recurrenceId, options = {}) {
@@ -284,5 +395,7 @@ export {
   deleteRecurrenceWithUndo,
   moveRecurrenceToMainWithRefresh,
   moveOccurrenceToMainWithRefresh,
+  updateOccurrencesWithUndo,
+  updateOccurrenceWithUndo,
   updateOccurrenceTimingWithUndo,
 };
