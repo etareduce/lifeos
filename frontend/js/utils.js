@@ -415,45 +415,44 @@ function findReusableColumn(columns, block) {
   return columns.length;
 }
 
-function columnHasOverlap(column, block) {
-  if (!Array.isArray(column) || !column.length) return false;
-  return column.some((candidate) => blockOverlaps(candidate, block));
-}
-
-function pickCascadeOffset(totalColumns, minReadableNameWidth) {
-  const safeColumns = Math.max(1, totalColumns);
-  if (safeColumns <= 1) return 0;
-  const maxOffsetForNameReadability = (1 - minReadableNameWidth) / (safeColumns - 1);
-  const targetOffset = 0.12;
-  const minimumVisualOffset = 0.06;
-  if (maxOffsetForNameReadability <= 0) return 0;
-  if (maxOffsetForNameReadability < minimumVisualOffset) {
-    return maxOffsetForNameReadability;
-  }
-  return Math.min(targetOffset, maxOffsetForNameReadability);
+function getLocalColumnSignature(block, events) {
+  const localColumns = new Set([block.column]);
+  events.forEach((other) => {
+    if (other === block) return;
+    if (!blockOverlaps(block, other)) return;
+    localColumns.add(other.column);
+  });
+  const ordered = Array.from(localColumns).sort((a, b) => a - b);
+  const localIndex = ordered.indexOf(block.column);
+  return {
+    localIndex: localIndex < 0 ? 0 : localIndex,
+    localTotal: Math.max(1, ordered.length),
+  };
 }
 
 function toBlockHorizontalStyles({
-  column,
-  span,
-  totalColumns,
-  cascadeOffset,
+  localIndex,
+  localTotal,
   nameReadableWidth,
   timeReadableWidth,
 }) {
   const insetPx = 8;
-  const safeColumns = Math.max(1, totalColumns);
-  const safeOffset = safeColumns <= 1 ? 0 : cascadeOffset;
-  const leftFraction = column * safeOffset;
-  const maxWidth = Math.max(0.1, 1 - leftFraction);
-  const minNameWidth = clampNumber(nameReadableWidth, 0.42, 1);
-  const preferredTimeWidth = clampNumber(timeReadableWidth, minNameWidth, 1);
-  const baseWidth = 1 - safeOffset * (safeColumns - 1);
-  const expandedWidth = baseWidth + safeOffset * Math.max(0, span - 1);
-  let widthFraction = clampNumber(expandedWidth, Math.min(minNameWidth, maxWidth), maxWidth);
-  if (widthFraction < preferredTimeWidth) {
-    widthFraction = Math.min(maxWidth, preferredTimeWidth);
+  const safeTotal = Math.max(1, localTotal);
+  const safeIndex = clampNumber(localIndex, 0, safeTotal - 1);
+  const minNameWidth = clampNumber(nameReadableWidth, 0.42, 0.9);
+  const preferredTimeWidth = clampNumber(timeReadableWidth, minNameWidth, 0.9);
+  let step = 0;
+  if (safeTotal > 1) {
+    const maxStepForReadable = (1 - preferredTimeWidth) / (safeTotal - 1);
+    const visualStepCap = 0.1;
+    step = Math.max(0, Math.min(visualStepCap, maxStepForReadable));
+    if (safeIndex > 0) {
+      const maxStepForNameAtIndex = (1 - minNameWidth) / safeIndex;
+      step = Math.min(step, maxStepForNameAtIndex);
+    }
   }
+  const leftFraction = safeIndex * step;
+  const widthFraction = Math.max(minNameWidth, 1 - leftFraction);
   return {
     leftCss: `calc(${insetPx}px + (100% - ${insetPx * 2}px) * ${leftFraction.toFixed(6)})`,
     widthCss: `calc((100% - ${insetPx * 2}px) * ${widthFraction.toFixed(6)})`,
@@ -483,9 +482,9 @@ function layoutBlocks(blocks) {
   });
 
   clusters.forEach((cluster) => {
-    // Pack each connected overlap cluster into the fewest columns, then
-    // maximize event width while preserving readability priority:
-    // title readability first, time readability second.
+    // Pack each connected overlap cluster into the fewest columns, then size
+    // each event from local (actual) overlap pressure instead of cluster-wide
+    // pressure. Readability priority: title first, then time.
     const events = [...cluster.events].sort(compareTimedBlocks);
     const columns = [];
 
@@ -498,31 +497,16 @@ function layoutBlocks(blocks) {
       columns[columnIndex].push(block);
     });
 
-    const totalColumns = Math.max(1, columns.length);
-    const minReadableNameWidth = events.reduce(
-      (maxReadable, block) => Math.max(maxReadable, estimateNameReadableWidth(block)),
-      0.56
-    );
-    const cascadeOffset = pickCascadeOffset(totalColumns, minReadableNameWidth);
     events.forEach((block) => {
-      let span = 1;
-      for (let nextColumn = block.column + 1; nextColumn < totalColumns; nextColumn += 1) {
-        if (columnHasOverlap(columns[nextColumn], block)) {
-          break;
-        }
-        span += 1;
-      }
-
+      const { localIndex, localTotal } = getLocalColumnSignature(block, events);
       const { leftCss, widthCss } = toBlockHorizontalStyles({
-        column: block.column,
-        span,
-        totalColumns,
-        cascadeOffset,
+        localIndex,
+        localTotal,
         nameReadableWidth: estimateNameReadableWidth(block),
         timeReadableWidth: estimateTimeReadableWidth(block),
       });
-      block.columns = totalColumns;
-      block.columnSpan = span;
+      block.columns = localTotal;
+      block.columnSpan = 1;
       block.leftCss = leftCss;
       block.widthCss = widthCss;
     });
