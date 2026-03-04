@@ -459,6 +459,17 @@ function toBlockHorizontalStyles({
   };
 }
 
+function toColumnLaneStyles(column, totalColumns) {
+  const insetPx = 8;
+  const safeColumns = Math.max(1, totalColumns);
+  const leftFraction = clampNumber(column / safeColumns, 0, 1);
+  const widthFraction = 1 / safeColumns;
+  return {
+    activeLeftCss: `calc(${insetPx}px + (100% - ${insetPx * 2}px) * ${leftFraction.toFixed(6)})`,
+    activeWidthCss: `calc((100% - ${insetPx * 2}px) * ${widthFraction.toFixed(6)})`,
+  };
+}
+
 function layoutBlocks(blocks) {
   const sorted = [...blocks].sort(compareTimedBlocks);
   const active = [];
@@ -505,10 +516,16 @@ function layoutBlocks(blocks) {
         nameReadableWidth: estimateNameReadableWidth(block),
         timeReadableWidth: estimateTimeReadableWidth(block),
       });
+      const { activeLeftCss, activeWidthCss } = toColumnLaneStyles(
+        block.column,
+        columns.length
+      );
       block.columns = localTotal;
       block.columnSpan = 1;
       block.leftCss = leftCss;
       block.widthCss = widthCss;
+      block.activeLeftCss = activeLeftCss;
+      block.activeWidthCss = activeWidthCss;
     });
   });
 }
