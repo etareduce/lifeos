@@ -4110,10 +4110,16 @@ body.occurrence-dragging {
   color: var(--muted);
   font-weight: 500;
   margin-top: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .day-block .event-title {
   padding-right: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .day-block .event-header {

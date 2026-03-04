@@ -388,6 +388,22 @@ function blockOverlaps(left, right) {
   return overlaps(left.startMin, left.endMin, right.startMin, right.endMin);
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function estimateNameReadableWidth(block) {
+  const title = String(block?.title || "").trim();
+  const length = Math.min(42, title.length || 8);
+  return clampNumber(0.54 + length * 0.005, 0.56, 0.78);
+}
+
+function estimateTimeReadableWidth(block) {
+  const label = String(block?.time || "").trim();
+  const length = Math.min(20, label.length || 11);
+  return clampNumber(0.4 + length * 0.004, 0.44, 0.6);
+}
+
 function findReusableColumn(columns, block) {
   for (let index = 0; index < columns.length; index += 1) {
     const column = columns[index];
@@ -404,19 +420,40 @@ function columnHasOverlap(column, block) {
   return column.some((candidate) => blockOverlaps(candidate, block));
 }
 
-function toBlockHorizontalStyles(column, span, totalColumns) {
-  const insetPx = 8;
-  const minWidthFraction = 0.56;
-  const maxOffsetStep = 0.2;
+function pickCascadeOffset(totalColumns, minReadableNameWidth) {
   const safeColumns = Math.max(1, totalColumns);
-  const step =
-    safeColumns <= 1
-      ? 0
-      : Math.min(maxOffsetStep, (1 - minWidthFraction) / (safeColumns - 1));
-  const leftFraction = column * step;
-  const baseWidth = 1 - step * (safeColumns - 1);
-  const expandedWidth = baseWidth + step * Math.max(0, span - 1);
-  const widthFraction = Math.min(1 - leftFraction, Math.max(step || 1, expandedWidth));
+  if (safeColumns <= 1) return 0;
+  const maxOffsetForNameReadability = (1 - minReadableNameWidth) / (safeColumns - 1);
+  const targetOffset = 0.12;
+  const minimumVisualOffset = 0.06;
+  if (maxOffsetForNameReadability <= 0) return 0;
+  if (maxOffsetForNameReadability < minimumVisualOffset) {
+    return maxOffsetForNameReadability;
+  }
+  return Math.min(targetOffset, maxOffsetForNameReadability);
+}
+
+function toBlockHorizontalStyles({
+  column,
+  span,
+  totalColumns,
+  cascadeOffset,
+  nameReadableWidth,
+  timeReadableWidth,
+}) {
+  const insetPx = 8;
+  const safeColumns = Math.max(1, totalColumns);
+  const safeOffset = safeColumns <= 1 ? 0 : cascadeOffset;
+  const leftFraction = column * safeOffset;
+  const maxWidth = Math.max(0.1, 1 - leftFraction);
+  const minNameWidth = clampNumber(nameReadableWidth, 0.42, 1);
+  const preferredTimeWidth = clampNumber(timeReadableWidth, minNameWidth, 1);
+  const baseWidth = 1 - safeOffset * (safeColumns - 1);
+  const expandedWidth = baseWidth + safeOffset * Math.max(0, span - 1);
+  let widthFraction = clampNumber(expandedWidth, Math.min(minNameWidth, maxWidth), maxWidth);
+  if (widthFraction < preferredTimeWidth) {
+    widthFraction = Math.min(maxWidth, preferredTimeWidth);
+  }
   return {
     leftCss: `calc(${insetPx}px + (100% - ${insetPx * 2}px) * ${leftFraction.toFixed(6)})`,
     widthCss: `calc((100% - ${insetPx * 2}px) * ${widthFraction.toFixed(6)})`,
@@ -446,8 +483,9 @@ function layoutBlocks(blocks) {
   });
 
   clusters.forEach((cluster) => {
-    // Pack each connected overlap cluster into the fewest columns, then let
-    // each block expand rightward across columns that stay collision-free.
+    // Pack each connected overlap cluster into the fewest columns, then
+    // maximize event width while preserving readability priority:
+    // title readability first, time readability second.
     const events = [...cluster.events].sort(compareTimedBlocks);
     const columns = [];
 
@@ -461,6 +499,11 @@ function layoutBlocks(blocks) {
     });
 
     const totalColumns = Math.max(1, columns.length);
+    const minReadableNameWidth = events.reduce(
+      (maxReadable, block) => Math.max(maxReadable, estimateNameReadableWidth(block)),
+      0.56
+    );
+    const cascadeOffset = pickCascadeOffset(totalColumns, minReadableNameWidth);
     events.forEach((block) => {
       let span = 1;
       for (let nextColumn = block.column + 1; nextColumn < totalColumns; nextColumn += 1) {
@@ -470,11 +513,14 @@ function layoutBlocks(blocks) {
         span += 1;
       }
 
-      const { leftCss, widthCss } = toBlockHorizontalStyles(
-        block.column,
+      const { leftCss, widthCss } = toBlockHorizontalStyles({
+        column: block.column,
         span,
-        totalColumns
-      );
+        totalColumns,
+        cascadeOffset,
+        nameReadableWidth: estimateNameReadableWidth(block),
+        timeReadableWidth: estimateTimeReadableWidth(block),
+      });
       block.columns = totalColumns;
       block.columnSpan = span;
       block.leftCss = leftCss;
