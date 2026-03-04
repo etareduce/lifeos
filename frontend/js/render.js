@@ -1883,7 +1883,7 @@ function renderDay() {
     blockEl.addEventListener("click", (event) => {
       if (consumeSuppressedTimelineClearClick()) return;
       if (event.shiftKey) return;
-      if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+      if (dom.formPanel?.classList.contains("active")) return;
       if (event.target.closest(".star-toggle")) return;
       const additive = event.metaKey || event.ctrlKey;
       activateTimelineSelection(dom.views.day, blockEl.dataset.blobId, {
@@ -1897,6 +1897,7 @@ function renderDay() {
     });
     blockEl.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
+      if (dom.formPanel?.classList.contains("active")) return;
       if (event.target.closest(".star-toggle")) return;
       const blob = getBlobById(blockEl.dataset.blobId);
       if (!canEditTiming(blob)) return;
@@ -1962,7 +1963,7 @@ function renderDay() {
     chipEl.addEventListener("click", (event) => {
       if (consumeSuppressedTimelineClearClick()) return;
       if (event.shiftKey) return;
-      if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+      if (dom.formPanel?.classList.contains("active")) return;
       if (event.target.closest(".full-day-star-toggle")) return;
       const additive = event.metaKey || event.ctrlKey;
       activateTimelineSelection(dom.views.day, chipEl.dataset.blobId, {
@@ -2577,7 +2578,7 @@ function renderWeek() {
       chipEl.addEventListener("click", (event) => {
         if (consumeSuppressedTimelineClearClick()) return;
         if (event.shiftKey) return;
-        if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+        if (dom.formPanel?.classList.contains("active")) return;
         if (event.target.closest(".full-day-star-toggle")) return;
         const additive = event.metaKey || event.ctrlKey;
         activateTimelineSelection(dom.views.week, chipEl.dataset.blobId, {
@@ -2688,7 +2689,7 @@ function renderWeek() {
       blockEl.addEventListener("click", (event) => {
         if (consumeSuppressedTimelineClearClick()) return;
         if (event.shiftKey) return;
-        if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
+        if (dom.formPanel?.classList.contains("active")) return;
         if (event.target.closest(".star-toggle")) return;
         const additive = event.metaKey || event.ctrlKey;
         activateTimelineSelection(dom.views.week, blockEl.dataset.blobId, {
@@ -2702,6 +2703,7 @@ function renderWeek() {
       });
       blockEl.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
+        if (dom.formPanel?.classList.contains("active")) return;
         if (event.target.closest(".star-toggle")) return;
         const blob = getBlobById(blockEl.dataset.blobId);
         if (!canEditTiming(blob)) return;
