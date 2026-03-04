@@ -4251,7 +4251,9 @@ body.occurrence-dragging {
   position: sticky;
   top: 0;
   z-index: 18;
-  padding: 10px 0 8px;
+  min-height: 44px;
+  align-items: center;
+  padding: 0;
   background: var(--paper);
   border-bottom: 1px solid rgba(107, 103, 92, 0.2);
 }
