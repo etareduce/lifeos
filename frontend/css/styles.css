@@ -4229,21 +4229,31 @@ body.occurrence-dragging {
   gap: 12px;
 }
 
-.week-days-labels {
-  grid-column: 2;
+.week-header-bar {
+  grid-column: 1 / -1;
   grid-row: 1;
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 12px;
   position: sticky;
   top: 12px;
   z-index: 18;
-  padding-bottom: 4px;
-  background: linear-gradient(to bottom, var(--cream) 82%, transparent);
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(107, 103, 92, 0.22);
+  background: color-mix(in srgb, var(--paper) 92%, var(--cream) 8%);
+  box-shadow: 0 10px 20px rgba(27, 26, 22, 0.08);
 }
 
 .week-hours-spacer {
-  position: sticky;
-  top: 12px;
-  z-index: 18;
-  background: linear-gradient(to bottom, var(--cream) 82%, transparent);
+  min-height: 44px;
+}
+
+.week-days-labels {
+  grid-column: 2;
+  grid-row: 1;
+  padding: 0;
+  background: transparent;
 }
 
 .week-all-day {
@@ -4287,7 +4297,7 @@ body.occurrence-dragging {
 .week-day-label button {
   width: 100%;
   border: 1px solid rgba(107, 103, 92, 0.24);
-  background: var(--cream);
+  background: color-mix(in srgb, var(--cream) 82%, white 18%);
   color: var(--ink);
   border-radius: 12px;
   padding: 8px 10px;
