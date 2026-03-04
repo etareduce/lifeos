@@ -3948,8 +3948,8 @@ html[data-zoomed="true"] .views {
   transform: translateY(-2px);
   box-shadow: 0 8px 18px rgba(27, 26, 22, 0.18);
   z-index: 16;
-  left: var(--active-left, 8px);
-  width: var(--active-width, calc(100% - 16px));
+  left: 8px;
+  width: calc(100% - 16px);
 }
 
 .full-day-chip.active {
