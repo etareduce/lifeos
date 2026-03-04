@@ -3881,7 +3881,7 @@ html[data-zoomed="true"] .views {
   position: absolute;
   left: 8px;
   right: 8px;
-  height: 10px;
+  height: 7px;
   border-radius: 999px;
   opacity: 0;
   pointer-events: none;
@@ -3889,11 +3889,11 @@ html[data-zoomed="true"] .views {
 }
 
 .drag-handle.start {
-  top: -5px;
+  top: -3.5px;
 }
 
 .drag-handle.end {
-  bottom: -5px;
+  bottom: -3.5px;
 }
 
 .occurrence-handle {
