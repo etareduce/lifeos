@@ -41,9 +41,28 @@ function toDate(value) {
   return value ? new Date(value) : null;
 }
 
+function normalizeOccurrenceKey(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function getOccurrenceKeyFromBlob(blob) {
+  if (!blob) return null;
+  if (typeof blob.occurrence_key === "string" && blob.occurrence_key.trim()) {
+    return normalizeOccurrenceKey(blob.occurrence_key);
+  }
+  const recurrenceId = typeof blob.recurrence_id === "string" ? blob.recurrence_id.trim() : "";
+  const blobId = typeof blob.id === "string" ? blob.id : "";
+  if (recurrenceId && blobId.startsWith(`${recurrenceId}:`)) {
+    return normalizeOccurrenceKey(blobId.slice(recurrenceId.length + 1));
+  }
+  return normalizeOccurrenceKey(blob.schedulable_timerange?.start);
+}
+
 function getOccurrenceOverride(blob) {
   if (!blob) return null;
-  const key = blob.schedulable_timerange?.start;
+  const key = getOccurrenceKeyFromBlob(blob);
   if (!key) return null;
   const overrides = blob.recurrence_payload?.occurrence_overrides;
   if (!overrides || typeof overrides !== "object") return null;
@@ -416,10 +435,12 @@ export {
   getWeekStart,
   getEffectiveOccurrenceRange,
   getBlobCalendarContext,
+  getOccurrenceKeyFromBlob,
   getOccurrenceOverride,
   isBlobEditableInMainUi,
   getLocalTimeZone,
   getTimeZoneParts,
+  normalizeOccurrenceKey,
   formatDateTimeLocalInTimeZone,
   formatIsoInTimeZone,
   toProjectIsoFromLocalInput,
@@ -435,4 +456,5 @@ export {
   toIso,
   toLocalInputFromDate,
   toLocalInputValue,
+  zonedTimeToUtcFromParts,
 };

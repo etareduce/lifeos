@@ -13,9 +13,11 @@ import { dom } from "./dom.js";
 import {
   addDays,
   formatDateTimeLocalInTimeZone,
+  getOccurrenceKeyFromBlob,
   getViewRange,
   getWeekStart,
   isBlobEditableInMainUi,
+  normalizeOccurrenceKey,
   overlaps,
   shiftAnchorDate,
   toLocalInputValueInTimeZone,
@@ -430,12 +432,6 @@ async function refreshCalendar() {
   if (refreshView) {
     await refreshView(state.view);
   }
-}
-
-function normalizeOccurrenceKey(value) {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
 }
 
 function isOccurrenceStarred(payload, occurrenceStart) {
@@ -2643,7 +2639,7 @@ function openEditForm(blob) {
   state.editingRecurrenceId = blob.recurrence_id || null;
   state.editingRecurrenceType = recurrenceType;
   state.editingRecurrencePayload = blob.recurrence_payload || {};
-  state.editingOccurrenceStart = blob.schedulable_timerange?.start || null;
+  state.editingOccurrenceStart = getOccurrenceKeyFromBlob(blob);
   updateRecurrenceUI();
   setFormMode("edit");
   updateStarButtons();

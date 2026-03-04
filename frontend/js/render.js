@@ -6,6 +6,7 @@ import {
   deleteRecurrenceWithUndo,
   moveOccurrenceToMainWithRefresh,
   moveRecurrenceToMainWithRefresh,
+  updateOccurrenceTimingWithUndo,
 } from "./actions.js";
 import {
   addDays,
@@ -13,23 +14,206 @@ import {
   formatTimeRangeInTimeZone,
   getBlobCalendarContext,
   getEffectiveOccurrenceRange,
+  getOccurrenceKeyFromBlob,
   getOccurrenceOverride,
   getWeekStart,
   getTagType,
   getTimeZoneParts,
   layoutBlocks,
+  normalizeOccurrenceKey,
   overlaps,
   startOfDay,
   toDate,
   toZonedDate,
   toLocalInputFromDate,
+  zonedTimeToUtcFromParts,
 } from "./utils.js";
 
 let infoCardEventsBound = false;
 let infoCardAnchorEl = null;
+let occurrenceDragSession = null;
+let selectedTimelineBlobId = null;
+
+const DRAG_START_THRESHOLD_PX = 4;
+const TRACK_MINUTES = 24 * 60;
 
 function setInfoCardAnchor(element) {
   infoCardAnchorEl = element instanceof Element ? element : null;
+}
+
+function clearTimelineSelection(viewRoot) {
+  if (!viewRoot) return;
+  viewRoot.querySelectorAll(".day-block").forEach((el) => el.classList.remove("active"));
+  viewRoot
+    .querySelectorAll(".full-day-chip")
+    .forEach((el) => el.classList.remove("active"));
+  state.selectedOccurrenceIds = [];
+  selectedTimelineBlobId = null;
+}
+
+function applyTimelineSelection(viewRoot) {
+  if (!viewRoot) return;
+  const selected = new Set(state.selectedOccurrenceIds || []);
+  if (selectedTimelineBlobId && !selected.has(selectedTimelineBlobId)) {
+    selectedTimelineBlobId = Array.from(selected).at(-1) || null;
+  }
+  viewRoot.querySelectorAll(".day-block").forEach((el) => {
+    el.classList.toggle("active", selected.has(el.dataset.blobId));
+  });
+  viewRoot.querySelectorAll(".full-day-chip").forEach((el) => {
+    el.classList.toggle("active", selected.has(el.dataset.blobId));
+  });
+}
+
+function activateTimelineSelection(viewRoot, blobId, options = {}) {
+  if (!viewRoot || !blobId) return;
+  const additive = Boolean(options.additive);
+  const current = new Set(state.selectedOccurrenceIds || []);
+  if (additive) {
+    if (current.has(blobId)) {
+      current.delete(blobId);
+      if (selectedTimelineBlobId === blobId) {
+        selectedTimelineBlobId = Array.from(current).at(-1) || null;
+      }
+    } else {
+      current.add(blobId);
+      selectedTimelineBlobId = blobId;
+    }
+  } else {
+    current.clear();
+    current.add(blobId);
+    selectedTimelineBlobId = blobId;
+  }
+  state.selectedOccurrenceIds = Array.from(current);
+  applyTimelineSelection(viewRoot);
+}
+
+function clearOverlayEditability(root) {
+  root
+    ?.querySelectorAll(".schedulable-overlay")
+    .forEach((overlay) => {
+      overlay.classList.remove("editable", "handle-start", "handle-end");
+      delete overlay.dataset.blobId;
+    });
+}
+
+function configureOverlayEditability(overlay, { blobId = null, editable = false, start = false, end = false } = {}) {
+  if (!overlay) return;
+  overlay.classList.toggle("editable", Boolean(editable));
+  overlay.classList.toggle("handle-start", Boolean(start));
+  overlay.classList.toggle("handle-end", Boolean(end));
+  if (editable && blobId) {
+    overlay.dataset.blobId = blobId;
+  } else {
+    delete overlay.dataset.blobId;
+  }
+}
+
+function occurrenceRangeFromBlob(blob) {
+  const start = toDate(blob?.default_scheduled_timerange?.start);
+  const end = toDate(blob?.default_scheduled_timerange?.end);
+  if (!start || !end) return null;
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    return null;
+  }
+  return { start, end };
+}
+
+function schedulableRangeFromBlob(blob) {
+  const start = toDate(blob?.schedulable_timerange?.start);
+  const end = toDate(blob?.schedulable_timerange?.end);
+  if (!start || !end) return null;
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    return null;
+  }
+  return { start, end };
+}
+
+function rangesEqual(left, right) {
+  if (!left || !right) return false;
+  return left.start.getTime() === right.start.getTime() && left.end.getTime() === right.end.getTime();
+}
+
+function containsRange(outer, inner) {
+  if (!outer || !inner) return false;
+  return outer.start <= inner.start && outer.end >= inner.end;
+}
+
+function roundDateToGranularity(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const stepMs = minuteGranularity * 60000;
+  return new Date(Math.round(date.getTime() / stepMs) * stepMs);
+}
+
+function getTrackMinutesFromPointer(trackEl, clientY) {
+  if (!trackEl) return 0;
+  const rect = trackEl.getBoundingClientRect();
+  const y = Math.min(Math.max(clientY - rect.top, 0), rect.height);
+  return clampToGranularity(Math.round((y / rect.height) * TRACK_MINUTES));
+}
+
+function dateFromTrackPosition(dayDate, minutes, timeZone) {
+  const safeMinutes = Math.max(0, Math.min(minutes, TRACK_MINUTES));
+  const extraDays = Math.floor(safeMinutes / TRACK_MINUTES);
+  const minuteOfDay = safeMinutes % TRACK_MINUTES;
+  const hour = Math.floor(minuteOfDay / 60);
+  const minute = minuteOfDay % 60;
+  const dayRef = addDays(dayDate, extraDays);
+  const dayParts = getTimeZoneParts(dayRef, timeZone);
+  return zonedTimeToUtcFromParts(
+    {
+      year: dayParts.year,
+      month: dayParts.month,
+      day: dayParts.day,
+      hour,
+      minute,
+      second: 0,
+    },
+    timeZone
+  );
+}
+
+function getWeekColumnIndex(dayColumns, clientX) {
+  if (!Array.isArray(dayColumns) || dayColumns.length === 0) return 0;
+  const rects = dayColumns.map((column) => column.getBoundingClientRect());
+  for (let index = 0; index < rects.length; index += 1) {
+    const rect = rects[index];
+    if (clientX >= rect.left && clientX <= rect.right) {
+      return index;
+    }
+  }
+  if (clientX < rects[0].left) return 0;
+  return rects.length - 1;
+}
+
+function getPolicyAllowsOverlap(blob) {
+  return getPolicyFlags(blob?.policy || {}).overlappable;
+}
+
+function occurrenceConflict(blob, nextRange) {
+  if (!blob || !nextRange) return true;
+  const currentKey = getOccurrenceKeyFromBlob(blob);
+  return state.blobs.some((other) => {
+    if (!other || other.preview) return false;
+    if (other.id === blob.id) return false;
+    if (
+      other.recurrence_id === blob.recurrence_id &&
+      getOccurrenceKeyFromBlob(other) === currentKey
+    ) {
+      return false;
+    }
+    const otherRange = occurrenceRangeFromBlob(other) || getEffectiveOccurrenceRange(other);
+    if (!otherRange) return false;
+    const otherEnd = otherRange.effectiveEnd || otherRange.end;
+    if (!overlaps(nextRange.start, nextRange.end, otherRange.start, otherEnd)) {
+      return false;
+    }
+    return !(getPolicyAllowsOverlap(blob) && getPolicyAllowsOverlap(other));
+  });
+}
+
+function removeDragPreview() {
+  document.querySelectorAll(".day-block.drag-preview").forEach((el) => el.remove());
 }
 
 function getPolicyFlags(policy = {}) {
@@ -85,24 +269,14 @@ function getBlobById(blobId) {
 
 function isOccurrenceStarred(blob) {
   const payload = blob.recurrence_payload || {};
-  const occurrenceStart = blob.schedulable_timerange?.start;
-  const occurrenceDate = occurrenceStart ? new Date(occurrenceStart) : null;
-  if (!occurrenceDate || Number.isNaN(occurrenceDate.getTime())) return false;
-  const occurrenceKey = occurrenceDate.toISOString();
+  const occurrenceKey = getOccurrenceKeyFromBlob(blob);
+  if (!occurrenceKey) return false;
   if (payload.starred) {
     const unstarred = Array.isArray(payload.unstarred) ? payload.unstarred : [];
-    return !unstarred.some((item) => {
-      const itemDate = new Date(item);
-      if (Number.isNaN(itemDate.getTime())) return false;
-      return itemDate.toISOString() === occurrenceKey;
-    });
+    return !unstarred.some((item) => normalizeOccurrenceKey(item) === occurrenceKey);
   }
   const stars = Array.isArray(payload.stars) ? payload.stars : [];
-  return stars.some((item) => {
-    const itemDate = new Date(item);
-    if (Number.isNaN(itemDate.getTime())) return false;
-    return itemDate.toISOString() === occurrenceKey;
-  });
+  return stars.some((item) => normalizeOccurrenceKey(item) === occurrenceKey);
 }
 
 function renderPolicyBadges(policy, { compact = false } = {}) {
@@ -235,6 +409,284 @@ function getClampedMinutes(startParts, endParts, viewDayStamp) {
   return { startMin: clampedStart, endMin: clampedEnd };
 }
 
+function renderOccurrencePreview(session, nextDefaultRange, invalid) {
+  if (!session || !nextDefaultRange) return;
+  removeDragPreview();
+  const timeZone = session.blobTimeZone;
+  const startParts = getZonedParts(nextDefaultRange.start, timeZone);
+  const endParts = getZonedParts(nextDefaultRange.end, timeZone);
+  if (!startParts || !endParts) return;
+  const className = [
+    "day-block",
+    "drag-preview",
+    session.blockType,
+    session.colorClass,
+    invalid ? "invalid" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const timeLabel = formatTimeRangeInTimeZone(
+    nextDefaultRange.start,
+    nextDefaultRange.end,
+    timeZone
+  );
+
+  if (session.view === "day") {
+    const viewStamp = partsToDayStamp(getZonedParts(state.anchorDate, timeZone));
+    const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+    if (!clamped) return;
+    const preview = document.createElement("div");
+    preview.className = className;
+    preview.style.top = `${(clamped.startMin / 60) * session.hourHeight}px`;
+    preview.style.height = `${Math.max(
+      18,
+      ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
+    )}px`;
+    preview.innerHTML = `
+      <div class="event-header">
+        <span class="event-title">${session.title}</span>
+        <span class="event-time">${timeLabel}</span>
+      </div>
+    `;
+    session.dayTrack?.appendChild(preview);
+    return;
+  }
+
+  session.dayColumns.forEach((column, index) => {
+    const viewStamp = partsToDayStamp(getZonedParts(session.days[index], timeZone));
+    const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+    if (!clamped) return;
+    const preview = document.createElement("div");
+    preview.className = className;
+    preview.style.top = `${(clamped.startMin / 60) * session.hourHeight}px`;
+    preview.style.height = `${Math.max(
+      18,
+      ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
+    )}px`;
+    if (partsToDayStamp(startParts) === viewStamp) {
+      preview.innerHTML = `
+        <div class="event-header">
+          <span class="event-title">${session.title}</span>
+          <span class="event-time">${timeLabel}</span>
+        </div>
+      `;
+    } else {
+      preview.classList.add("continuation");
+    }
+    column.querySelector(".week-day-track")?.appendChild(preview);
+  });
+}
+
+function renderSchedulablePreview(session, nextSchedulableRange) {
+  if (!session || !nextSchedulableRange) return;
+  const timeZone = session.blobTimeZone;
+  const startParts = getZonedParts(nextSchedulableRange.start, timeZone);
+  const endParts = getZonedParts(nextSchedulableRange.end, timeZone);
+  if (!startParts || !endParts) return;
+
+  if (session.view === "day") {
+    const overlay = session.dayOverlay;
+    if (!overlay) return;
+    const viewStamp = partsToDayStamp(getZonedParts(state.anchorDate, timeZone));
+    const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+    if (!clamped) {
+      overlay.classList.remove("active", "overflow-top", "overflow-bottom");
+      return;
+    }
+    overlay.style.top = `${(clamped.startMin / 60) * session.hourHeight}px`;
+    overlay.style.height = `${Math.max(
+      18,
+      ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
+    )}px`;
+    overlay.classList.toggle("overflow-top", partsToDayStamp(startParts) < viewStamp);
+    overlay.classList.toggle("overflow-bottom", partsToDayStamp(endParts) > viewStamp);
+    overlay.classList.add("active");
+    return;
+  }
+
+  session.dayColumns.forEach((column, index) => {
+    const overlay = column.querySelector(".schedulable-overlay");
+    if (!overlay) return;
+    const viewStamp = partsToDayStamp(getZonedParts(session.days[index], timeZone));
+    const clamped = getClampedMinutes(startParts, endParts, viewStamp);
+    if (!clamped) {
+      overlay.classList.remove("active", "overflow-top", "overflow-bottom");
+      return;
+    }
+    overlay.style.top = `${(clamped.startMin / 60) * session.hourHeight}px`;
+    overlay.style.height = `${Math.max(
+      18,
+      ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
+    )}px`;
+    overlay.classList.toggle("overflow-top", partsToDayStamp(startParts) < viewStamp);
+    overlay.classList.toggle("overflow-bottom", partsToDayStamp(endParts) > viewStamp);
+    overlay.classList.add("active");
+  });
+}
+
+function canEditTiming(blob) {
+  return Boolean(blob?.recurrence_id) && !blob?.preview && getBlobCalendarContext(blob).isMain;
+}
+
+function getPointerDateForSession(session, clientX, clientY) {
+  if (!session) return null;
+  if (session.view === "day") {
+    const minutes = getTrackMinutesFromPointer(session.dayTrack, clientY);
+    return dateFromTrackPosition(state.anchorDate, minutes, session.blobTimeZone);
+  }
+  const columnIndex = getWeekColumnIndex(session.dayColumns, clientX);
+  const track = session.dayColumns[columnIndex]?.querySelector(".week-day-track");
+  const minutes = getTrackMinutesFromPointer(track, clientY);
+  return dateFromTrackPosition(session.days[columnIndex], minutes, session.blobTimeZone);
+}
+
+function createNextRangesFromSession(session, pointerDate) {
+  if (!session || !(pointerDate instanceof Date) || Number.isNaN(pointerDate.getTime())) {
+    return null;
+  }
+  const minDurationMs = minuteGranularity * 60000;
+  const baseDefault = session.originalDefaultRange;
+  const baseSched = session.originalSchedulableRange;
+  let nextDefault = { ...baseDefault };
+  let nextSched = { ...baseSched };
+
+  if (session.mode === "move") {
+    const shiftedStart = roundDateToGranularity(
+      new Date(pointerDate.getTime() - session.anchorOffsetMs)
+    );
+    const durationMs = baseDefault.end.getTime() - baseDefault.start.getTime();
+    nextDefault = {
+      start: shiftedStart,
+      end: new Date(shiftedStart.getTime() + durationMs),
+    };
+    const deltaMs = shiftedStart.getTime() - baseDefault.start.getTime();
+    nextSched = {
+      start: new Date(baseSched.start.getTime() + deltaMs),
+      end: new Date(baseSched.end.getTime() + deltaMs),
+    };
+  } else if (session.mode === "default-start") {
+    const nextStart = roundDateToGranularity(pointerDate);
+    nextDefault = {
+      start: new Date(Math.min(nextStart.getTime(), baseDefault.end.getTime() - minDurationMs)),
+      end: baseDefault.end,
+    };
+  } else if (session.mode === "default-end") {
+    const nextEnd = roundDateToGranularity(pointerDate);
+    nextDefault = {
+      start: baseDefault.start,
+      end: new Date(Math.max(nextEnd.getTime(), baseDefault.start.getTime() + minDurationMs)),
+    };
+  } else if (session.mode === "sched-start") {
+    const nextStart = roundDateToGranularity(pointerDate);
+    nextSched = {
+      start: new Date(Math.min(nextStart.getTime(), baseSched.end.getTime() - minDurationMs)),
+      end: baseSched.end,
+    };
+  } else if (session.mode === "sched-end") {
+    const nextEnd = roundDateToGranularity(pointerDate);
+    nextSched = {
+      start: baseSched.start,
+      end: new Date(Math.max(nextEnd.getTime(), baseSched.start.getTime() + minDurationMs)),
+    };
+  }
+
+  return { defaultRange: nextDefault, schedulableRange: nextSched };
+}
+
+function validateSessionRanges(session, nextDefaultRange, nextSchedulableRange) {
+  if (!nextDefaultRange || !nextSchedulableRange) {
+    return { valid: false, changed: false };
+  }
+  const changed =
+    !rangesEqual(session.originalDefaultRange, nextDefaultRange) ||
+    !rangesEqual(session.originalSchedulableRange, nextSchedulableRange);
+  if (nextDefaultRange.end <= nextDefaultRange.start) {
+    return { valid: false, changed };
+  }
+  if (nextSchedulableRange.end <= nextSchedulableRange.start) {
+    return { valid: false, changed };
+  }
+  if (!containsRange(nextSchedulableRange, nextDefaultRange)) {
+    return { valid: false, changed };
+  }
+  if (session.mode !== "sched-start" && session.mode !== "sched-end") {
+    if (occurrenceConflict(session.blob, nextDefaultRange)) {
+      return { valid: false, changed };
+    }
+  }
+  return { valid: true, changed };
+}
+
+function cleanupOccurrenceDrag(options = {}) {
+  if (!occurrenceDragSession) return;
+  const active = occurrenceDragSession;
+  document.removeEventListener("pointermove", occurrenceDragSession.onPointerMove);
+  document.removeEventListener("pointerup", occurrenceDragSession.onPointerUp);
+  document.removeEventListener("pointercancel", occurrenceDragSession.onPointerCancel);
+  removeDragPreview();
+  if (options.restore !== false && typeof active.restoreUi === "function") {
+    active.restoreUi();
+  }
+  occurrenceDragSession = null;
+}
+
+async function commitOccurrenceDrag(session) {
+  if (!session?.nextDefaultRange || !session?.nextSchedulableRange) return;
+  await updateOccurrenceTimingWithUndo(session.blob, {
+    defaultScheduledRange: session.nextDefaultRange,
+    schedulableRange: session.nextSchedulableRange,
+  });
+}
+
+function beginOccurrenceDrag(session) {
+  cleanupOccurrenceDrag();
+  occurrenceDragSession = session;
+  session.onPointerMove = (event) => {
+    const travelX = event.clientX - session.initialClientX;
+    const travelY = event.clientY - session.initialClientY;
+    if (!session.dragging) {
+      if (Math.hypot(travelX, travelY) < DRAG_START_THRESHOLD_PX) {
+        return;
+      }
+      session.dragging = true;
+      document.body.classList.add("occurrence-dragging");
+    }
+    const pointerDate = getPointerDateForSession(session, event.clientX, event.clientY);
+    const nextRanges = createNextRangesFromSession(session, pointerDate);
+    if (!nextRanges) return;
+    const { valid, changed } = validateSessionRanges(
+      session,
+      nextRanges.defaultRange,
+      nextRanges.schedulableRange
+    );
+    session.nextDefaultRange = nextRanges.defaultRange;
+    session.nextSchedulableRange = nextRanges.schedulableRange;
+    session.valid = valid && changed;
+    renderOccurrencePreview(session, nextRanges.defaultRange, !valid);
+    renderSchedulablePreview(session, nextRanges.schedulableRange);
+  };
+  session.onPointerUp = async () => {
+    const active = occurrenceDragSession;
+    document.body.classList.remove("occurrence-dragging");
+    cleanupOccurrenceDrag({ restore: !active?.valid });
+    if (!active?.dragging || !active.valid) {
+      return;
+    }
+    try {
+      await commitOccurrenceDrag(active);
+    } catch (error) {
+      await alertDialog(error?.message || "Unable to update occurrence.");
+    }
+  };
+  session.onPointerCancel = () => {
+    document.body.classList.remove("occurrence-dragging");
+    cleanupOccurrenceDrag();
+  };
+  document.addEventListener("pointermove", session.onPointerMove);
+  document.addEventListener("pointerup", session.onPointerUp);
+  document.addEventListener("pointercancel", session.onPointerCancel);
+}
+
 function formatRecurrenceEnd(value) {
   if (!value) return "";
   const end = toZonedDate(toDate(value), appConfig.userTimeZone);
@@ -299,12 +751,14 @@ function clearInfoCardOverlays() {
   const dayOriginalOverlay = dom.views.day?.querySelector("#originalOverlay");
   dayOverlay?.classList.remove("active", "overflow-top", "overflow-bottom");
   dayOriginalOverlay?.classList.remove("active");
+  clearOverlayEditability(dom.views.day);
   dom.views.week
     ?.querySelectorAll(".schedulable-overlay")
     .forEach((overlay) => overlay.classList.remove("active", "overflow-top", "overflow-bottom"));
   dom.views.week
     ?.querySelectorAll(".original-overlay")
     .forEach((overlay) => overlay.classList.remove("active"));
+  clearOverlayEditability(dom.views.week);
 }
 
 function scheduleInfoCardHide(cleanup) {
@@ -643,34 +1097,20 @@ async function toggleStarFromCalendar(blob) {
   const wasLocked = state.infoCardLocked;
   const lockedId = state.lockedBlobId;
   const activeInfoBlobId = dom.infoCard?.dataset?.blobId || null;
-  const occurrenceStart = blob.schedulable_timerange?.start;
-  const occurrenceDate = occurrenceStart ? new Date(occurrenceStart) : null;
-  if (!occurrenceDate || Number.isNaN(occurrenceDate.getTime())) return;
-  const occurrenceKey = occurrenceDate.toISOString();
+  const occurrenceKey = getOccurrenceKeyFromBlob(blob);
+  if (!occurrenceKey) return;
   const payload = blob.recurrence_payload || {};
   let nextPayload = { ...payload };
   if (payload.starred) {
     const unstarred = Array.isArray(payload.unstarred) ? payload.unstarred : [];
-    const nextUnstarred = unstarred.some((item) => {
-      const itemDate = new Date(item);
-      return !Number.isNaN(itemDate.getTime()) && itemDate.toISOString() === occurrenceKey;
-    })
-      ? unstarred.filter((item) => {
-          const itemDate = new Date(item);
-          return Number.isNaN(itemDate.getTime()) || itemDate.toISOString() !== occurrenceKey;
-        })
+    const nextUnstarred = unstarred.some((item) => normalizeOccurrenceKey(item) === occurrenceKey)
+      ? unstarred.filter((item) => normalizeOccurrenceKey(item) !== occurrenceKey)
       : [...unstarred, occurrenceKey];
     nextPayload = { ...payload, unstarred: nextUnstarred };
   } else {
     const stars = Array.isArray(payload.stars) ? payload.stars : [];
-    const nextStars = stars.some((item) => {
-      const itemDate = new Date(item);
-      return !Number.isNaN(itemDate.getTime()) && itemDate.toISOString() === occurrenceKey;
-    })
-      ? stars.filter((item) => {
-          const itemDate = new Date(item);
-          return Number.isNaN(itemDate.getTime()) || itemDate.toISOString() !== occurrenceKey;
-        })
+    const nextStars = stars.some((item) => normalizeOccurrenceKey(item) === occurrenceKey)
+      ? stars.filter((item) => normalizeOccurrenceKey(item) !== occurrenceKey)
       : [...stars, occurrenceKey];
     nextPayload = { ...payload, stars: nextStars };
   }
@@ -880,6 +1320,9 @@ function renderDay() {
         schedStartParts,
         schedEndParts,
         showContent,
+        pieceStart: partsToDayStamp(startParts) === viewDayStamp,
+        pieceEnd: partsToDayStamp(endParts) === viewDayStamp,
+        preview: Boolean(blob.preview),
       };
     })
     .filter(Boolean)
@@ -914,7 +1357,9 @@ function renderDay() {
       (block) => {
         const policyBadges = renderPolicyBadges(block.policy, { compact: true });
         return `
-        <div class="day-block ${block.type} ${block.colorClass} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; --stack-index: ${block.stackIndex}; --stack-count: ${block.stackCount}; --stack-step: ${block.stackStep}px;" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}">
+        <div class="day-block ${block.type} ${block.colorClass} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; --stack-index: ${block.stackIndex}; --stack-count: ${block.stackCount}; --stack-step: ${block.stackStep}px;" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}" data-piece-start="${block.pieceStart ? "true" : "false"}" data-piece-end="${block.pieceEnd ? "true" : "false"}">
+          <div class="drag-handle occurrence-handle start" data-drag-handle="default-start"></div>
+          <div class="drag-handle occurrence-handle end" data-drag-handle="default-end"></div>
           ${
             block.showContent
               ? `
@@ -939,7 +1384,10 @@ function renderDay() {
       <div class="day-column">
         ${fullDayHtml}
         <div class="day-track">
-        <div class="schedulable-overlay" id="schedulableOverlay"></div>
+        <div class="schedulable-overlay" id="schedulableOverlay">
+          <div class="drag-handle schedulable-handle start" data-drag-handle="sched-start"></div>
+          <div class="drag-handle schedulable-handle end" data-drag-handle="sched-end"></div>
+        </div>
         <div class="selection-overlay default-range" id="selectionOverlayDefault"></div>
         <div class="selection-overlay schedulable-range" id="selectionOverlaySchedulable"></div>
         <div class="selection-caret default-range" id="selectionCaretDefault"></div>
@@ -965,10 +1413,6 @@ function renderDay() {
   );
   const blocksEls = dom.views.day.querySelectorAll(".day-block");
   const fullDayEls = dom.views.day.querySelectorAll(".full-day-chip");
-
-  const clearActiveBlocks = () => {
-    blocksEls.forEach((el) => el.classList.remove("active"));
-  };
 
   const applyInfoCardAndOverlay = (blockEl) => {
     const blob = getBlobById(blockEl.dataset.blobId);
@@ -1005,6 +1449,12 @@ function renderDay() {
     overlay.classList.toggle("overflow-top", partsToDayStamp(schedStartParts) < viewStamp);
     overlay.classList.toggle("overflow-bottom", partsToDayStamp(schedEndParts) > viewStamp);
     overlay.classList.add("active");
+    configureOverlayEditability(overlay, {
+      blobId: blob.id,
+      editable: selectedTimelineBlobId === blob.id,
+      start: partsToDayStamp(schedStartParts) === viewStamp,
+      end: partsToDayStamp(schedEndParts) === viewStamp,
+    });
     if (
       blockEl.getAttribute("data-adjusted") === "true" &&
       origStartParts &&
@@ -1022,6 +1472,50 @@ function renderDay() {
         originalOverlay.classList.add("active");
       }
     }
+  };
+
+  const startDayDrag = (blob, mode, event) => {
+    if (!canEditTiming(blob)) return;
+    const originalDefaultRange = occurrenceRangeFromBlob(blob);
+    const originalSchedulableRange = schedulableRangeFromBlob(blob);
+    if (!originalDefaultRange || !originalSchedulableRange) return;
+    const initialPointerDate = getPointerDateForSession(
+      {
+        view: "day",
+        dayTrack,
+        blobTimeZone: getBlobTimeZone(blob),
+      },
+      event.clientX,
+      event.clientY
+    );
+    if (!initialPointerDate) return;
+    beginOccurrenceDrag({
+      view: "day",
+      mode,
+      blob,
+      title: blob.name || "Untitled",
+      blockType: getTagType(blob.tags),
+      colorClass: getRecurrenceColorClass(blob),
+      blobTimeZone: getBlobTimeZone(blob),
+      originalDefaultRange,
+      originalSchedulableRange,
+      dayTrack,
+      dayOverlay: overlay,
+      hourHeight,
+      initialClientX: event.clientX,
+      initialClientY: event.clientY,
+      anchorOffsetMs: initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
+      nextDefaultRange: originalDefaultRange,
+      nextSchedulableRange: originalSchedulableRange,
+      dragging: false,
+      valid: false,
+      restoreUi: () => {
+        const block = dom.views.day?.querySelector(`.day-block[data-blob-id="${blob.id}"]`);
+        if (block) {
+          applyInfoCardAndOverlay(block);
+        }
+      },
+    });
   };
 
   blocksEls.forEach((blockEl) => {
@@ -1043,15 +1537,34 @@ function renderDay() {
       scheduleInfoCardHide(() => {
         overlay.classList.remove("active", "overflow-top", "overflow-bottom");
         originalOverlay?.classList.remove("active");
+        clearOverlayEditability(dom.views.day);
       });
     });
     blockEl.addEventListener("click", (event) => {
       if (event.shiftKey) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (event.target.closest(".star-toggle")) return;
-      clearActiveBlocks();
-      blockEl.classList.add("active");
+      activateTimelineSelection(dom.views.day, blockEl.dataset.blobId, {
+        additive: event.metaKey || event.ctrlKey,
+      });
       applyInfoCardAndOverlay(blockEl);
+    });
+    blockEl.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      if (event.target.closest(".star-toggle")) return;
+      const blob = getBlobById(blockEl.dataset.blobId);
+      if (!canEditTiming(blob)) return;
+      const handle = event.target.closest("[data-drag-handle]");
+      const mode = handle?.getAttribute("data-drag-handle") || "move";
+      if (mode !== "move" && selectedTimelineBlobId !== blob.id) {
+        return;
+      }
+      if (mode === "default-start" && blockEl.dataset.pieceStart !== "true") return;
+      if (mode === "default-end" && blockEl.dataset.pieceEnd !== "true") return;
+      if (mode !== "move") {
+        event.preventDefault();
+      }
+      startDayDrag(blob, mode, event);
     });
     const starBtn = blockEl.querySelector(".star-toggle");
     if (starBtn) {
@@ -1098,11 +1611,22 @@ function renderDay() {
       if (event.shiftKey) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (event.target.closest(".full-day-star-toggle")) return;
-      fullDayEls.forEach((el) => el.classList.remove("active"));
-      chipEl.classList.add("active");
+      activateTimelineSelection(dom.views.day, chipEl.dataset.blobId, {
+        additive: event.metaKey || event.ctrlKey,
+      });
       const blob = getBlobById(chipEl.dataset.blobId);
       showInfoCard(blob, chipEl.getBoundingClientRect());
     });
+  });
+  overlay?.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const handle = event.target.closest("[data-drag-handle]");
+    if (!handle) return;
+    const blobId = overlay.dataset.blobId;
+    const blob = getBlobById(blobId);
+    if (!blob || selectedTimelineBlobId !== blob.id) return;
+    event.preventDefault();
+    startDayDrag(blob, handle.getAttribute("data-drag-handle"), event);
   });
   if (state.activeBlockClickHandler) {
     document.removeEventListener("click", state.activeBlockClickHandler);
@@ -1112,9 +1636,10 @@ function renderDay() {
     if (event.target.closest(".day-block")) return;
     if (event.target.closest(".full-day-chip")) return;
     if (event.target.closest(".info-card")) return;
-    clearActiveBlocks();
+    clearTimelineSelection(dom.views.day);
     overlay.classList.remove("active", "overflow-top", "overflow-bottom");
     originalOverlay?.classList.remove("active");
+    clearOverlayEditability(dom.views.day);
     hideInfoCard();
     state.infoCardLocked = false;
     state.lockedBlobId = null;
@@ -1289,6 +1814,7 @@ function renderDay() {
     window.addEventListener("resize", state.selectionScrollHandler);
   }
 
+  applyTimelineSelection(dom.views.day);
   setDateLabel(formatDayLabel(state.anchorDate));
   updateNowLine(dayTrack, hourHeight, state.anchorDate);
 }
@@ -1416,6 +1942,8 @@ function renderWeek() {
           schedEndParts: meta.schedEndParts,
           showContent,
           preview: meta.preview,
+          pieceStart: meta.startStamp === viewStamp,
+          pieceEnd: meta.endStamp === viewStamp,
         };
       })
       .filter(Boolean)
@@ -1481,10 +2009,12 @@ function renderWeek() {
           (block) => {
             const policyBadges = renderPolicyBadges(block.policy, { compact: true });
             return `
-            <div class="day-block ${block.type} ${block.colorClass} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; --stack-index: ${block.stackIndex}; --stack-count: ${block.stackCount}; --stack-step: ${block.stackStep}px;" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}">
-              ${
-                block.showContent
-                  ? `
+        <div class="day-block ${block.type} ${block.colorClass} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; --stack-index: ${block.stackIndex}; --stack-count: ${block.stackCount}; --stack-step: ${block.stackStep}px;" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}" data-piece-start="${block.pieceStart ? "true" : "false"}" data-piece-end="${block.pieceEnd ? "true" : "false"}">
+          <div class="drag-handle occurrence-handle start" data-drag-handle="default-start"></div>
+          <div class="drag-handle occurrence-handle end" data-drag-handle="default-end"></div>
+          ${
+            block.showContent
+              ? `
                     <button class="star-toggle ${block.starred ? "active" : ""}" aria-pressed="${block.starred ? "true" : "false"}" title="${block.starred ? "Unstar" : "Star"}">★</button>
                     <div class="event-header">
                       <span class="event-title">${block.title}</span>
@@ -1503,7 +2033,10 @@ function renderWeek() {
       return `
         <div class="week-day-column" style="--hour-height: ${hourHeight}px;" data-date="${date.toISOString()}">
           <div class="week-day-track">
-            <div class="schedulable-overlay"></div>
+            <div class="schedulable-overlay">
+              <div class="drag-handle schedulable-handle start" data-drag-handle="sched-start"></div>
+              <div class="drag-handle schedulable-handle end" data-drag-handle="sched-end"></div>
+            </div>
             <div class="original-overlay"></div>
             <div class="selection-overlay default-range"></div>
             <div class="selection-overlay schedulable-range"></div>
@@ -1541,6 +2074,58 @@ function renderWeek() {
     };
   });
 
+  const startWeekDrag = (blob, mode, event) => {
+    if (!canEditTiming(blob)) return;
+    const originalDefaultRange = occurrenceRangeFromBlob(blob);
+    const originalSchedulableRange = schedulableRangeFromBlob(blob);
+    if (!originalDefaultRange || !originalSchedulableRange) return;
+    const initialPointerDate = getPointerDateForSession(
+      {
+        view: "week",
+        dayColumns,
+        days,
+        blobTimeZone: getBlobTimeZone(blob),
+      },
+      event.clientX,
+      event.clientY
+    );
+    if (!initialPointerDate) return;
+    beginOccurrenceDrag({
+      view: "week",
+      mode,
+      blob,
+      title: blob.name || "Untitled",
+      blockType: getTagType(blob.tags),
+      colorClass: getRecurrenceColorClass(blob),
+      blobTimeZone: getBlobTimeZone(blob),
+      originalDefaultRange,
+      originalSchedulableRange,
+      dayColumns,
+      days,
+      hourHeight,
+      initialClientX: event.clientX,
+      initialClientY: event.clientY,
+      anchorOffsetMs: initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
+      nextDefaultRange: originalDefaultRange,
+      nextSchedulableRange: originalSchedulableRange,
+      dragging: false,
+      valid: false,
+      restoreUi: () => {
+        const block = dom.views.week?.querySelector(`.day-block[data-blob-id="${blob.id}"]`);
+        if (block) {
+          block.classList.add("active");
+          applyTimelineSelection(dom.views.week);
+          const apply = () => {
+            const target = dom.views.week?.querySelector(`.day-block[data-blob-id="${blob.id}"]`);
+            if (!target) return;
+            target.dispatchEvent(new Event("mouseenter"));
+          };
+          apply();
+        }
+      },
+    });
+  };
+
   allDayColumns.forEach((column) => {
     column.querySelectorAll(".full-day-chip").forEach((chipEl) => {
       if (!chipEl.dataset.blobId) return;
@@ -1576,10 +2161,9 @@ function renderWeek() {
         if (event.shiftKey) return;
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         if (event.target.closest(".full-day-star-toggle")) return;
-        allDayColumns.forEach((col) =>
-          col.querySelectorAll(".full-day-chip").forEach((el) => el.classList.remove("active"))
-        );
-        chipEl.classList.add("active");
+        activateTimelineSelection(dom.views.week, chipEl.dataset.blobId, {
+          additive: event.metaKey || event.ctrlKey,
+        });
         const blob = getBlobById(chipEl.dataset.blobId);
         showInfoCard(blob, chipEl.getBoundingClientRect());
       });
@@ -1628,6 +2212,12 @@ function renderWeek() {
           overlay.classList.toggle("overflow-top", schedStartStamp < viewStamp);
           overlay.classList.toggle("overflow-bottom", schedEndStamp > viewStamp);
           overlay.classList.add("active");
+          configureOverlayEditability(overlay, {
+            blobId: blob.id,
+            editable: selectedTimelineBlobId === blob.id,
+            start: schedStartStamp === viewStamp,
+            end: schedEndStamp === viewStamp,
+          });
           if (
             blockEl.getAttribute("data-adjusted") === "true" &&
             origStartParts &&
@@ -1668,6 +2258,7 @@ function renderWeek() {
             overlay.classList.remove("active", "overflow-top", "overflow-bottom");
             originalOverlay?.classList.remove("active");
           });
+          clearOverlayEditability(dom.views.week);
         });
       });
       blockEl.addEventListener("click", (event) => {
@@ -1676,11 +2267,27 @@ function renderWeek() {
         if (event.target.closest(".star-toggle")) return;
         state.infoCardLocked = false;
         state.lockedBlobId = null;
-        dayColumns.forEach((col) =>
-          col.querySelectorAll(".day-block").forEach((el) => el.classList.remove("active"))
-        );
-        blockEl.classList.add("active");
+        activateTimelineSelection(dom.views.week, blockEl.dataset.blobId, {
+          additive: event.metaKey || event.ctrlKey,
+        });
         applyInfoCardAndOverlay();
+      });
+      blockEl.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        if (event.target.closest(".star-toggle")) return;
+        const blob = getBlobById(blockEl.dataset.blobId);
+        if (!canEditTiming(blob)) return;
+        const handle = event.target.closest("[data-drag-handle]");
+        const mode = handle?.getAttribute("data-drag-handle") || "move";
+        if (mode !== "move" && selectedTimelineBlobId !== blob.id) {
+          return;
+        }
+        if (mode === "default-start" && blockEl.dataset.pieceStart !== "true") return;
+        if (mode === "default-end" && blockEl.dataset.pieceEnd !== "true") return;
+        if (mode !== "move") {
+          event.preventDefault();
+        }
+        startWeekDrag(blob, mode, event);
       });
       const starBtn = blockEl.querySelector(".star-toggle");
       if (starBtn) {
@@ -1694,6 +2301,18 @@ function renderWeek() {
       }
     });
   });
+  dayTracks.forEach(({ overlay }) => {
+    overlay?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const handle = event.target.closest("[data-drag-handle]");
+      if (!handle) return;
+      const blobId = overlay.dataset.blobId;
+      const blob = getBlobById(blobId);
+      if (!blob || selectedTimelineBlobId !== blob.id) return;
+      event.preventDefault();
+      startWeekDrag(blob, handle.getAttribute("data-drag-handle"), event);
+    });
+  });
   if (state.activeBlockClickHandler) {
     document.removeEventListener("click", state.activeBlockClickHandler);
   }
@@ -1702,16 +2321,12 @@ function renderWeek() {
     if (event.target.closest(".day-block")) return;
     if (event.target.closest(".full-day-chip")) return;
     if (event.target.closest(".info-card")) return;
-    dayColumns.forEach((col) =>
-      col.querySelectorAll(".day-block").forEach((el) => el.classList.remove("active"))
-    );
-    allDayColumns.forEach((col) =>
-      col.querySelectorAll(".full-day-chip").forEach((el) => el.classList.remove("active"))
-    );
+    clearTimelineSelection(dom.views.week);
     dayTracks.forEach(({ overlay, originalOverlay }) => {
       overlay.classList.remove("active", "overflow-top", "overflow-bottom");
       originalOverlay?.classList.remove("active");
     });
+    clearOverlayEditability(dom.views.week);
     hideInfoCard();
     state.infoCardLocked = false;
     state.lockedBlobId = null;
@@ -1952,6 +2567,7 @@ function renderWeek() {
     window.addEventListener("resize", state.selectionScrollHandler);
   }
 
+  applyTimelineSelection(dom.views.week);
   setDateLabel(formatWeekLabel(weekStart));
   dayTracks.forEach(({ track, dayDate }) => {
     updateNowLine(track, hourHeight, dayDate);

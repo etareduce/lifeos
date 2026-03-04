@@ -40,13 +40,39 @@ function refreshCalendar() {
   window.dispatchEvent(new CustomEvent("elastisched:refresh"));
 }
 
-async function runUndo(record) {
+function shouldRefresh(options = {}) {
+  return options.refresh !== false;
+}
+
+async function runUndo(record, options = {}) {
   if (!record) return;
+  if (record.type === "transaction") {
+    const records = Array.isArray(record.data?.records) ? record.data.records : [];
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      await runUndo(records[index], { refresh: false });
+    }
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
+    return;
+  }
   if (record.type === "update-recurrence") {
     const { recurrenceId, recurrenceType, beforePayload } = record.data || {};
     if (!recurrenceId || !beforePayload) return;
     await updateRecurrence(recurrenceId, recurrenceType || "single", beforePayload);
-    refreshCalendar();
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
+    return;
+  }
+  if (record.type === "create-recurrence") {
+    const { recurrenceId, createdId } = record.data || {};
+    const targetId = createdId || recurrenceId;
+    if (!targetId) return;
+    await deleteRecurrence(targetId);
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
     return;
   }
   if (record.type === "delete-recurrence") {
@@ -55,17 +81,42 @@ async function runUndo(record) {
     const created = await createRecurrence(recurrenceType || "single", payload);
     record.data.restoredId = created?.id || null;
     persistHistory();
-    refreshCalendar();
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
   }
 }
 
-async function runRedo(record) {
+async function runRedo(record, options = {}) {
   if (!record) return;
+  if (record.type === "transaction") {
+    const records = Array.isArray(record.data?.records) ? record.data.records : [];
+    for (const item of records) {
+      await runRedo(item, { refresh: false });
+    }
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
+    return;
+  }
   if (record.type === "update-recurrence") {
     const { recurrenceId, recurrenceType, afterPayload } = record.data || {};
     if (!recurrenceId || !afterPayload) return;
     await updateRecurrence(recurrenceId, recurrenceType || "single", afterPayload);
-    refreshCalendar();
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
+    return;
+  }
+  if (record.type === "create-recurrence") {
+    const { recurrenceType, payload } = record.data || {};
+    if (!payload) return;
+    const created = await createRecurrence(recurrenceType || "single", payload);
+    record.data.createdId = created?.id || null;
+    persistHistory();
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
     return;
   }
   if (record.type === "delete-recurrence") {
@@ -73,7 +124,9 @@ async function runRedo(record) {
     const targetId = restoredId || recurrenceId;
     if (!targetId) return;
     await deleteRecurrence(targetId);
-    refreshCalendar();
+    if (shouldRefresh(options)) {
+      refreshCalendar();
+    }
   }
 }
 

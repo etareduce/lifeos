@@ -21,6 +21,7 @@ import {
 } from "./api.js";
 import { pushHistoryAction, redoHistoryAction, undoHistoryAction } from "./history.js";
 import { alertDialog, bindDialogEvents, confirmDialog } from "./popups.js";
+import { deleteOccurrencesWithUndo } from "./actions.js";
 import {
   bindFormHandlers,
   openCreateForm,
@@ -39,6 +40,7 @@ import {
   addDays,
   formatTimeRangeInTimeZone,
   getEffectiveOccurrenceRange,
+  getOccurrenceKeyFromBlob,
   getViewRange,
   shiftAnchorDate,
   startOfDay,
@@ -671,7 +673,7 @@ async function extendOccurrenceByMinutes(minutes) {
   if (!effective) return;
   const schedEnd = new Date(blob.schedulable_timerange?.end);
   if (Number.isNaN(schedEnd.getTime())) return;
-  const occurrenceKey = blob.schedulable_timerange?.start;
+  const occurrenceKey = getOccurrenceKeyFromBlob(blob);
   if (!occurrenceKey) return;
   let previous = null;
   try {
@@ -752,7 +754,7 @@ async function completeTaskOccurrence(blob, options = {}) {
     options.finishedAt instanceof Date && !Number.isNaN(options.finishedAt.getTime())
       ? options.finishedAt
       : now;
-  const occurrenceKey = blob.schedulable_timerange?.start;
+  const occurrenceKey = getOccurrenceKeyFromBlob(blob);
   if (!occurrenceKey) return false;
   const bufferMinutes = Math.max(1, Number(appConfig.finishEarlyBufferMinutes || 15));
   const threshold = new Date(
@@ -818,6 +820,26 @@ async function handleTaskCompletionAction(button) {
     return;
   }
   await completeTaskOccurrence(blob, { finishedAt: new Date(), rerunIfEarly: true });
+}
+
+async function deleteSelectedOccurrences() {
+  const selectedIds = Array.isArray(state.selectedOccurrenceIds) ? state.selectedOccurrenceIds : [];
+  if (!selectedIds.length) return false;
+  const blobs = selectedIds
+    .map((blobId) => state.blobs.find((item) => item.id === blobId))
+    .filter(Boolean)
+    .filter((blob) => !blob.preview);
+  if (!blobs.length) return false;
+  const label = blobs.length === 1 ? "Delete this occurrence?" : `Delete ${blobs.length} occurrences?`;
+  const confirmed = await confirmDialog(label, {
+    confirmText: "Delete",
+    cancelText: "Cancel",
+    destructive: true,
+  });
+  if (!confirmed) return false;
+  await deleteOccurrencesWithUndo(blobs);
+  state.selectedOccurrenceIds = [];
+  return true;
 }
 
 async function handleRetroactiveCompletionSubmit(event) {
@@ -1119,6 +1141,9 @@ window.addEventListener("keydown", (event) => {
   const createEventMatch = matchesKeybind(event, keybinds.createEvent);
   const navigatePrevMatch = matchesKeybind(event, keybinds.navigatePrev);
   const navigateNextMatch = matchesKeybind(event, keybinds.navigateNext);
+  const deleteSelectionMatch =
+    (normalizeEventKey(event) === "Delete" || normalizeEventKey(event) === "Backspace") &&
+    (state.view === "day" || state.view === "week");
 
   if (undoMatch) {
     event.preventDefault();
@@ -1128,6 +1153,11 @@ window.addEventListener("keydown", (event) => {
   if (redoMatch) {
     event.preventDefault();
     redoHistoryAction();
+    return;
+  }
+  if (deleteSelectionMatch && state.selectedOccurrenceIds?.length) {
+    event.preventDefault();
+    deleteSelectedOccurrences();
     return;
   }
   if (closePanelsMatch) {

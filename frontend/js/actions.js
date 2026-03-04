@@ -6,82 +6,260 @@ import {
   moveRecurrenceToMain,
   updateRecurrence,
 } from "./api.js";
+import { appConfig } from "./core.js";
 import { pushHistoryAction } from "./history.js";
+import { getOccurrenceKeyFromBlob, toProjectIsoFromDate } from "./utils.js";
 
 function refreshCalendar() {
   window.dispatchEvent(new CustomEvent("elastisched:refresh"));
 }
 
-async function deleteRecurrenceWithUndo(recurrenceId) {
-  if (!recurrenceId) return;
-  const previous = await getRecurrence(recurrenceId);
-  await deleteRecurrence(recurrenceId);
-  pushHistoryAction({
+function serializeRange(range) {
+  if (!range?.start || !range?.end) return null;
+  return {
+    start: toProjectIsoFromDate(range.start, appConfig.projectTimeZone),
+    end: toProjectIsoFromDate(range.end, appConfig.projectTimeZone),
+  };
+}
+
+function normalizeOccurrenceKey(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toISOString();
+}
+
+function clonePayload(payload) {
+  return payload && typeof payload === "object" ? { ...payload } : {};
+}
+
+function toUpdateRecord(recurrenceId, recurrenceType, beforePayload, afterPayload) {
+  return {
+    type: "update-recurrence",
+    data: {
+      recurrenceId,
+      recurrenceType,
+      beforePayload,
+      afterPayload,
+    },
+  };
+}
+
+function toDeleteRecord(recurrenceId, recurrenceType, payload) {
+  return {
     type: "delete-recurrence",
     data: {
       recurrenceId,
-      recurrenceType: previous.type,
-      payload: previous.payload,
+      recurrenceType,
+      payload,
       restoredId: null,
     },
-  });
+  };
+}
+
+function toCreateRecord(recurrenceType, payload, createdId = null) {
+  return {
+    type: "create-recurrence",
+    data: {
+      recurrenceId: createdId,
+      recurrenceType,
+      payload,
+      createdId,
+    },
+  };
+}
+
+function maybePushRecord(record, options = {}) {
+  if (options.skipHistory) return;
+  pushHistoryAction(record);
+}
+
+function maybeRefresh(options = {}) {
+  if (options.skipRefresh) return;
   refreshCalendar();
 }
 
-async function deleteOccurrenceWithUndo(blob) {
-  if (!blob?.recurrence_id) return;
-  const occurrenceStart = blob.schedulable_timerange?.start;
-  if (!occurrenceStart) return;
-  const previous = await getRecurrence(blob.recurrence_id);
-  const payload = previous.payload || {};
-  const recurrenceType = previous.type || blob.recurrence_type || "single";
-  const normalizeKey = (value) => {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toISOString();
-  };
+function createTransactionRecord(records) {
+  const compact = Array.isArray(records) ? records.filter(Boolean) : [];
+  if (compact.length === 1) return compact[0];
+  return { type: "transaction", data: { records: compact } };
+}
+
+async function deleteRecurrenceInternal(recurrenceId, previous = null) {
+  if (!recurrenceId) return null;
+  const existing = previous || (await getRecurrence(recurrenceId));
+  await deleteRecurrence(recurrenceId);
+  return toDeleteRecord(recurrenceId, existing.type, existing.payload);
+}
+
+async function deleteOccurrenceInternal(blob, previous = null) {
+  if (!blob?.recurrence_id) return null;
+  const occurrenceStart = getOccurrenceKeyFromBlob(blob);
+  if (!occurrenceStart) return null;
+  const existing = previous || (await getRecurrence(blob.recurrence_id));
+  const payload = clonePayload(existing.payload);
+  const recurrenceType = existing.type || blob.recurrence_type || "single";
   if (recurrenceType === "multiple") {
     const blobs = Array.isArray(payload.blobs) ? payload.blobs : [];
-    const targetKey = normalizeKey(occurrenceStart);
+    const targetKey = normalizeOccurrenceKey(occurrenceStart);
     const remaining = blobs.filter((item) => {
       const itemStart = item?.schedulable_timerange?.start;
       if (!itemStart) return true;
-      const itemKey = normalizeKey(itemStart);
-      return itemKey !== targetKey;
+      return normalizeOccurrenceKey(itemStart) !== targetKey;
     });
     if (remaining.length === 0) {
-      await deleteRecurrenceWithUndo(blob.recurrence_id);
-      return;
+      return deleteRecurrenceInternal(blob.recurrence_id, existing);
     }
     const nextPayload = { ...payload, blobs: remaining };
     await updateRecurrence(blob.recurrence_id, recurrenceType, nextPayload);
-    pushHistoryAction({
-      type: "update-recurrence",
-      data: {
-        recurrenceId: blob.recurrence_id,
-        recurrenceType,
-        beforePayload: payload,
-        afterPayload: nextPayload,
-      },
-    });
-    refreshCalendar();
-    return;
+    return toUpdateRecord(blob.recurrence_id, recurrenceType, payload, nextPayload);
   }
-  const existing = Array.isArray(payload.exclusions) ? payload.exclusions : [];
-  const nextExclusions = Array.from(new Set([...existing, occurrenceStart]));
+  if (recurrenceType === "single") {
+    return deleteRecurrenceInternal(blob.recurrence_id, existing);
+  }
+  const existingExclusions = Array.isArray(payload.exclusions) ? payload.exclusions : [];
+  const nextExclusions = Array.from(new Set([...existingExclusions, occurrenceStart]));
   const nextPayload = { ...payload, exclusions: nextExclusions };
   await updateRecurrence(blob.recurrence_id, recurrenceType, nextPayload);
-  pushHistoryAction({
-    type: "update-recurrence",
-    data: {
-      recurrenceId: blob.recurrence_id,
-      recurrenceType,
-      beforePayload: payload,
-      afterPayload: nextPayload,
+  return toUpdateRecord(blob.recurrence_id, recurrenceType, payload, nextPayload);
+}
+
+function buildSingleOccurrencePayload(blob, defaultScheduledRange, schedulableRange) {
+  const payload = blob?.recurrence_payload || {};
+  return {
+    recurrence_name: payload.recurrence_name || blob?.name || null,
+    recurrence_description: payload.recurrence_description || blob?.description || null,
+    color: payload.color || null,
+    blob: {
+      name: blob?.name || payload.recurrence_name || "Untitled",
+      description: blob?.description || payload.recurrence_description || null,
+      tz: blob?.tz || appConfig.userTimeZone,
+      default_scheduled_timerange: serializeRange(defaultScheduledRange),
+      schedulable_timerange: serializeRange(schedulableRange),
+      policy: blob?.policy || {},
+      dependencies: Array.isArray(blob?.dependencies) ? blob.dependencies : [],
+      tags: Array.isArray(blob?.tags) ? blob.tags : [],
     },
+  };
+}
+
+async function updateOccurrenceTimingWithUndo(
+  blob,
+  { defaultScheduledRange = null, schedulableRange = null } = {},
+  options = {}
+) {
+  if (!blob?.recurrence_id) return null;
+  if (!defaultScheduledRange && !schedulableRange) return null;
+  const previous = await getRecurrence(blob.recurrence_id);
+  const payload = clonePayload(previous.payload);
+  const recurrenceType = previous.type || blob.recurrence_type || "single";
+
+  if (recurrenceType === "single") {
+    const nextPayload = {
+      ...payload,
+      blob: {
+        ...(payload.blob || {}),
+        default_scheduled_timerange: defaultScheduledRange
+          ? serializeRange(defaultScheduledRange)
+          : payload.blob?.default_scheduled_timerange,
+        schedulable_timerange: schedulableRange
+          ? serializeRange(schedulableRange)
+          : payload.blob?.schedulable_timerange,
+      },
+    };
+    await updateRecurrence(blob.recurrence_id, recurrenceType, nextPayload);
+    const record = toUpdateRecord(blob.recurrence_id, recurrenceType, payload, nextPayload);
+    maybePushRecord(record, options);
+    maybeRefresh(options);
+    return record;
+  }
+
+  if (recurrenceType === "multiple") {
+    const occurrenceKey = normalizeOccurrenceKey(getOccurrenceKeyFromBlob(blob));
+    const nextPayload = {
+      ...payload,
+      blobs: (Array.isArray(payload.blobs) ? payload.blobs : []).map((item) => {
+        const itemKey = normalizeOccurrenceKey(item?.schedulable_timerange?.start);
+        if (itemKey !== occurrenceKey) {
+          return item;
+        }
+        return {
+          ...item,
+          default_scheduled_timerange: defaultScheduledRange
+            ? serializeRange(defaultScheduledRange)
+            : item.default_scheduled_timerange,
+          schedulable_timerange: schedulableRange
+            ? serializeRange(schedulableRange)
+            : item.schedulable_timerange,
+        };
+      }),
+    };
+    await updateRecurrence(blob.recurrence_id, recurrenceType, nextPayload);
+    const record = toUpdateRecord(blob.recurrence_id, recurrenceType, payload, nextPayload);
+    maybePushRecord(record, options);
+    maybeRefresh(options);
+    return record;
+  }
+
+  const baseDefaultRange = defaultScheduledRange || {
+    start: new Date(blob.default_scheduled_timerange?.start),
+    end: new Date(blob.default_scheduled_timerange?.end),
+  };
+  const baseSchedulableRange = schedulableRange || {
+    start: new Date(blob.schedulable_timerange?.start),
+    end: new Date(blob.schedulable_timerange?.end),
+  };
+  const deleteRecord = await deleteOccurrenceInternal(blob, previous);
+  const exceptionalPayload = buildSingleOccurrencePayload(
+    blob,
+    baseDefaultRange,
+    baseSchedulableRange
+  );
+  const created = await createRecurrence("single", exceptionalPayload);
+  const createRecord = toCreateRecord("single", exceptionalPayload, created?.id || null);
+  const record = createTransactionRecord([deleteRecord, createRecord]);
+  maybePushRecord(record, options);
+  maybeRefresh(options);
+  return record;
+}
+
+async function deleteRecurrenceWithUndo(recurrenceId, options = {}) {
+  if (!recurrenceId) return null;
+  const record = await deleteRecurrenceInternal(recurrenceId);
+  maybePushRecord(record, options);
+  maybeRefresh(options);
+  return record;
+}
+
+async function deleteOccurrenceWithUndo(blob, options = {}) {
+  if (!blob?.recurrence_id) return null;
+  const record = await deleteOccurrenceInternal(blob);
+  maybePushRecord(record, options);
+  maybeRefresh(options);
+  return record;
+}
+
+async function deleteOccurrencesWithUndo(blobs) {
+  const unique = [];
+  const seen = new Set();
+  (Array.isArray(blobs) ? blobs : []).forEach((blob) => {
+    if (!blob?.id || seen.has(blob.id)) return;
+    seen.add(blob.id);
+    unique.push(blob);
   });
+  if (!unique.length) return null;
+  const records = [];
+  for (const blob of unique) {
+    const record = await deleteOccurrenceInternal(blob);
+    if (record) {
+      records.push(record);
+    }
+  }
+  const combined = createTransactionRecord(records);
+  if (!combined) return null;
+  pushHistoryAction(combined);
   refreshCalendar();
+  return combined;
 }
 
 async function moveRecurrenceToMainWithRefresh(recurrenceId) {
@@ -93,7 +271,7 @@ async function moveRecurrenceToMainWithRefresh(recurrenceId) {
 
 async function moveOccurrenceToMainWithRefresh(blob) {
   if (!blob?.recurrence_id) return null;
-  const occurrenceStart = blob.schedulable_timerange?.start;
+  const occurrenceStart = getOccurrenceKeyFromBlob(blob);
   if (!occurrenceStart) return null;
   const result = await moveOccurrenceToMain(blob.recurrence_id, occurrenceStart);
   refreshCalendar();
@@ -102,7 +280,9 @@ async function moveOccurrenceToMainWithRefresh(blob) {
 
 export {
   deleteOccurrenceWithUndo,
+  deleteOccurrencesWithUndo,
   deleteRecurrenceWithUndo,
   moveRecurrenceToMainWithRefresh,
   moveOccurrenceToMainWithRefresh,
+  updateOccurrenceTimingWithUndo,
 };
