@@ -232,6 +232,30 @@ body[data-theme="midnight"] .schedulable-overlay.overflow-bottom::after {
   background: linear-gradient(to bottom, rgba(110, 169, 192, 0.42), transparent);
 }
 
+body[data-theme="midnight"] .day-block .star-toggle,
+body[data-theme="midnight"] .full-day-star-toggle,
+body[data-theme="midnight"] .info-star {
+  color: rgba(232, 236, 243, 0.82);
+  text-shadow: 0 1px 4px rgba(7, 10, 15, 0.7);
+}
+
+body[data-theme="midnight"] .day-block .star-toggle.active,
+body[data-theme="midnight"] .full-day-star-toggle.active,
+body[data-theme="midnight"] .info-star-btn.active .info-star {
+  color: #ffd56f;
+  text-shadow: 0 1px 6px rgba(7, 10, 15, 0.85);
+}
+
+body[data-theme="midnight"] .info-star-btn:hover {
+  background: rgba(110, 169, 192, 0.2);
+}
+
+body[data-theme="midnight"] .day-block .star-toggle:hover,
+body[data-theme="midnight"] .full-day-star-toggle:hover,
+body[data-theme="midnight"] .info-star-btn:hover .info-star {
+  color: #a9d8ea;
+}
+
 body[data-theme="midnight"] .primary {
   background: color-mix(in srgb, var(--ocean) 72%, var(--ink) 28%);
   color: #0b1219;
@@ -2932,7 +2956,7 @@ body.modal-open .info-card {
 }
 
 .info-star-btn:hover {
-  background: rgba(242, 179, 64, 0.15);
+  background: color-mix(in srgb, var(--ocean) 18%, transparent);
 }
 
 .info-star {
@@ -3565,6 +3589,12 @@ html[data-zoomed="true"] .views {
   color: color-mix(in srgb, var(--muted) 76%, transparent);
   cursor: pointer;
   padding: 0;
+  border-radius: 6px;
+}
+
+.full-day-star-toggle:hover {
+  color: color-mix(in srgb, var(--ocean) 72%, var(--ink) 28%);
+  background: color-mix(in srgb, var(--ocean) 14%, transparent);
 }
 
 .full-day-star-toggle.active {
@@ -3893,8 +3923,14 @@ html[data-zoomed="true"] .views {
   color: rgba(27, 26, 22, 0.35);
   font-size: 14px;
   cursor: pointer;
-  padding: 0;
+  padding: 0 2px;
   line-height: 1;
+  border-radius: 6px;
+}
+
+.day-block .star-toggle:hover {
+  color: color-mix(in srgb, var(--ocean) 72%, var(--ink) 28%);
+  background: color-mix(in srgb, var(--ocean) 14%, transparent);
 }
 
 .day-block .star-toggle.active {
