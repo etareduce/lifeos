@@ -3860,9 +3860,8 @@ html[data-zoomed="true"] .views {
 
 .day-block {
   position: absolute;
-  --col-gap: 6px;
-  left: calc(8px + var(--stack-index, 0) * var(--stack-step, 10px));
-  width: calc(100% - 16px - (var(--stack-count, 1) - 1) * var(--stack-step, 10px));
+  left: 8px;
+  width: calc(100% - 16px);
   border-radius: 12px;
   border: 1.5px solid rgba(255, 255, 255, 0.7);
   padding: 4px 10px;

@@ -380,11 +380,54 @@ function overlaps(rangeStart, rangeEnd, eventStart, eventEnd) {
   return eventStart < rangeEnd && eventEnd > rangeStart;
 }
 
+function compareTimedBlocks(left, right) {
+  return left.startMin - right.startMin || right.endMin - left.endMin;
+}
+
+function blockOverlaps(left, right) {
+  return overlaps(left.startMin, left.endMin, right.startMin, right.endMin);
+}
+
+function findReusableColumn(columns, block) {
+  for (let index = 0; index < columns.length; index += 1) {
+    const column = columns[index];
+    const lastBlock = column[column.length - 1];
+    if (!lastBlock || lastBlock.endMin <= block.startMin) {
+      return index;
+    }
+  }
+  return columns.length;
+}
+
+function columnHasOverlap(column, block) {
+  if (!Array.isArray(column) || !column.length) return false;
+  return column.some((candidate) => blockOverlaps(candidate, block));
+}
+
+function toBlockHorizontalStyles(column, span, totalColumns) {
+  const insetPx = 8;
+  const minWidthFraction = 0.56;
+  const maxOffsetStep = 0.2;
+  const safeColumns = Math.max(1, totalColumns);
+  const step =
+    safeColumns <= 1
+      ? 0
+      : Math.min(maxOffsetStep, (1 - minWidthFraction) / (safeColumns - 1));
+  const leftFraction = column * step;
+  const baseWidth = 1 - step * (safeColumns - 1);
+  const expandedWidth = baseWidth + step * Math.max(0, span - 1);
+  const widthFraction = Math.min(1 - leftFraction, Math.max(step || 1, expandedWidth));
+  return {
+    leftCss: `calc(${insetPx}px + (100% - ${insetPx * 2}px) * ${leftFraction.toFixed(6)})`,
+    widthCss: `calc((100% - ${insetPx * 2}px) * ${widthFraction.toFixed(6)})`,
+  };
+}
+
 function layoutBlocks(blocks) {
-  const sorted = [...blocks].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+  const sorted = [...blocks].sort(compareTimedBlocks);
   const active = [];
-  let cluster = null;
-  let clusterId = 0;
+  const clusters = [];
+  let currentCluster = null;
 
   sorted.forEach((block) => {
     for (let i = active.length - 1; i >= 0; i -= 1) {
@@ -394,35 +437,49 @@ function layoutBlocks(blocks) {
     }
 
     if (active.length === 0) {
-      clusterId += 1;
-      cluster = { id: clusterId, maxColumns: 0, events: [] };
+      currentCluster = { events: [] };
+      clusters.push(currentCluster);
     }
 
-    const used = new Set(active.map((item) => item.column));
-    let column = 0;
-    while (used.has(column)) {
-      column += 1;
-    }
-
-    block.column = column;
-    block.cluster = cluster;
-    cluster.events.push(block);
     active.push(block);
-
-    const activeColumns = new Set(active.map((item) => item.column));
-    cluster.maxColumns = Math.max(cluster.maxColumns, activeColumns.size);
+    currentCluster.events.push(block);
   });
 
-  blocks.forEach((block) => {
-    block.columns = block.cluster?.maxColumns || 1;
-  });
+  clusters.forEach((cluster) => {
+    // Pack each connected overlap cluster into the fewest columns, then let
+    // each block expand rightward across columns that stay collision-free.
+    const events = [...cluster.events].sort(compareTimedBlocks);
+    const columns = [];
 
-  const maxStack = 4;
-  blocks.forEach((block) => {
-    const stackCount = Math.min(block.columns, maxStack);
-    block.stackCount = stackCount;
-    block.stackIndex = Math.min(block.column || 0, stackCount - 1);
-    block.stackStep = Math.max(6, 18 - stackCount * 2);
+    events.forEach((block) => {
+      const columnIndex = findReusableColumn(columns, block);
+      if (!columns[columnIndex]) {
+        columns[columnIndex] = [];
+      }
+      block.column = columnIndex;
+      columns[columnIndex].push(block);
+    });
+
+    const totalColumns = Math.max(1, columns.length);
+    events.forEach((block) => {
+      let span = 1;
+      for (let nextColumn = block.column + 1; nextColumn < totalColumns; nextColumn += 1) {
+        if (columnHasOverlap(columns[nextColumn], block)) {
+          break;
+        }
+        span += 1;
+      }
+
+      const { leftCss, widthCss } = toBlockHorizontalStyles(
+        block.column,
+        span,
+        totalColumns
+      );
+      block.columns = totalColumns;
+      block.columnSpan = span;
+      block.leftCss = leftCss;
+      block.widthCss = widthCss;
+    });
   });
 }
 
