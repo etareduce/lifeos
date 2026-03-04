@@ -20,8 +20,12 @@ import {
   updateRecurrence,
 } from "./api.js";
 import { pushHistoryAction, redoHistoryAction, undoHistoryAction } from "./history.js";
-import { alertDialog, bindDialogEvents, confirmDialog } from "./popups.js";
-import { deleteOccurrencesWithUndo } from "./actions.js";
+import { alertDialog, bindDialogEvents, choiceDialog, confirmDialog } from "./popups.js";
+import {
+  deleteOccurrenceWithUndo,
+  deleteOccurrencesWithUndo,
+  deleteRecurrenceWithUndo,
+} from "./actions.js";
 import {
   bindFormHandlers,
   openCreateForm,
@@ -831,6 +835,31 @@ async function deleteSelectedOccurrences() {
     .filter(Boolean)
     .filter((blob) => !blob.preview);
   if (!blobs.length) return false;
+  if (blobs.length === 1) {
+    const blob = blobs[0];
+    if (blob.recurrence_id && blob.recurrence_type !== "single") {
+      const choice = await choiceDialog("Delete this occurrence or the full recurrence?", {
+        confirmText: "Delete recurrence",
+        confirmValue: "recurrence",
+        altText: "Delete occurrence",
+        altValue: "occurrence",
+        cancelText: "Cancel",
+        destructive: true,
+        altDestructive: true,
+        confirmVariant: "ghost",
+        altVariant: "ghost",
+        actionOrder: "confirm-alt-cancel",
+      });
+      if (!choice) return false;
+      if (choice === "recurrence") {
+        await deleteRecurrenceWithUndo(blob.recurrence_id);
+      } else {
+        await deleteOccurrenceWithUndo(blob);
+      }
+      state.selectedOccurrenceIds = [];
+      return true;
+    }
+  }
   const label = blobs.length === 1 ? "Delete this occurrence?" : `Delete ${blobs.length} occurrences?`;
   const confirmed = await confirmDialog(label, {
     confirmText: "Delete",
