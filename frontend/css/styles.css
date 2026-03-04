@@ -3906,12 +3906,14 @@ html[data-zoomed="true"] .views {
   cursor: ns-resize;
 }
 
-.day-block.active .occurrence-handle {
+.day-block.active[data-piece-start="true"] .occurrence-handle.start,
+.day-block.active[data-piece-end="true"] .occurrence-handle.end {
   opacity: 1;
   pointer-events: auto;
 }
 
-.schedulable-overlay.editable .schedulable-handle {
+.schedulable-overlay.editable.handle-start .schedulable-handle.start,
+.schedulable-overlay.editable.handle-end .schedulable-handle.end {
   opacity: 1;
   pointer-events: auto;
 }
