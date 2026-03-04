@@ -5,7 +5,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - ../.env
     environment:
       DATABASE_URL: sqlite+aiosqlite:///./elastisched.db
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -16,6 +16,8 @@ services:
       GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-openid email profile https://www.googleapis.com/auth/calendar.readonly}
     volumes:
       - ./:/app
+      - ../elastisched.db:/app/elastisched.db
+      - ../analytics.db:/app/analytics.db
   frontend:
     image: nginx:alpine
     ports:
