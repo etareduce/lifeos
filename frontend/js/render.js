@@ -2441,10 +2441,8 @@ function renderWeek() {
   const allDayRowClass = maxFullDayCount > 0 ? "" : "empty";
   dom.views.week.innerHTML = `
     <div class="week-timeline" style="--hour-height: ${hourHeight}px;">
-      <div class="week-header-bar">
-        <div class="week-hours-spacer"></div>
-        <div class="week-days-labels">${labelColumns}</div>
-      </div>
+      <div class="week-hours-spacer"></div>
+      <div class="week-days-labels">${labelColumns}</div>
       <div class="week-all-day-label ${allDayRowClass}">All day</div>
       <div class="week-all-day ${allDayRowClass}">${allDayColumnsHtml}</div>
       <div class="week-hours">${hoursHtml}</div>
