@@ -133,6 +133,7 @@ function buildSingleOccurrencePayload(blob, defaultScheduledRange, schedulableRa
     blob: {
       name: blob?.name || payload.recurrence_name || "Untitled",
       description: blob?.description || payload.recurrence_description || null,
+      location: blob?.location || payload?.blob?.location || null,
       tz: blob?.tz || appConfig.userTimeZone,
       default_scheduled_timerange: serializeRange(defaultScheduledRange),
       schedulable_timerange: serializeRange(schedulableRange),
@@ -162,6 +163,9 @@ function buildUpdatedOccurrenceValues(blob, changes = {}) {
   const description = Object.prototype.hasOwnProperty.call(changes, "description")
     ? changes.description
     : blob?.description || null;
+  const location = Object.prototype.hasOwnProperty.call(changes, "location")
+    ? changes.location
+    : blob?.location || null;
   const tags = Object.prototype.hasOwnProperty.call(changes, "tags")
     ? (Array.isArray(changes.tags) ? changes.tags : [])
     : (Array.isArray(blob?.tags) ? blob.tags : []);
@@ -176,6 +180,7 @@ function buildUpdatedOccurrenceValues(blob, changes = {}) {
     schedulableRange,
     name,
     description,
+    location,
     tags,
     dependencies,
     policy,
@@ -245,6 +250,7 @@ async function updateOccurrenceWithUndo(blob, changes = {}, options = {}) {
         ...(payload.blob || {}),
         name: nextValues.name,
         description: nextValues.description,
+        location: nextValues.location,
         default_scheduled_timerange: serializeRange(nextValues.defaultScheduledRange),
         schedulable_timerange: serializeRange(nextValues.schedulableRange),
         policy: nextValues.policy,
@@ -272,6 +278,7 @@ async function updateOccurrenceWithUndo(blob, changes = {}, options = {}) {
           ...item,
           name: nextValues.name,
           description: nextValues.description,
+          location: nextValues.location,
           default_scheduled_timerange: serializeRange(nextValues.defaultScheduledRange),
           schedulable_timerange: serializeRange(nextValues.schedulableRange),
           policy: nextValues.policy,
@@ -293,6 +300,7 @@ async function updateOccurrenceWithUndo(blob, changes = {}, options = {}) {
       ...blob,
       name: nextValues.name,
       description: nextValues.description,
+      location: nextValues.location,
       policy: nextValues.policy,
       dependencies: nextValues.dependencies,
       tags: nextValues.tags,

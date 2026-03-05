@@ -40,6 +40,8 @@ async def _ensure_sqlite_blob_columns(conn) -> None:
     result = await conn.execute(text("PRAGMA table_info(blobs)"))
     columns = {row[1] for row in result.fetchall()}
     missing = []
+    if "location" not in columns:
+        missing.append(("location", "VARCHAR(500)"))
     if "realized_start" not in columns:
         missing.append(("realized_start", "DATETIME"))
     if "realized_end" not in columns:

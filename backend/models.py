@@ -12,6 +12,7 @@ class BlobModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
     tz: Mapped[str] = mapped_column(String(64), default="UTC")
     default_scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     default_scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))

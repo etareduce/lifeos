@@ -59,6 +59,7 @@ class Blob:
     schedulable_timerange: TimeRange
     name: str = field(default="Unnamed Blob")
     description: Optional[str] = field(default=None)
+    location: Optional[str] = field(default=None)
     tz: timezone = field(default_factory=lambda: DEFAULT_TZ)
     policy: Policy = field(default_factory=lambda: Policy)
 
@@ -80,6 +81,7 @@ class Blob:
             schedulable_timerange=deepcopy(self.schedulable_timerange, memo),
             name=deepcopy(self.name, memo),
             description=deepcopy(self.description, memo),
+            location=deepcopy(self.location, memo),
             tz=self.tz,
             policy=deepcopy(self.policy, memo),
             dependencies=deepcopy(self.dependencies, memo),
@@ -118,6 +120,7 @@ class Blob:
         EPOCH_BEGIN: datetime, 
         name: str,
         description: str,
+        location: str | None,
         tz: timezone
     ) -> 'Blob':
         scheduled_tr_start_delta = job.schedulable_time_range.get_low()
@@ -139,6 +142,7 @@ class Blob:
             schedulable_timerange=schedulable_timerange,
             name=name,
             description=description,
+            location=location,
             tz=tz,
             policy=job.policy,
             dependencies=job.dependencies,

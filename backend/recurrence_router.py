@@ -157,6 +157,7 @@ def _blob_from_payload(data: dict) -> Blob:
         schedulable_timerange=schedulable_tr,
         name=data.get("name") or "Unnamed Blob",
         description=data.get("description"),
+        location=data.get("location"),
         tz=tzinfo,
         policy=data.get("policy") or {},
         dependencies=set(data.get("dependencies") or []),
@@ -359,6 +360,7 @@ def _to_occurrence_schema(
         recurrence_payload=payload,
         name=blob.name,
         description=blob.description,
+        location=blob.location,
         default_scheduled_timerange=TimeRangeSchema(
             start=default_tr.start, end=default_tr.end
         ),

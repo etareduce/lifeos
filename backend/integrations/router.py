@@ -883,6 +883,7 @@ async def export_user_data(
                 "id": row.id,
                 "name": row.name,
                 "description": row.description,
+                "location": row.location,
                 "tz": row.tz,
                 "default_scheduled_start": row.default_scheduled_start.isoformat(),
                 "default_scheduled_end": row.default_scheduled_end.isoformat(),
@@ -2289,6 +2290,7 @@ def _single_main_payload_from_occurrence_blob(
     next_payload["blob"] = {
         "name": blob.name or str(source_payload.get("recurrence_name") or "Untitled event"),
         "description": blob.description or source_payload.get("recurrence_description"),
+        "location": blob.location,
         "tz": tz_name,
         "default_scheduled_timerange": {
             "start": default_range.start.isoformat(),

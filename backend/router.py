@@ -54,6 +54,7 @@ def _to_schema(blob: BlobModel) -> BlobRead:
         id=blob.id,
         name=blob.name,
         description=blob.description,
+        location=blob.location,
         default_scheduled_timerange=TimeRangeSchema(
             start=blob.default_scheduled_start, end=blob.default_scheduled_end
         ),
@@ -95,6 +96,7 @@ async def create_blob(
         id=str(uuid.uuid4()),
         name=payload.name,
         description=payload.description,
+        location=payload.location,
         tz=PROJECT_TIMEZONE,
         default_scheduled_start=default_tr.start,
         default_scheduled_end=default_tr.end,
@@ -176,6 +178,8 @@ async def update_blob(
         blob.name = payload.name
     if payload.description is not None:
         blob.description = payload.description
+    if payload.location is not None:
+        blob.location = payload.location
     blob.tz = PROJECT_TIMEZONE
     if payload.policy is not None:
         blob.policy = payload.policy

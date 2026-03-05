@@ -13,6 +13,7 @@ class TimeRangeSchema(BaseModel):
 class BlobBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
+    location: str | None = Field(default=None, max_length=500)
     default_scheduled_timerange: TimeRangeSchema
     schedulable_timerange: TimeRangeSchema
     realized_timerange: TimeRangeSchema | None = None
@@ -29,6 +30,7 @@ class BlobCreate(BlobBase):
 class BlobUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
+    location: str | None = Field(default=None, max_length=500)
     default_scheduled_timerange: TimeRangeSchema | None = None
     schedulable_timerange: TimeRangeSchema | None = None
     realized_timerange: TimeRangeSchema | None = None

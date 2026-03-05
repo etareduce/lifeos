@@ -53,6 +53,7 @@ async def test_create_and_get_blob(api_client):
     payload = {
         "name": "Morning Focus",
         "description": "Deep work block",
+        "location": "Library - 2nd floor",
         "tz": "UTC",
         "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
         "schedulable_timerange": {
@@ -83,6 +84,7 @@ async def test_create_and_get_blob(api_client):
     assert _coerce_utc(fetched["default_scheduled_timerange"]["start"]) == _coerce_utc(
         payload["default_scheduled_timerange"]["start"]
     )
+    assert fetched["location"] == payload["location"]
 
 
 @pytest.mark.asyncio
@@ -92,6 +94,7 @@ async def test_update_blob(api_client):
     payload = {
         "name": "Standup",
         "description": "Daily sync",
+        "location": None,
         "tz": "UTC",
         "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
         "schedulable_timerange": {
@@ -109,13 +112,52 @@ async def test_update_blob(api_client):
 
         update_resp = await client.put(
             f"/blobs/{blob_id}",
-            json={"name": "Standup Updated", "tags": ["team"]},
+            json={"name": "Standup Updated", "location": "Conference Room B", "tags": ["team"]},
         )
         assert update_resp.status_code == 200
         updated = update_resp.json()
 
     assert updated["name"] == "Standup Updated"
+    assert updated["location"] == "Conference Room B"
     assert updated["tags"] == ["team"]
+
+
+@pytest.mark.asyncio
+async def test_occurrence_includes_blob_location(api_client):
+    start = datetime(2024, 2, 15, 14, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    payload = {
+        "recurrence_name": "Dentist",
+        "recurrence_description": "Routine checkup",
+        "blob": {
+            "name": "Dentist",
+            "description": "Routine checkup",
+            "location": "Downtown Clinic",
+            "tz": "UTC",
+            "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "schedulable_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "policy": {},
+            "dependencies": [],
+            "tags": [],
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json={"type": "single", "payload": payload})
+        assert create_resp.status_code == 201
+
+        list_resp = await client.get(
+            "/occurrences",
+            params={
+                "start": (start - timedelta(days=1)).isoformat(),
+                "end": (end + timedelta(days=1)).isoformat(),
+            },
+        )
+        assert list_resp.status_code == 200
+        occurrences = list_resp.json()
+
+    assert len(occurrences) == 1
+    assert occurrences[0]["location"] == "Downtown Clinic"
 
 
 @pytest.mark.asyncio

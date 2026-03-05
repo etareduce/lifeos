@@ -435,6 +435,7 @@ function captureBatchEditBaseline() {
   return {
     recurrenceName: dom.blobForm.recurrenceName?.value || "",
     recurrenceDescription: dom.blobForm.recurrenceDescription?.value || "",
+    location: dom.blobForm.blobLocation?.value || "",
     defaultStart: dom.blobForm.defaultStart?.value || "",
     defaultEnd: dom.blobForm.defaultEnd?.value || "",
     schedulableStart: dom.blobForm.schedulableStart?.value || "",
@@ -1387,7 +1388,7 @@ function updateRecurrenceUI() {
   });
   document.querySelectorAll(".non-weekly-field input").forEach((field) => {
     const isCheckbox = field.type === "checkbox";
-    const isOptional = field.type === "hidden" || field.name === "blobDescription";
+    const isOptional = field.type === "hidden" || ["blobDescription", "blobLocation"].includes(field.name);
     const isMetaField = field.name === "blobName" || field.name === "blobDescription";
     const isPolicyField = field.name?.startsWith?.("policy");
     const isTimeRangeField = [
@@ -1577,6 +1578,7 @@ function createWeeklySlot(slotData = {}) {
   const schedEnd = slotData.schedEnd || lastValues?.schedEnd || "10:30";
   const nameValue = slotData.name || "";
   const descriptionValue = slotData.description || "";
+  const locationValue = slotData.location || "";
   const tagsValue = slotData.tags || [];
   const fallbackPolicy = dom.weeklyPerSlot?.checked ? getPolicyPayloadFromForm() : {};
   const policyFlags = getPolicyFlagsFromPolicy(slotData.policy ?? fallbackPolicy);
@@ -1651,6 +1653,16 @@ function createWeeklySlot(slotData = {}) {
       <label>
         Occurrence description
         <input type="text" name="slotDescription" value="${descriptionValue}" />
+      </label>
+    </div>
+    <div class="weekly-slot-row location-row">
+      <label>
+        Location
+        <input
+          type="text"
+          name="slotLocation"
+          value="${locationValue}"
+        />
       </label>
     </div>
     <div class="weekly-slot-row policy-label-row">
@@ -1862,6 +1874,7 @@ function getWeeklySlotSelections() {
       schedEnd,
       name: slot.querySelector('[name="slotName"]').value,
       description: slot.querySelector('[name="slotDescription"]').value,
+      location: slot.querySelector('[name="slotLocation"]')?.value || "",
       tags: getSlotTags(slot),
       policy: getPolicyPayloadFromFlags(
         splittable,
@@ -1963,6 +1976,7 @@ function createMultipleSlot(slotData = {}) {
   const schedEnd = slotData.schedEnd || "";
   const nameValue = slotData.name || "";
   const descriptionValue = slotData.description || "";
+  const locationValue = slotData.location || "";
   const tagsValue = slotData.tags || [];
   const policyFlags = getPolicyFlagsFromPolicy(slotData.policy || {});
   const slotType = normalizeBlobType(
@@ -2050,6 +2064,17 @@ function createMultipleSlot(slotData = {}) {
       <label>
         Occurrence description
         <input type="text" name="multiDescription" class="needs-input" value="${descriptionValue}" />
+      </label>
+    </div>
+    <div class="weekly-slot-row location-row">
+      <label>
+        Location
+        <input
+          type="text"
+          name="multiLocation"
+          class="needs-input"
+          value="${locationValue}"
+        />
       </label>
     </div>
     <div class="weekly-slot-row policy-label-row">
@@ -2306,6 +2331,7 @@ function getMultipleSlots() {
       schedEnd,
       name: slot.querySelector('[name="multiName"]')?.value?.trim() || "",
       description: slot.querySelector('[name="multiDescription"]')?.value?.trim() || "",
+      location: slot.querySelector('[name="multiLocation"]')?.value?.trim() || "",
       tags: getSlotTags(slot),
       dependencies: getSlotDependencies(slot),
       policy: getPolicyPayloadFromFlags(
@@ -2445,6 +2471,9 @@ function openBatchEditForm(blobs) {
   }
   dom.blobForm.recurrenceName.value = seed.name || "";
   dom.blobForm.recurrenceDescription.value = seed.description || "";
+  if (dom.blobForm.blobLocation) {
+    dom.blobForm.blobLocation.value = seed.location || "";
+  }
   const blobTimeZone = seed.tz || appConfig.userTimeZone;
   dom.blobForm.defaultStart.value = toLocalInputValueInTimeZone(
     seed.default_scheduled_timerange?.start,
@@ -2517,11 +2546,17 @@ function openEditForm(blob) {
   if (recurrenceType !== "multiple") {
     dom.blobForm.blobName.value = blob.name || "";
     dom.blobForm.blobDescription.value = blob.description || "";
+    if (dom.blobForm.blobLocation) {
+      dom.blobForm.blobLocation.value = blob.location || "";
+    }
     setDependencies(Array.isArray(blob.dependencies) ? blob.dependencies : []);
     setTags(Array.isArray(blob.tags) ? blob.tags : []);
   } else {
     dom.blobForm.blobName.value = "";
     dom.blobForm.blobDescription.value = "";
+    if (dom.blobForm.blobLocation) {
+      dom.blobForm.blobLocation.value = "";
+    }
     setDependencies([]);
     setTags([]);
   }
@@ -2578,9 +2613,13 @@ function openEditForm(blob) {
     applyPolicyToForm(blobs[0]?.policy || {});
     const sharedName = blobs[0]?.name || "";
     const sharedDescription = blobs[0]?.description || "";
+    const sharedLocation = blobs[0]?.location || "";
     const sharedTags = Array.isArray(blobs[0]?.tags) ? blobs[0].tags : [];
     dom.blobForm.blobName.value = sharedName;
     dom.blobForm.blobDescription.value = sharedDescription || "";
+    if (dom.blobForm.blobLocation) {
+      dom.blobForm.blobLocation.value = sharedLocation || "";
+    }
     const tagsDiffer = blobs.some((item) => {
       const itemTags = Array.isArray(item.tags) ? item.tags : [];
       if (itemTags.length !== sharedTags.length) return true;
@@ -2588,7 +2627,12 @@ function openEditForm(blob) {
       return itemTags.some((tag) => !sharedKeys.has(tagKey(tag)));
     });
     const hasCustom =
-      blobs.some((item) => item.name !== sharedName || item.description !== sharedDescription) ||
+      blobs.some(
+        (item) =>
+          item.name !== sharedName
+          || item.description !== sharedDescription
+          || (item.location || "") !== sharedLocation
+      ) ||
       tagsDiffer ||
       false;
     if (dom.weeklyPerSlot) {
@@ -2620,6 +2664,7 @@ function openEditForm(blob) {
         schedEnd: timeValueFromDate(schedEnd, "10:30", slotTimeZone),
         name: weeklyBlob.name || "",
         description: weeklyBlob.description || "",
+        location: weeklyBlob.location || "",
         tags,
         policy: weeklyBlob.policy || {},
         days: [dayValue],
@@ -2640,6 +2685,7 @@ function openEditForm(blob) {
         schedEnd: slot.schedEnd,
         name: slot.name,
         description: slot.description,
+        location: slot.location,
         tags: normalizedTags,
         policy: policyFlags,
         trackOnTasksPage: slot.trackOnTasksPage,
@@ -2662,6 +2708,7 @@ function openEditForm(blob) {
         schedEnd: slot.schedEnd,
         name: slot.name,
         description: slot.description,
+        location: slot.location,
         tags: slot.tags,
         policy: slot.policy,
         trackOnTasksPage: slot.trackOnTasksPage,
@@ -2700,6 +2747,7 @@ function openEditForm(blob) {
           schedEnd,
           name: multiBlob.name || "",
           description: multiBlob.description || "",
+          location: multiBlob.location || "",
           tags: Array.isArray(multiBlob.tags) ? multiBlob.tags : [],
           dependencies: Array.isArray(multiBlob.dependencies) ? multiBlob.dependencies : [],
           policy: multiBlob.policy || {},
@@ -2864,6 +2912,7 @@ async function handleBlobSubmit(event) {
   const recurrenceEnd = getRecurrenceEndValue();
   const recurrenceName = formData.get("recurrenceName");
   const recurrenceDescription = formData.get("recurrenceDescription") || null;
+  const blobLocation = formData.get("blobLocation")?.toString?.().trim?.() || "";
   const schedulableStart = formData.get("schedulableStart");
   const schedulableEnd = formData.get("schedulableEnd");
   const defaultStart = blobType === BLOB_TYPES.EVENT
@@ -2883,6 +2932,9 @@ async function handleBlobSubmit(event) {
     }
     if ((recurrenceDescription || "") !== (baseline.recurrenceDescription || "")) {
       changes.description = recurrenceDescription?.toString?.() || "";
+    }
+    if ((blobLocation || "") !== (baseline.location || "")) {
+      changes.location = blobLocation;
     }
     if ((defaultStart || "") !== (baseline.defaultStart || "")) {
       const parsed = parseBatchDateTime(defaultStart);
@@ -2984,6 +3036,7 @@ async function handleBlobSubmit(event) {
   let baseBlob = {
     name: blobName,
     description: blobDescription,
+    location: blobLocation || null,
     tz: appConfig.userTimeZone,
     default_scheduled_timerange: {
       start: toProjectIsoFromLocalInput(
@@ -3066,6 +3119,7 @@ async function handleBlobSubmit(event) {
       return {
         name: perSlot && slot.name ? slot.name : sharedName,
         description: perSlot ? slot.description || null : sharedDescription,
+        location: slot.location || null,
         tz: appConfig.userTimeZone,
         default_scheduled_timerange: {
           start: defaultStart,
@@ -3119,6 +3173,7 @@ async function handleBlobSubmit(event) {
     const blobs = slots.map((slot) => ({
       name: slot.name,
       description: slot.description || null,
+      location: slot.location || null,
       tz: appConfig.userTimeZone,
       default_scheduled_timerange: {
         start: toProjectIsoFromLocalInput(
