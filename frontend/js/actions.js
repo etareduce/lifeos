@@ -8,7 +8,11 @@ import {
 } from "./api.js";
 import { appConfig } from "./core.js";
 import { pushHistoryAction } from "./history.js";
-import { getOccurrenceKeyFromBlob, toProjectIsoFromDate } from "./utils.js";
+import {
+  getOccurrenceKeyFromBlob,
+  inferTimeZoneFromLocation,
+  toProjectIsoFromDate,
+} from "./utils.js";
 
 function refreshCalendar() {
   window.dispatchEvent(new CustomEvent("elastisched:refresh"));
@@ -126,6 +130,11 @@ async function deleteOccurrenceInternal(blob, previous = null) {
 
 function buildSingleOccurrencePayload(blob, defaultScheduledRange, schedulableRange) {
   const payload = blob?.recurrence_payload || {};
+  const location = blob?.location || payload?.blob?.location || null;
+  const timeZone = inferTimeZoneFromLocation(
+    location,
+    blob?.tz || payload?.blob?.tz || appConfig.userTimeZone
+  );
   return {
     recurrence_name: payload.recurrence_name || blob?.name || null,
     recurrence_description: payload.recurrence_description || blob?.description || null,
@@ -133,8 +142,8 @@ function buildSingleOccurrencePayload(blob, defaultScheduledRange, schedulableRa
     blob: {
       name: blob?.name || payload.recurrence_name || "Untitled",
       description: blob?.description || payload.recurrence_description || null,
-      location: blob?.location || payload?.blob?.location || null,
-      tz: blob?.tz || appConfig.userTimeZone,
+      location,
+      tz: timeZone,
       default_scheduled_timerange: serializeRange(defaultScheduledRange),
       schedulable_timerange: serializeRange(schedulableRange),
       policy: blob?.policy || {},
@@ -166,6 +175,7 @@ function buildUpdatedOccurrenceValues(blob, changes = {}) {
   const location = Object.prototype.hasOwnProperty.call(changes, "location")
     ? changes.location
     : blob?.location || null;
+  const tz = inferTimeZoneFromLocation(location, blob?.tz || appConfig.userTimeZone);
   const tags = Object.prototype.hasOwnProperty.call(changes, "tags")
     ? (Array.isArray(changes.tags) ? changes.tags : [])
     : (Array.isArray(blob?.tags) ? blob.tags : []);
@@ -181,6 +191,7 @@ function buildUpdatedOccurrenceValues(blob, changes = {}) {
     name,
     description,
     location,
+    tz,
     tags,
     dependencies,
     policy,
@@ -251,6 +262,7 @@ async function updateOccurrenceWithUndo(blob, changes = {}, options = {}) {
         name: nextValues.name,
         description: nextValues.description,
         location: nextValues.location,
+        tz: nextValues.tz,
         default_scheduled_timerange: serializeRange(nextValues.defaultScheduledRange),
         schedulable_timerange: serializeRange(nextValues.schedulableRange),
         policy: nextValues.policy,
@@ -279,6 +291,7 @@ async function updateOccurrenceWithUndo(blob, changes = {}, options = {}) {
           name: nextValues.name,
           description: nextValues.description,
           location: nextValues.location,
+          tz: nextValues.tz,
           default_scheduled_timerange: serializeRange(nextValues.defaultScheduledRange),
           schedulable_timerange: serializeRange(nextValues.schedulableRange),
           policy: nextValues.policy,

@@ -16,6 +16,7 @@ import {
   getOccurrenceKeyFromBlob,
   getViewRange,
   getWeekStart,
+  inferTimeZoneFromLocation,
   isBlobEditableInMainUi,
   normalizeOccurrenceKey,
   overlaps,
@@ -2912,7 +2913,11 @@ async function handleBlobSubmit(event) {
   const recurrenceEnd = getRecurrenceEndValue();
   const recurrenceName = formData.get("recurrenceName");
   const recurrenceDescription = formData.get("recurrenceDescription") || null;
-  const blobLocation = formData.get("blobLocation")?.toString?.().trim?.() || "";
+  const blobLocation = dom.blobForm.blobLocation?.value?.toString?.().trim?.() || "";
+  const recognizedBlobTimeZone = inferTimeZoneFromLocation(
+    blobLocation,
+    appConfig.userTimeZone
+  );
   const schedulableStart = formData.get("schedulableStart");
   const schedulableEnd = formData.get("schedulableEnd");
   const defaultStart = blobType === BLOB_TYPES.EVENT
@@ -3037,7 +3042,7 @@ async function handleBlobSubmit(event) {
     name: blobName,
     description: blobDescription,
     location: blobLocation || null,
-    tz: appConfig.userTimeZone,
+    tz: recognizedBlobTimeZone,
     default_scheduled_timerange: {
       start: toProjectIsoFromLocalInput(
         defaultStart,
@@ -3088,6 +3093,7 @@ async function handleBlobSubmit(event) {
     const sharedDescription = perSlot
       ? (formData.get("blobDescription") || null)
       : (formData.get("blobDescription") || recurrenceDescription || null);
+    const sharedLocation = blobLocation || "";
     const sharedPolicy = policyPayload;
     const blobsOfWeek = slots.map((slot) => {
     const offset = dayOffsetFromSunday(slot.day);
@@ -3116,11 +3122,14 @@ async function handleBlobSubmit(event) {
         appConfig.userTimeZone,
         appConfig.projectTimeZone
       );
+      const slotLocation = perSlot
+        ? (slot.location || "")
+        : (sharedLocation || slot.location || "");
       return {
         name: perSlot && slot.name ? slot.name : sharedName,
         description: perSlot ? slot.description || null : sharedDescription,
-        location: slot.location || null,
-        tz: appConfig.userTimeZone,
+        location: slotLocation || null,
+        tz: inferTimeZoneFromLocation(slotLocation, appConfig.userTimeZone),
         default_scheduled_timerange: {
           start: defaultStart,
           end: defaultEnd,
@@ -3174,7 +3183,7 @@ async function handleBlobSubmit(event) {
       name: slot.name,
       description: slot.description || null,
       location: slot.location || null,
-      tz: appConfig.userTimeZone,
+      tz: inferTimeZoneFromLocation(slot.location, appConfig.userTimeZone),
       default_scheduled_timerange: {
         start: toProjectIsoFromLocalInput(
           slot.defaultStart,
