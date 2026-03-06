@@ -2,6 +2,7 @@ import { minuteGranularity } from "./core.js";
 
 const timeZonePartsFormatterCache = new Map();
 const timeRangeFormatterCache = new Map();
+const MINUTES_PER_DAY = 24 * 60;
 
 function getTimeZonePartsFormatter(timeZone) {
   const key = timeZone || "UTC";
@@ -258,6 +259,14 @@ function clampToGranularity(minutes) {
   return Math.round(minutes / minuteGranularity) * minuteGranularity;
 }
 
+function normalizeDayBoundaryMinutes(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  const rounded = Math.round(numeric);
+  const wrapped = rounded % MINUTES_PER_DAY;
+  return wrapped < 0 ? wrapped + MINUTES_PER_DAY : wrapped;
+}
+
 function pad(num) {
   return num.toString().padStart(2, "0");
 }
@@ -321,23 +330,33 @@ function getWeekStart(date) {
   return addDays(startOfDay(date), -dayOfWeek);
 }
 
-function getViewRange(view, anchorDate) {
+function getViewRange(view, anchorDate, dayBoundaryMinutes = 0) {
+  const boundaryMinutes = normalizeDayBoundaryMinutes(dayBoundaryMinutes);
+  const applyBoundary = (date) => {
+    const start = startOfDay(date);
+    return new Date(start.getTime() + boundaryMinutes * 60000);
+  };
   if (view === "day") {
-    const start = startOfDay(anchorDate);
+    const start = applyBoundary(anchorDate);
     return { start, end: addDays(start, 1) };
   }
   if (view === "week") {
     const dayOfWeek = anchorDate.getDay();
-    const start = addDays(startOfDay(anchorDate), -dayOfWeek);
+    const weekStart = addDays(startOfDay(anchorDate), -dayOfWeek);
+    const start = new Date(weekStart.getTime() + boundaryMinutes * 60000);
     return { start, end: addDays(start, 7) };
   }
   if (view === "month") {
-    const start = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
-    const end = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1);
+    const monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+    const monthEnd = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1);
+    const start = new Date(monthStart.getTime() + boundaryMinutes * 60000);
+    const end = new Date(monthEnd.getTime() + boundaryMinutes * 60000);
     return { start, end };
   }
-  const start = new Date(anchorDate.getFullYear(), 0, 1);
-  const end = new Date(anchorDate.getFullYear() + 1, 0, 1);
+  const yearStart = new Date(anchorDate.getFullYear(), 0, 1);
+  const yearEnd = new Date(anchorDate.getFullYear() + 1, 0, 1);
+  const start = new Date(yearStart.getTime() + boundaryMinutes * 60000);
+  const end = new Date(yearEnd.getTime() + boundaryMinutes * 60000);
   return { start, end };
 }
 
@@ -539,6 +558,7 @@ export {
   getWeekStart,
   getEffectiveOccurrenceRange,
   getBlobCalendarContext,
+  normalizeDayBoundaryMinutes,
   getOccurrenceKeyFromBlob,
   getOccurrenceOverride,
   isBlobEditableInMainUi,

@@ -49,8 +49,8 @@ import {
   getLocalTimeZone,
   getOccurrenceKeyFromBlob,
   getViewRange,
+  normalizeDayBoundaryMinutes,
   shiftAnchorDate,
-  startOfDay,
   toProjectIsoFromDate,
 } from "./utils.js";
 
@@ -521,21 +521,22 @@ async function switchWorkspaceMode(mode) {
 
 async function refreshView(nextView = state.view, options = {}) {
   const view = nextView || state.view;
+  const dayBoundaryMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
   if (options?.forceReload) {
     state.loadedRange = null;
   }
   setActive(view, { deferRender: true });
   const range =
     state.workspaceMode === WORKSPACE_MODE.HOME
-      ? getViewRange(view, state.anchorDate)
+      ? getViewRange(view, state.anchorDate, dayBoundaryMinutes)
       : getWorkspaceDataRange();
   let rangeStart = range.start;
   let rangeEnd = range.end;
   if (state.workspaceMode === WORKSPACE_MODE.HOME) {
-    const todayStart = startOfDay(new Date());
-    const todayEnd = addDays(todayStart, 1);
-    if (todayStart < rangeStart) rangeStart = todayStart;
-    if (todayEnd > rangeEnd) rangeEnd = todayEnd;
+    const todayAnchor = new Date(Date.now() - dayBoundaryMinutes * 60000);
+    const todayRange = getViewRange("day", todayAnchor, dayBoundaryMinutes);
+    if (todayRange.start < rangeStart) rangeStart = todayRange.start;
+    if (todayRange.end > rangeEnd) rangeEnd = todayRange.end;
   }
   await ensureOccurrences(rangeStart, rangeEnd);
   setActive(view);
@@ -1296,6 +1297,8 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 syncDeviceTimeZone();
+const initialDayBoundaryMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
+state.anchorDate = new Date(Date.now() - initialDayBoundaryMinutes * 60000);
 const savedView = loadView();
 const savedWorkspaceMode = loadWorkspaceMode();
 const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspaceMode)

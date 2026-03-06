@@ -20,6 +20,7 @@ import {
   getTagType,
   getTimeZoneParts,
   layoutBlocks,
+  normalizeDayBoundaryMinutes,
   normalizeOccurrenceKey,
   overlaps,
   startOfDay,
@@ -39,11 +40,33 @@ let timelineHighlightSession = null;
 
 const DRAG_START_THRESHOLD_PX = 4;
 const TRACK_MINUTES = 24 * 60;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function normalizeTimelineBlobId(blobId) {
   if (blobId === null || blobId === undefined) return null;
   const normalized = String(blobId).trim();
   return normalized || null;
+}
+
+function getDayBoundaryMinutes() {
+  return normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
+}
+
+function formatTimelineHourLabel(hour24, minute) {
+  const displayHour = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+  const suffix = hour24 < 12 ? "AM" : "PM";
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function buildTimelineHourLabels(dayBoundaryMinutes = getDayBoundaryMinutes()) {
+  const boundaryMinutes = normalizeDayBoundaryMinutes(dayBoundaryMinutes);
+  return Array.from({ length: 24 }, (_, idx) => {
+    const absoluteMinutes = boundaryMinutes + idx * 60;
+    const minuteOfDay = absoluteMinutes % TRACK_MINUTES;
+    const hour24 = Math.floor(minuteOfDay / 60);
+    const minute = minuteOfDay % 60;
+    return formatTimelineHourLabel(hour24, minute);
+  });
 }
 
 function setTimelineDragSourceState(viewRoot, blobId, dragging) {
@@ -435,9 +458,11 @@ function getTrackMinutesFromPointer(trackEl, clientY) {
 }
 
 function dateFromTrackPosition(dayDate, minutes, timeZone) {
+  const dayBoundaryMinutes = getDayBoundaryMinutes();
   const safeMinutes = Math.max(0, Math.min(minutes, TRACK_MINUTES));
-  const extraDays = Math.floor(safeMinutes / TRACK_MINUTES);
-  const minuteOfDay = safeMinutes % TRACK_MINUTES;
+  const absoluteMinutes = dayBoundaryMinutes + safeMinutes;
+  const extraDays = Math.floor(absoluteMinutes / TRACK_MINUTES);
+  const minuteOfDay = absoluteMinutes % TRACK_MINUTES;
   const hour = Math.floor(minuteOfDay / 60);
   const minute = minuteOfDay % 60;
   const dayRef = addDays(dayDate, extraDays);
@@ -662,7 +687,20 @@ function minutesFromParts(parts) {
   return parts.hour * 60 + parts.minute + (parts.second || 0) / 60;
 }
 
-function updateNowLine(trackEl, hourHeight, viewDate) {
+function normalizeDayPoint(parts, dayBoundaryMinutes = getDayBoundaryMinutes()) {
+  if (!parts) return null;
+  const boundaryMinutes = normalizeDayBoundaryMinutes(dayBoundaryMinutes);
+  const dayStamp = partsToDayStamp(parts);
+  const shiftedMinutes = minutesFromParts(parts) - boundaryMinutes;
+  const dayOffset = Math.floor(shiftedMinutes / TRACK_MINUTES);
+  const minuteOfDay = shiftedMinutes - dayOffset * TRACK_MINUTES;
+  return {
+    stamp: dayStamp + dayOffset * DAY_MS,
+    minute: minuteOfDay,
+  };
+}
+
+function updateNowLine(trackEl, hourHeight, viewDate, dayBoundaryMinutes = getDayBoundaryMinutes()) {
   if (!trackEl) return;
   const lineEl = trackEl.querySelector(".current-time-line");
   if (!lineEl) return;
@@ -672,28 +710,40 @@ function updateNowLine(trackEl, hourHeight, viewDate) {
     lineEl.classList.remove("active");
     return;
   }
-  if (partsToDayStamp(nowParts) !== partsToDayStamp(viewParts)) {
+  const nowPoint = normalizeDayPoint(nowParts, dayBoundaryMinutes);
+  const viewStamp = partsToDayStamp(viewParts);
+  if (!nowPoint || nowPoint.stamp !== viewStamp) {
     lineEl.classList.remove("active");
     return;
   }
-  const minutes = Math.min(1440, Math.max(0, minutesFromParts(nowParts)));
+  const minutes = Math.min(TRACK_MINUTES, Math.max(0, nowPoint.minute));
   lineEl.style.top = `${(minutes / 60) * hourHeight}px`;
   lineEl.classList.add("active");
 }
 
-function getClampedMinutes(startParts, endParts, viewDayStamp) {
-  const startStamp = partsToDayStamp(startParts);
-  const endStamp = partsToDayStamp(endParts);
-  const startMin = minutesFromParts(startParts);
-  const endMin = minutesFromParts(endParts);
+function getClampedMinutes(
+  startParts,
+  endParts,
+  viewDayStamp,
+  dayBoundaryMinutes = getDayBoundaryMinutes()
+) {
+  const startPoint = normalizeDayPoint(startParts, dayBoundaryMinutes);
+  const endPoint = normalizeDayPoint(endParts, dayBoundaryMinutes);
+  if (!startPoint || !endPoint) return null;
   const overlapsDay =
-    (startStamp < viewDayStamp || (startStamp === viewDayStamp && startMin < 1440)) &&
-    (endStamp > viewDayStamp || (endStamp === viewDayStamp && endMin > 0));
+    (startPoint.stamp < viewDayStamp ||
+      (startPoint.stamp === viewDayStamp && startPoint.minute < TRACK_MINUTES)) &&
+    (endPoint.stamp > viewDayStamp || (endPoint.stamp === viewDayStamp && endPoint.minute > 0));
   if (!overlapsDay) return null;
-  const clampedStart = startStamp < viewDayStamp ? 0 : startMin;
-  const clampedEnd = endStamp > viewDayStamp ? 1440 : endMin;
+  const clampedStart = startPoint.stamp < viewDayStamp ? 0 : startPoint.minute;
+  const clampedEnd = endPoint.stamp > viewDayStamp ? TRACK_MINUTES : endPoint.minute;
   if (clampedEnd <= clampedStart) return null;
-  return { startMin: clampedStart, endMin: clampedEnd };
+  return {
+    startMin: clampedStart,
+    endMin: clampedEnd,
+    startStamp: startPoint.stamp,
+    endStamp: endPoint.stamp,
+  };
 }
 
 function renderOccurrencePreview(session, nextDefaultRange, invalid) {
@@ -750,7 +800,7 @@ function renderOccurrencePreview(session, nextDefaultRange, invalid) {
       18,
       ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
     )}px`;
-    if (partsToDayStamp(startParts) === viewStamp) {
+    if (clamped.startStamp === viewStamp) {
       preview.innerHTML = `
         <div class="event-header">
           <span class="event-title">${session.title}</span>
@@ -788,8 +838,8 @@ function renderSchedulablePreview(session, nextSchedulableRange) {
       18,
       ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
     )}px`;
-    overlay.classList.toggle("overflow-top", partsToDayStamp(startParts) < viewStamp);
-    overlay.classList.toggle("overflow-bottom", partsToDayStamp(endParts) > viewStamp);
+    overlay.classList.toggle("overflow-top", clamped.startStamp < viewStamp);
+    overlay.classList.toggle("overflow-bottom", clamped.endStamp > viewStamp);
     overlay.classList.add("active");
     return;
   }
@@ -808,8 +858,8 @@ function renderSchedulablePreview(session, nextSchedulableRange) {
       18,
       ((clamped.endMin - clamped.startMin) / 60) * session.hourHeight
     )}px`;
-    overlay.classList.toggle("overflow-top", partsToDayStamp(startParts) < viewStamp);
-    overlay.classList.toggle("overflow-bottom", partsToDayStamp(endParts) > viewStamp);
+    overlay.classList.toggle("overflow-top", clamped.startStamp < viewStamp);
+    overlay.classList.toggle("overflow-bottom", clamped.endStamp > viewStamp);
     overlay.classList.add("active");
   });
 }
@@ -1561,14 +1611,9 @@ async function handleInfoCardMove(event) {
 }
 
 function renderDay() {
-  const dayStart = startOfDay(state.anchorDate);
+  const dayBoundaryMinutes = getDayBoundaryMinutes();
   const hourHeight = 54;
-  const hours = Array.from({ length: 24 }, (_, idx) => {
-    const hour = idx % 24;
-    const labelHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    const suffix = hour < 12 ? "AM" : "PM";
-    return `${labelHour} ${suffix}`;
-  });
+  const hours = buildTimelineHourLabels(dayBoundaryMinutes);
 
   const fullDayEvents = [];
   const blocks = getCalendarBlobs()
@@ -1584,6 +1629,9 @@ function renderDay() {
       const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
       const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
       if (!startParts || !endParts) return null;
+      const normalizedStart = normalizeDayPoint(startParts, dayBoundaryMinutes);
+      const normalizedEnd = normalizeDayPoint(endParts, dayBoundaryMinutes);
+      if (!normalizedStart || !normalizedEnd) return null;
       const startStamp = partsToDayStamp(startParts);
       const endStamp = partsToDayStamp(endParts);
       const fullDay =
@@ -1606,7 +1654,7 @@ function renderDay() {
       const clamped = getClampedMinutes(startParts, endParts, viewDayStamp);
       if (!clamped) return null;
       const minutes = clamped.endMin - clamped.startMin;
-      const showContent = partsToDayStamp(startParts) === viewDayStamp;
+      const showContent = normalizedStart.stamp === viewDayStamp;
       const baseRange = blob.realized_timerange || blob.default_scheduled_timerange || {};
       const baseStart = toDate(baseRange.start);
       const baseEnd = toDate(baseRange.end);
@@ -1638,8 +1686,8 @@ function renderDay() {
         schedStartParts,
         schedEndParts,
         showContent,
-        pieceStart: partsToDayStamp(startParts) === viewDayStamp,
-        pieceEnd: partsToDayStamp(endParts) === viewDayStamp,
+        pieceStart: normalizedStart.stamp === viewDayStamp,
+        pieceEnd: normalizedEnd.stamp === viewDayStamp,
         preview: Boolean(blob.preview),
       };
     })
@@ -1764,14 +1812,14 @@ function renderDay() {
     const top = clamped.startMin;
     overlay.style.top = `${(top / 60) * hourHeight}px`;
     overlay.style.height = `${Math.max(18, (minutes / 60) * hourHeight)}px`;
-    overlay.classList.toggle("overflow-top", partsToDayStamp(schedStartParts) < viewStamp);
-    overlay.classList.toggle("overflow-bottom", partsToDayStamp(schedEndParts) > viewStamp);
+    overlay.classList.toggle("overflow-top", clamped.startStamp < viewStamp);
+    overlay.classList.toggle("overflow-bottom", clamped.endStamp > viewStamp);
     overlay.classList.add("active");
     configureOverlayEditability(overlay, {
       blobId: blob.id,
       editable: selectedTimelineBlobId === normalizeTimelineBlobId(blob.id),
-      start: partsToDayStamp(schedStartParts) === viewStamp,
-      end: partsToDayStamp(schedEndParts) === viewStamp,
+      start: clamped.startStamp === viewStamp,
+      end: clamped.endStamp === viewStamp,
     });
     if (
       blockEl.getAttribute("data-adjusted") === "true" &&
@@ -2049,8 +2097,9 @@ function renderDay() {
 
     const finalizeRange = (startMin, endMin) => {
       const isEvent = state.currentBlobType === "event";
-      const startDate = new Date(dayStart.getTime() + startMin * 60000);
-      const endDate = new Date(dayStart.getTime() + endMin * 60000);
+      const startDate = dateFromTrackPosition(state.anchorDate, startMin, appConfig.userTimeZone);
+      const endDate = dateFromTrackPosition(state.anchorDate, endMin, appConfig.userTimeZone);
+      if (!startDate || !endDate) return;
       if (state.selectionStep === "schedulable") {
         state.pendingSchedulableRange = { start: startDate, end: endDate };
         if (isEvent) {
@@ -2205,20 +2254,16 @@ function renderDay() {
 
   applyTimelineSelection(dom.views.day);
   setDateLabel(formatDayLabel(state.anchorDate));
-  updateNowLine(dayTrack, hourHeight, state.anchorDate);
+  updateNowLine(dayTrack, hourHeight, state.anchorDate, dayBoundaryMinutes);
 }
 
 function renderWeek() {
+  const dayBoundaryMinutes = getDayBoundaryMinutes();
   const weekStart = getWeekStart(state.anchorDate);
   const days = Array.from({ length: 7 }, (_, idx) => addDays(weekStart, idx));
   const calendarBlobs = getCalendarBlobs();
   const hourHeight = 54;
-  const hours = Array.from({ length: 24 }, (_, idx) => {
-    const hour = idx % 24;
-    const labelHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    const suffix = hour < 12 ? "AM" : "PM";
-    return `${labelHour} ${suffix}`;
-  });
+  const hours = buildTimelineHourLabels(dayBoundaryMinutes);
 
   const dayStampsByTimeZone = new Map();
   const getDayStampsForTimeZone = (timeZone) => {
@@ -2241,6 +2286,9 @@ function renderWeek() {
       const startParts = getZonedParts(effectiveRange.start, blobTimeZone);
       const endParts = getZonedParts(effectiveRange.effectiveEnd, blobTimeZone);
       if (!startParts || !endParts) return null;
+      const normalizedStart = normalizeDayPoint(startParts, dayBoundaryMinutes);
+      const normalizedEnd = normalizeDayPoint(endParts, dayBoundaryMinutes);
+      if (!normalizedStart || !normalizedEnd) return null;
       const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
       const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
       const startStamp = partsToDayStamp(startParts);
@@ -2272,6 +2320,8 @@ function renderWeek() {
         endParts,
         startStamp,
         endStamp,
+        normalizedStartStamp: normalizedStart.stamp,
+        normalizedEndStamp: normalizedEnd.stamp,
         fullDay,
         schedStartParts,
         schedEndParts,
@@ -2309,7 +2359,7 @@ function renderWeek() {
         const clamped = getClampedMinutes(meta.startParts, meta.endParts, viewStamp);
         if (!clamped) return null;
         const minutes = clamped.endMin - clamped.startMin;
-        const showContent = meta.startStamp === viewStamp;
+        const showContent = meta.normalizedStartStamp === viewStamp;
         return {
           id: meta.id,
           title: meta.title,
@@ -2331,8 +2381,8 @@ function renderWeek() {
           schedEndParts: meta.schedEndParts,
           showContent,
           preview: meta.preview,
-          pieceStart: meta.startStamp === viewStamp,
-          pieceEnd: meta.endStamp === viewStamp,
+          pieceStart: meta.normalizedStartStamp === viewStamp,
+          pieceEnd: meta.normalizedEndStamp === viewStamp,
         };
       })
       .filter(Boolean)
@@ -2619,8 +2669,6 @@ function renderWeek() {
           blobTimeZone
         );
         if (!schedStartParts || !schedEndParts) return;
-        const schedStartStamp = partsToDayStamp(schedStartParts);
-        const schedEndStamp = partsToDayStamp(schedEndParts);
         dayTracks.forEach(({ overlay, originalOverlay, dayDate }) => {
           const viewParts = getZonedParts(dayDate, blobTimeZone);
           const viewStamp = viewParts ? partsToDayStamp(viewParts) : null;
@@ -2635,14 +2683,14 @@ function renderWeek() {
           const top = clamped.startMin;
           overlay.style.top = `${(top / 60) * hourHeight}px`;
           overlay.style.height = `${Math.max(18, (minutes / 60) * hourHeight)}px`;
-          overlay.classList.toggle("overflow-top", schedStartStamp < viewStamp);
-          overlay.classList.toggle("overflow-bottom", schedEndStamp > viewStamp);
+          overlay.classList.toggle("overflow-top", clamped.startStamp < viewStamp);
+          overlay.classList.toggle("overflow-bottom", clamped.endStamp > viewStamp);
           overlay.classList.add("active");
           configureOverlayEditability(overlay, {
             blobId: blob.id,
             editable: selectedTimelineBlobId === normalizeTimelineBlobId(blob.id),
-            start: schedStartStamp === viewStamp,
-            end: schedEndStamp === viewStamp,
+            start: clamped.startStamp === viewStamp,
+            end: clamped.endStamp === viewStamp,
           });
           if (
             blockEl.getAttribute("data-adjusted") === "true" &&
@@ -2854,10 +2902,17 @@ function renderWeek() {
       const rangeEndCol = Math.max(startCol, endCol);
       const rangeStartMin = startCol <= endCol ? startMin : endMin;
       const rangeEndMin = startCol <= endCol ? endMin : startMin;
-      const startDay = startOfDay(days[rangeStartCol]);
-      const endDay = startOfDay(days[rangeEndCol]);
-      const startDate = new Date(startDay.getTime() + rangeStartMin * 60000);
-      const endDate = new Date(endDay.getTime() + rangeEndMin * 60000);
+      const startDate = dateFromTrackPosition(
+        days[rangeStartCol],
+        rangeStartMin,
+        appConfig.userTimeZone
+      );
+      const endDate = dateFromTrackPosition(
+        days[rangeEndCol],
+        rangeEndMin,
+        appConfig.userTimeZone
+      );
+      if (!startDate || !endDate) return;
       const isEvent = state.currentBlobType === "event";
       if (state.selectionStep === "schedulable") {
         state.pendingSchedulableRange = { start: startDate, end: endDate };
@@ -3041,11 +3096,13 @@ function renderWeek() {
   applyTimelineSelection(dom.views.week);
   setDateLabel(formatWeekLabel(weekStart));
   dayTracks.forEach(({ track, dayDate }) => {
-    updateNowLine(track, hourHeight, dayDate);
+    updateNowLine(track, hourHeight, dayDate, dayBoundaryMinutes);
   });
 }
 
 function renderMonth() {
+  const dayBoundaryMinutes = getDayBoundaryMinutes();
+  const dayBoundaryOffsetMs = dayBoundaryMinutes * 60000;
   const monthStart = new Date(state.anchorDate.getFullYear(), state.anchorDate.getMonth(), 1);
   const monthEnd = new Date(state.anchorDate.getFullYear(), state.anchorDate.getMonth() + 1, 1);
   const dayOfWeek = monthStart.getDay();
@@ -3075,9 +3132,11 @@ function renderMonth() {
     const start = toZonedDate(effectiveRange.start, blobTimeZone);
     const end = toZonedDate(effectiveRange.effectiveEnd, blobTimeZone);
     if (!start || !end) return;
-    if (!overlaps(gridStart, gridEnd, start, end)) return;
-    let cursor = startOfDay(start < gridStart ? gridStart : start);
-    while (cursor < gridEnd && cursor < end) {
+    const shiftedStart = new Date(start.getTime() - dayBoundaryOffsetMs);
+    const shiftedEnd = new Date(end.getTime() - dayBoundaryOffsetMs);
+    if (!overlaps(gridStart, gridEnd, shiftedStart, shiftedEnd)) return;
+    let cursor = startOfDay(shiftedStart < gridStart ? gridStart : shiftedStart);
+    while (cursor < gridEnd && cursor < shiftedEnd) {
       const key = toKey(cursor);
       counts.set(key, (counts.get(key) || 0) + 1);
       const list = dayStars.get(key) || [];
@@ -3172,6 +3231,7 @@ function renderMonth() {
 
 function renderYear() {
   const year = state.anchorDate.getFullYear();
+  const dayBoundaryOffsetMs = getDayBoundaryMinutes() * 60000;
   const calendarBlobs = getCalendarBlobs();
   const months = Array.from({ length: 12 }, (_, idx) => new Date(year, idx, 1));
   const cards = months
@@ -3184,7 +3244,10 @@ function renderYear() {
         if (!effectiveRange) return false;
         const start = toZonedDate(effectiveRange.start, blobTimeZone);
         const end = toZonedDate(effectiveRange.effectiveEnd, blobTimeZone);
-        return start && end && overlaps(monthStart, monthEnd, start, end);
+        if (!start || !end) return false;
+        const shiftedStart = new Date(start.getTime() - dayBoundaryOffsetMs);
+        const shiftedEnd = new Date(end.getTime() - dayBoundaryOffsetMs);
+        return overlaps(monthStart, monthEnd, shiftedStart, shiftedEnd);
       });
       return `
         <button class="card year-month" data-date="${monthStart.toISOString()}">
@@ -3209,9 +3272,10 @@ function renderAll() {
 }
 
 function updateNowIndicators() {
+  const dayBoundaryMinutes = getDayBoundaryMinutes();
   if (state.view === "day") {
     const dayTrack = dom.views.day?.querySelector(".day-track");
-    updateNowLine(dayTrack, 54, state.anchorDate);
+    updateNowLine(dayTrack, 54, state.anchorDate, dayBoundaryMinutes);
   } else if (state.view === "week") {
     const columns = dom.views.week?.querySelectorAll(".week-day-column") || [];
     columns.forEach((column) => {
@@ -3220,7 +3284,7 @@ function updateNowIndicators() {
       const dayDate = new Date(dateIso);
       if (Number.isNaN(dayDate.getTime())) return;
       const track = column.querySelector(".week-day-track");
-      updateNowLine(track, 54, dayDate);
+      updateNowLine(track, 54, dayDate, dayBoundaryMinutes);
     });
   }
 }

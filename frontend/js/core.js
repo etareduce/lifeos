@@ -1,4 +1,4 @@
-import { getLocalTimeZone } from "./utils.js";
+import { getLocalTimeZone, normalizeDayBoundaryMinutes } from "./utils.js";
 
 const state = {
   blobs: [],
@@ -151,6 +151,7 @@ const defaultConfig = {
     1,
     Number(window.APP_CONFIG?.lookaheadSeconds || 14 * 24 * 60 * 60)
   ),
+  dayEndsAtMinutes: normalizeDayBoundaryMinutes(window.APP_CONFIG?.dayEndsAtMinutes || 0),
   useDeviceTimeZone:
     typeof window.APP_CONFIG?.useDeviceTimeZone === "boolean"
       ? window.APP_CONFIG.useDeviceTimeZone
@@ -205,6 +206,7 @@ const appConfig = {
 };
 appConfig.keybinds = normalizeKeybindConfig(appConfig.keybinds);
 appConfig.useDeviceTimeZone = appConfig.useDeviceTimeZone !== false;
+appConfig.dayEndsAtMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 240;

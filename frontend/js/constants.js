@@ -6,6 +6,7 @@ window.APP_CONFIG = {
   finishEarlyBufferMinutes: 15,
   includeActiveOccurrences: true,
   lookaheadSeconds: 14 * 24 * 60 * 60,
+  dayEndsAtMinutes: 0,
   projectTimeZone: "UTC",
   theme: "sand",
   engineInitialTemp: 10.0,

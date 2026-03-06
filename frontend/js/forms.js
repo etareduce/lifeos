@@ -18,6 +18,7 @@ import {
   getWeekStart,
   getLocalTimeZone,
   isBlobEditableInMainUi,
+  normalizeDayBoundaryMinutes,
   normalizeOccurrenceKey,
   overlaps,
   shiftAnchorDate,
@@ -364,6 +365,28 @@ function populateTimeZones() {
   select.dataset.populated = "true";
 }
 
+function formatDayBoundaryTimeValue(value) {
+  const minutes = normalizeDayBoundaryMinutes(value);
+  const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+  const minute = String(minutes % 60).padStart(2, "0");
+  return `${hour}:${minute}`;
+}
+
+function parseDayBoundaryTimeValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return 0;
+  const [hourRaw, minuteRaw] = raw.split(":");
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return null;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return hour * 60 + minute;
+}
+
 function hydrateSettingsForm() {
   settingsHydrating = true;
   dom.settingsForm.scheduleName.value = appConfig.scheduleName || "";
@@ -380,6 +403,9 @@ function hydrateSettingsForm() {
     Math.round((appConfig.lookaheadSeconds || 14 * 24 * 60 * 60) / 60)
   );
   dom.settingsForm.lookaheadMinutes.value = lookaheadMinutes;
+  if (dom.settingsForm.dayEndsAt) {
+    dom.settingsForm.dayEndsAt.value = formatDayBoundaryTimeValue(appConfig.dayEndsAtMinutes);
+  }
   dom.settingsForm.userTimeZone.value = appConfig.useDeviceTimeZone
     ? "__device__"
     : (appConfig.userTimeZone || "");
@@ -3319,6 +3345,8 @@ function handleSettingsSubmit(event) {
   const includeActiveOccurrences =
     formData.get("includeActiveOccurrences") === "on";
   const lookaheadMinutes = Math.max(1, Number(formData.get("lookaheadMinutes") || 1));
+  const dayEndsAtValue = formData.get("dayEndsAt")?.toString().trim() || "00:00";
+  const parsedDayBoundaryMinutes = parseDayBoundaryTimeValue(dayEndsAtValue);
   const userTimeZoneSetting = formData.get("userTimeZone")?.toString().trim() || "__device__";
   const useDeviceTimeZone = userTimeZoneSetting === "__device__";
   const userTimeZone = useDeviceTimeZone ? getLocalTimeZone() : userTimeZoneSetting;
@@ -3347,6 +3375,11 @@ function handleSettingsSubmit(event) {
     0,
     Number(formData.get("engineGranularityCostWeight") || 0)
   );
+  if (parsedDayBoundaryMinutes === null) {
+    dom.settingsStatus.textContent = "Invalid day end time.";
+    return;
+  }
+  const dayEndsAtMinutes = normalizeDayBoundaryMinutes(parsedDayBoundaryMinutes);
   if (!useDeviceTimeZone && userTimeZone) {
     try {
       Intl.DateTimeFormat("en-US", { timeZone: userTimeZone });
@@ -3362,6 +3395,7 @@ function handleSettingsSubmit(event) {
   appConfig.finishEarlyBufferMinutes = finishEarlyBufferMinutes;
   appConfig.includeActiveOccurrences = includeActiveOccurrences;
   appConfig.lookaheadSeconds = lookaheadMinutes * 60;
+  appConfig.dayEndsAtMinutes = dayEndsAtMinutes;
   appConfig.theme = theme;
   appConfig.engineInitialTemp = engineInitialTemp;
   appConfig.engineFinalTemp = engineFinalTemp;
@@ -3470,7 +3504,7 @@ async function handleLlmSubmit(event) {
   setLlmPreviewControls(false);
   const contextRaw = formData.get("llmContext")?.toString().trim() || "";
   const context = contextRaw ? [{ type: "text", content: contextRaw, label: "User notes" }] : [];
-  const range = getViewRange(state.view, state.anchorDate);
+  const range = getViewRange(state.view, state.anchorDate, appConfig.dayEndsAtMinutes);
   const payload = {
     message,
     context,
@@ -3486,7 +3520,7 @@ async function handleLlmSubmit(event) {
     state.previewBlobs = Array.isArray(draft.occurrences) ? draft.occurrences : [];
     state.llmDraftNotes = draft.notes || null;
     const hasPreview = Boolean(state.previewBlobs?.length);
-    const viewRange = getViewRange(state.view, state.anchorDate);
+    const viewRange = getViewRange(state.view, state.anchorDate, appConfig.dayEndsAtMinutes);
     const hasPreviewInView =
       hasPreview &&
       state.previewBlobs.some((blob) => {
@@ -3682,7 +3716,8 @@ function handleNextDay() {
 
 function handleToday() {
   const view = getActiveView();
-  state.anchorDate = new Date();
+  const dayBoundaryMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
+  state.anchorDate = new Date(Date.now() - dayBoundaryMinutes * 60000);
   if (refreshView) {
     refreshView(view);
   }
