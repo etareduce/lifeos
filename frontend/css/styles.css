@@ -2834,6 +2834,8 @@ body.modal-open .info-card {
   z-index: 25;
   min-width: 220px;
   max-width: 320px;
+  width: min(320px, calc(100vw - 24px));
+  box-sizing: border-box;
   display: grid;
   gap: 6px;
   padding: 12px;
@@ -2845,6 +2847,10 @@ body.modal-open .info-card {
   transform: translateY(6px);
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.info-card > * {
+  min-width: 0;
 }
 
 .info-card.active {
@@ -2874,19 +2880,32 @@ body.modal-open .info-card {
   font-weight: 700;
   font-size: 14px;
   color: var(--ink);
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
+  align-items: start;
+}
+
+.info-title-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 6px;
+}
+
+.info-title-text {
+  min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .info-title-actions {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  justify-self: end;
+  align-self: start;
 }
 
 .info-move,

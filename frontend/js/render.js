@@ -1304,8 +1304,10 @@ function showInfoCard(blob, anchorRect) {
     `;
   const html = `
     <div class="info-title">
-      ${blobName}
-      ${previewBadge}
+      <span class="info-title-main">
+        <span class="info-title-text">${blobName}</span>
+        ${previewBadge}
+      </span>
       ${actions}
     </div>
     ${blobDescription ? `<div class="info-text">${blobDescription}</div>` : ""}
