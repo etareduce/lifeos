@@ -8,6 +8,7 @@ import {
   moveRecurrenceToMainWithRefresh,
   updateOccurrenceTimingWithUndo,
 } from "./actions.js";
+import { updateRecurrence } from "./api.js";
 import {
   addDays,
   clampToGranularity,
@@ -37,6 +38,7 @@ let occurrenceCreateSession = null;
 let selectedTimelineBlobId = null;
 let suppressTimelineClearClick = false;
 let timelineHighlightSession = null;
+const starUpdateTokenByRecurrence = new Map();
 
 const DRAG_START_THRESHOLD_PX = 4;
 const TRACK_MINUTES = 24 * 60;
@@ -1459,6 +1461,8 @@ function updateCaret(caretEl, minutes, hourHeight) {
 
 async function toggleStarFromCalendar(blob) {
   if (!blob?.recurrence_id || blob.preview) return;
+  const recurrenceId = blob.recurrence_id;
+  const recurrenceType = blob.recurrence_type || "single";
   const wasLocked = state.infoCardLocked;
   const lockedId = normalizeTimelineBlobId(state.lockedBlobId);
   const activeInfoBlobId = normalizeTimelineBlobId(dom.infoCard?.dataset?.blobId);
@@ -1466,6 +1470,7 @@ async function toggleStarFromCalendar(blob) {
   const occurrenceKey = getOccurrenceKeyFromBlob(blob);
   if (!occurrenceKey) return;
   const payload = blob.recurrence_payload || {};
+  const previousPayload = payload;
   let nextPayload = { ...payload };
   if (payload.starred) {
     const unstarred = Array.isArray(payload.unstarred) ? payload.unstarred : [];
@@ -1481,44 +1486,56 @@ async function toggleStarFromCalendar(blob) {
     nextPayload = { ...payload, stars: nextStars };
   }
 
-  state.blobs = state.blobs.map((item) =>
-    item.recurrence_id === blob.recurrence_id
-      ? { ...item, recurrence_payload: nextPayload }
-      : item
-  );
-  setActive(state.view);
-  const shouldRestoreInfoCard =
-    (wasLocked && lockedId === blobId) || activeInfoBlobId === blobId;
-  if (shouldRestoreInfoCard) {
-    const viewRoot = state.view === "week" ? dom.views.week : dom.views.day;
-    const blockEl =
-      viewRoot?.querySelector(`.day-block[data-blob-id="${blobId}"]`) ||
-      viewRoot?.querySelector(`.full-day-chip[data-blob-id="${blobId}"]`);
-    const updatedBlob = state.blobs.find(
-      (item) => normalizeTimelineBlobId(item.id) === blobId
+  const applyPayloadUpdate = (nextRecurrencePayload) => {
+    state.blobs = state.blobs.map((item) =>
+      item.recurrence_id === recurrenceId
+        ? { ...item, recurrence_payload: nextRecurrencePayload }
+        : item
     );
-    if (blockEl && updatedBlob) {
-      state.infoCardLocked = false;
-      showInfoCard(updatedBlob, blockEl.getBoundingClientRect());
-      if (wasLocked && lockedId === blobId) {
-        state.infoCardLocked = true;
-        state.lockedBlobId = blobId;
-        blockEl.classList.add("active");
+  };
+
+  const rerenderAndRestoreInfoCard = () => {
+    setActive(state.view);
+    const shouldRestoreInfoCard =
+      (wasLocked && lockedId === blobId) || activeInfoBlobId === blobId;
+    if (shouldRestoreInfoCard) {
+      const viewRoot = state.view === "week" ? dom.views.week : dom.views.day;
+      const blockEl =
+        viewRoot?.querySelector(`.day-block[data-blob-id="${blobId}"]`) ||
+        viewRoot?.querySelector(`.full-day-chip[data-blob-id="${blobId}"]`);
+      const updatedBlob = state.blobs.find(
+        (item) => normalizeTimelineBlobId(item.id) === blobId
+      );
+      if (blockEl && updatedBlob) {
+        state.infoCardLocked = false;
+        showInfoCard(updatedBlob, blockEl.getBoundingClientRect());
+        if (wasLocked && lockedId === blobId) {
+          state.infoCardLocked = true;
+          state.lockedBlobId = blobId;
+          blockEl.classList.add("active");
+        }
       }
     }
-  }
+  };
+
+  const updateToken = Symbol(recurrenceId);
+  starUpdateTokenByRecurrence.set(recurrenceId, updateToken);
+  applyPayloadUpdate(nextPayload);
+  rerenderAndRestoreInfoCard();
 
   try {
-    await fetch(`${API_BASE}/recurrences/${blob.recurrence_id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: blob.recurrence_type || "single",
-        payload: nextPayload,
-      }),
-    });
+    await updateRecurrence(recurrenceId, recurrenceType, nextPayload);
   } catch (error) {
-    // Ignore network errors; state will resync on next refresh.
+    if (starUpdateTokenByRecurrence.get(recurrenceId) !== updateToken) {
+      return;
+    }
+    applyPayloadUpdate(previousPayload);
+    rerenderAndRestoreInfoCard();
+    await alertDialog(error?.message || "Unable to update star.");
+  } finally {
+    if (starUpdateTokenByRecurrence.get(recurrenceId) === updateToken) {
+      starUpdateTokenByRecurrence.delete(recurrenceId);
+    }
   }
 }
 
