@@ -44,6 +44,10 @@ const DRAG_START_THRESHOLD_PX = 4;
 const TRACK_MINUTES = 24 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function isCreateSessionActive() {
+  return Boolean(occurrenceCreateSession);
+}
+
 function normalizeTimelineBlobId(blobId) {
   if (blobId === null || blobId === undefined) return null;
   const normalized = String(blobId).trim();
@@ -354,6 +358,12 @@ function normalizedCreateRange(anchorDate, pointerDate) {
 function beginOccurrenceCreate(session) {
   cleanupTimelineHighlight();
   cleanupOccurrenceCreate();
+  state.infoCardLocked = false;
+  state.lockedBlobId = null;
+  state.infoCardAnchorHovering = false;
+  setInfoCardAnchor(null);
+  clearInfoCardOverlays();
+  hideInfoCard();
   occurrenceCreateSession = session;
   session.onPointerMove = (event) => {
     const active = occurrenceCreateSession;
@@ -1145,6 +1155,7 @@ function scheduleInfoCardHide(cleanup) {
 }
 
 function showInfoCardHtml(html, anchorRect) {
+  if (isCreateSessionActive()) return;
   const card = getInfoCard();
   if (!html || !anchorRect) return;
   clearInfoCardHideTimeout();
@@ -1167,6 +1178,7 @@ function showInfoCardHtml(html, anchorRect) {
 }
 
 function showInfoCard(blob, anchorRect) {
+  if (isCreateSessionActive()) return;
   if (!blob || !anchorRect) return;
   const recurrenceName = blob.recurrence_payload?.recurrence_name;
   const recurrenceDescription = blob.recurrence_payload?.recurrence_description;
@@ -1926,6 +1938,7 @@ function renderDay() {
 
   blocksEls.forEach((blockEl) => {
     blockEl.addEventListener("mouseenter", () => {
+      if (isCreateSessionActive()) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (state.infoCardLocked && state.lockedBlobId !== blockEl.dataset.blobId) return;
       state.infoCardAnchorHovering = true;
@@ -2009,6 +2022,7 @@ function renderDay() {
       });
     }
     chipEl.addEventListener("mouseenter", () => {
+      if (isCreateSessionActive()) return;
       if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
       if (state.infoCardLocked && state.lockedBlobId !== chipEl.dataset.blobId) return;
       state.infoCardAnchorHovering = true;
@@ -2626,6 +2640,7 @@ function renderWeek() {
         });
       }
       chipEl.addEventListener("mouseenter", () => {
+        if (isCreateSessionActive()) return;
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         if (state.infoCardLocked && state.lockedBlobId !== chipEl.dataset.blobId) return;
         state.infoCardAnchorHovering = true;
@@ -2730,6 +2745,7 @@ function renderWeek() {
       };
 
       blockEl.addEventListener("mouseenter", () => {
+        if (isCreateSessionActive()) return;
         if (dom.formPanel?.classList.contains("active") && !state.editingRecurrenceId) return;
         if (state.infoCardLocked && state.lockedBlobId !== blockEl.dataset.blobId) return;
         state.infoCardAnchorHovering = true;
@@ -3199,6 +3215,7 @@ function renderMonth() {
   `;
   dom.views.month.querySelectorAll(".month-day").forEach((dayEl) => {
     dayEl.addEventListener("mouseenter", () => {
+      if (isCreateSessionActive()) return;
       state.infoCardAnchorHovering = true;
       setInfoCardAnchor(dayEl);
       clearInfoCardHideTimeout();
