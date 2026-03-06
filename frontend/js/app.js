@@ -1322,19 +1322,22 @@ syncDeviceTimeZone();
 const initialDayBoundaryMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
 state.anchorDate = new Date(Date.now() - initialDayBoundaryMinutes * 60000);
 const savedView = loadView();
+const initialView = savedView || "day";
 const savedWorkspaceMode = loadWorkspaceMode();
 const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspaceMode)
   ? savedWorkspaceMode
   : WORKSPACE_MODE.HOME;
 if (initialWorkspaceMode === WORKSPACE_MODE.HOME) {
-  if (shouldPersistViewAnchor(savedView)) {
-    const savedAnchorDate = loadViewAnchor(savedView);
+  if (shouldPersistViewAnchor(initialView)) {
+    const savedAnchorDate = loadViewAnchor(initialView);
     if (savedAnchorDate) {
       state.anchorDate = savedAnchorDate;
     }
   }
   setWorkspaceMode(WORKSPACE_MODE.HOME);
-  refreshView(savedView || "day");
+  // Render immediately at the restored anchor before async data hydration to avoid load-time date flicker.
+  setActive(initialView);
+  refreshView(initialView);
 } else {
   switchWorkspaceMode(initialWorkspaceMode);
 }
