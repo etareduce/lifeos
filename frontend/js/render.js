@@ -695,6 +695,18 @@ function partsToDayStamp(parts) {
   return Date.UTC(parts.year, parts.month - 1, parts.day);
 }
 
+function isAllDayOccurrenceParts(startParts, endParts) {
+  if (!startParts || !endParts) return false;
+  return (
+    partsToDayStamp(startParts) === partsToDayStamp(endParts) &&
+    startParts.hour === 0 &&
+    startParts.minute === 0 &&
+    (startParts.second || 0) === 0 &&
+    endParts.hour === 23 &&
+    endParts.minute >= 59
+  );
+}
+
 function minutesFromParts(parts) {
   return parts.hour * 60 + parts.minute + (parts.second || 0) / 60;
 }
@@ -1662,22 +1674,18 @@ function renderDay() {
       const normalizedEnd = normalizeDayPoint(endParts, dayBoundaryMinutes);
       if (!normalizedStart || !normalizedEnd) return null;
       const startStamp = partsToDayStamp(startParts);
-      const endStamp = partsToDayStamp(endParts);
-      const fullDay =
-        startStamp === endStamp &&
-        startParts.hour === 0 &&
-        startParts.minute === 0 &&
-        endParts.hour === 23 &&
-        endParts.minute >= 59;
-      if (fullDay && startStamp === viewDayStamp) {
-        fullDayEvents.push({
-          id: blob.id,
-          title: blob.name,
-          type: getTagType(blob.tags),
-          colorClass: getRecurrenceColorClass(blob),
-          starred: isOccurrenceStarred(blob),
-          preview: Boolean(blob.preview),
-        });
+      const fullDay = isAllDayOccurrenceParts(startParts, endParts);
+      if (fullDay) {
+        if (startStamp === viewDayStamp) {
+          fullDayEvents.push({
+            id: blob.id,
+            title: blob.name,
+            type: getTagType(blob.tags),
+            colorClass: getRecurrenceColorClass(blob),
+            starred: isOccurrenceStarred(blob),
+            preview: Boolean(blob.preview),
+          });
+        }
         return null;
       }
       const clamped = getClampedMinutes(startParts, endParts, viewDayStamp);
@@ -2323,13 +2331,7 @@ function renderWeek() {
       const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
       const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
       const startStamp = partsToDayStamp(startParts);
-      const endStamp = partsToDayStamp(endParts);
-      const fullDay =
-        startStamp === endStamp &&
-        startParts.hour === 0 &&
-        startParts.minute === 0 &&
-        endParts.hour === 23 &&
-        endParts.minute >= 59;
+      const fullDay = isAllDayOccurrenceParts(startParts, endParts);
       const baseRange = blob.realized_timerange || blob.default_scheduled_timerange || {};
       const baseEnd = toDate(baseRange.end);
       const isAdjusted =
@@ -2376,15 +2378,17 @@ function renderWeek() {
       .map((meta) => {
         const viewStamp = meta.dayStamps[dayIndex];
         if (!viewStamp) return null;
-        if (meta.fullDay && meta.startStamp === viewStamp) {
-          fullDayEvents.push({
-            id: meta.id,
-            title: meta.title,
-            type: meta.type,
-            colorClass: meta.colorClass,
-            starred: meta.starred,
-            preview: meta.preview,
-          });
+        if (meta.fullDay) {
+          if (meta.startStamp === viewStamp) {
+            fullDayEvents.push({
+              id: meta.id,
+              title: meta.title,
+              type: meta.type,
+              colorClass: meta.colorClass,
+              starred: meta.starred,
+              preview: meta.preview,
+            });
+          }
           return null;
         }
         const clamped = getClampedMinutes(meta.startParts, meta.endParts, viewStamp);
@@ -3165,11 +3169,14 @@ function renderMonth() {
     const start = toZonedDate(effectiveRange.start, blobTimeZone);
     const end = toZonedDate(effectiveRange.effectiveEnd, blobTimeZone);
     if (!start || !end) return;
-    const shiftedStart = new Date(start.getTime() - dayBoundaryOffsetMs);
-    const shiftedEnd = new Date(end.getTime() - dayBoundaryOffsetMs);
-    if (!overlaps(gridStart, gridEnd, shiftedStart, shiftedEnd)) return;
-    let cursor = startOfDay(shiftedStart < gridStart ? gridStart : shiftedStart);
-    while (cursor < gridEnd && cursor < shiftedEnd) {
+    const startParts = getZonedParts(effectiveRange.start, blobTimeZone);
+    const endParts = getZonedParts(effectiveRange.effectiveEnd, blobTimeZone);
+    const fullDay = isAllDayOccurrenceParts(startParts, endParts);
+    const normalizedStart = fullDay ? start : new Date(start.getTime() - dayBoundaryOffsetMs);
+    const normalizedEnd = fullDay ? end : new Date(end.getTime() - dayBoundaryOffsetMs);
+    if (!overlaps(gridStart, gridEnd, normalizedStart, normalizedEnd)) return;
+    let cursor = startOfDay(normalizedStart < gridStart ? gridStart : normalizedStart);
+    while (cursor < gridEnd && cursor < normalizedEnd) {
       const key = toKey(cursor);
       counts.set(key, (counts.get(key) || 0) + 1);
       const list = dayStars.get(key) || [];
@@ -3279,9 +3286,12 @@ function renderYear() {
         const start = toZonedDate(effectiveRange.start, blobTimeZone);
         const end = toZonedDate(effectiveRange.effectiveEnd, blobTimeZone);
         if (!start || !end) return false;
-        const shiftedStart = new Date(start.getTime() - dayBoundaryOffsetMs);
-        const shiftedEnd = new Date(end.getTime() - dayBoundaryOffsetMs);
-        return overlaps(monthStart, monthEnd, shiftedStart, shiftedEnd);
+        const startParts = getZonedParts(effectiveRange.start, blobTimeZone);
+        const endParts = getZonedParts(effectiveRange.effectiveEnd, blobTimeZone);
+        const fullDay = isAllDayOccurrenceParts(startParts, endParts);
+        const normalizedStart = fullDay ? start : new Date(start.getTime() - dayBoundaryOffsetMs);
+        const normalizedEnd = fullDay ? end : new Date(end.getTime() - dayBoundaryOffsetMs);
+        return overlaps(monthStart, monthEnd, normalizedStart, normalizedEnd);
       });
       return `
         <button class="card year-month" data-date="${monthStart.toISOString()}">
