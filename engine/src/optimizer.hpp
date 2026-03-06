@@ -6,13 +6,24 @@
 #include <cmath>
 #include <limits>
 
+/**
+ * @brief Generic simulated annealing optimizer.
+ *
+ * @tparam State Optimization state type.
+ */
 template<typename State>
 class SimulatedAnnealingOptimizer {
 public:
+    /** @brief Returns cost value for a given state. */
     using CostFunction = std::function<double(const State&)>;
+    /** @brief Produces a neighboring candidate state. */
     using NeighborFunction = std::function<State(const State&)>;
+    /** @brief Computes temperature from initial temperature and iteration index. */
     using TemperatureSchedule = std::function<double(double, int)>;
 
+    /**
+     * @brief Construct optimizer with objective and annealing parameters.
+     */
     SimulatedAnnealingOptimizer(
         CostFunction cost_fn,
         NeighborFunction neighbor_fn,
@@ -29,6 +40,11 @@ public:
       temp_schedule(temp_schedule)
     {}
 
+    /**
+     * @brief Run simulated annealing from an initial state.
+     * @param initial_state Starting point for optimization.
+     * @return Best state discovered during the run.
+     */
     State optimize(const State& initial_state) {
         State curr_state = initial_state;
         State best_state = curr_state;
@@ -67,6 +83,7 @@ public:
         return best_state;
     }
 
+    /** @brief Return sampled cost history captured during optimization. */
     std::vector<double> get_cost_history() const {
         return cost_history;
     }
@@ -80,6 +97,7 @@ private:
     TemperatureSchedule temp_schedule;
     std::vector<double> cost_history;
 
+    /** @brief Default geometric cooling schedule (`t0 * 0.95^iter`). */
     static double default_schedule(double t0, int iter) {
         return t0 * std::pow(0.95, iter); // geometric cooling
     }

@@ -8,6 +8,12 @@
 
 #include "interval.hpp"
 
+/**
+ * @brief Internal interval tree node.
+ *
+ * @tparam T Interval bound type.
+ * @tparam U Value payload type.
+ */
 template<typename T, typename U>
 struct Node {
     std::unique_ptr<Interval<T>> interval;
@@ -24,6 +30,12 @@ struct Node {
           right(nullptr) {}
 };
 
+/**
+ * @brief Interval tree supporting overlap queries and payload lookup.
+ *
+ * @tparam T Interval bound type.
+ * @tparam U Stored value type.
+ */
 template<typename T, typename U>
 class IntervalTree {
 private:
@@ -103,12 +115,15 @@ private:
     }
 
 public:
+    /** @brief Construct an empty interval tree. */
     IntervalTree() = default;
     
+    /** @brief Copy constructor performing deep clone. */
     IntervalTree(const IntervalTree<T, U>& other) {
         root = clone_node(other.root);
     }
     
+    /** @brief Deep-copy assignment. */
     IntervalTree<T, U>& operator=(const IntervalTree<T, U>& other) {
         if (this != &other) {
             root = clone_node(other.root);
@@ -116,45 +131,78 @@ public:
         return *this;
     }
     
+    /**
+     * @brief Insert an interval and its associated value.
+     * @param low Interval lower bound.
+     * @param high Interval upper bound.
+     * @param value Payload value.
+     */
     void insert(T low, T high, U value) {
         auto interval = std::make_unique<Interval<T>>(low, high);
         root = insert(std::move(root), std::move(interval), value);
     }
     
+    /**
+     * @brief Insert an interval object with payload.
+     * @param interval Interval to insert.
+     * @param value Payload value.
+     */
     void insert(Interval<T> interval, U value) {
         auto i = std::make_unique<Interval<T>>(interval);
         root = insert(std::move(root), std::move(i), value);
     }
 
+    /**
+     * @brief Find one interval overlapping `query`.
+     * @return Pointer to an overlapping interval or `nullptr` if none.
+     */
     Interval<T>* search_overlap(Interval<T> query) const {
         auto result = overlap_search(root.get(), query);
         return result ? result->interval.get() : nullptr;
     }
     
+    /**
+     * @brief Find one interval overlapping `[low, high)`.
+     * @return Pointer to an overlapping interval or `nullptr` if none.
+     */
     Interval<T>* search_overlap(T low, T high) const {
         return search_overlap(Interval<T>(low, high));
     }
 
+    /**
+     * @brief Return all intervals that overlap `key`.
+     */
     std::vector<const Interval<T>*> find_overlapping(const Interval<T>& key) const {
         std::vector<const Interval<T>*> result;
         find_overlapping(root.get(), key, result);
         return result;
     }
 
+    /**
+     * @brief Find payload associated with any interval overlapping `[low, high)`.
+     * @return Pointer to value or `nullptr` when no overlap exists.
+     */
     U* search_value(T low, T high) const {
         Interval<T> query(low, high);
         auto result = overlap_search(root.get(), query);
         return result ? &result->value : nullptr;
     }
 
+    /**
+     * @brief Find payload associated with any interval overlapping `interval`.
+     */
     U* search_value(Interval<T> interval) const {
         return search_value(interval.get_low(), interval.get_high());
     }
 
+    /**
+     * @brief Check whether any stored interval overlaps `interval`.
+     */
     bool is_in(const Interval<T>& interval) {
         return search_overlap(interval.get_low(), interval.get_high()) != nullptr;
     }
     
+    /** @brief Print tree intervals in-order for debugging. */
     void print() const {
         print_in_order(root.get());
     }
