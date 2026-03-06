@@ -3005,6 +3005,12 @@ body.modal-open .info-card {
   word-break: break-word;
 }
 
+.info-recurrence-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .info-tags {
   display: flex;
   flex-wrap: wrap;

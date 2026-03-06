@@ -1181,7 +1181,7 @@ function showInfoCard(blob, anchorRect) {
       ? `
         <div class="info-divider"></div>
         <div class="info-label">Recurrence</div>
-        ${recurrenceName ? `<div class="info-text">${recurrenceName}</div>` : ""}
+        ${recurrenceName ? `<div class="info-text info-recurrence-name">${recurrenceName}</div>` : ""}
         ${recurrenceDescription ? `<div class="info-text">${recurrenceDescription}</div>` : ""}
       `
       : "";
