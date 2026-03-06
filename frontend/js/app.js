@@ -7,6 +7,7 @@ import {
   normalizeKeybindCombo,
   normalizeKeybindConfig,
   normalizeKeybindToken,
+  saveSettings,
   saveWorkspaceMode,
   state,
 } from "./core.js";
@@ -45,6 +46,7 @@ import {
   addDays,
   formatTimeRangeInTimeZone,
   getEffectiveOccurrenceRange,
+  getLocalTimeZone,
   getOccurrenceKeyFromBlob,
   getViewRange,
   shiftAnchorDate,
@@ -57,6 +59,17 @@ dom.brandSubtitle.textContent = appConfig.subtitle || dom.brandSubtitle.textCont
 applyTheme(appConfig.theme);
 if (dom.timeZoneLabel) {
   dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
+}
+
+function syncDeviceTimeZone() {
+  if (!appConfig.useDeviceTimeZone) return;
+  const deviceTimeZone = getLocalTimeZone();
+  if (!deviceTimeZone || deviceTimeZone === appConfig.userTimeZone) return;
+  appConfig.userTimeZone = deviceTimeZone;
+  if (dom.timeZoneLabel) {
+    dom.timeZoneLabel.textContent = appConfig.userTimeZone || "Local";
+  }
+  saveSettings(appConfig);
 }
 
 bindFormHandlers(refreshView);
@@ -1275,10 +1288,14 @@ window.addEventListener("elastisched:refresh", () => {
 });
 window.addEventListener("pagehide", queuePreferenceBatchFlush);
 document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    syncDeviceTimeZone();
+  }
   if (document.visibilityState === "hidden") {
     queuePreferenceBatchFlush();
   }
 });
+syncDeviceTimeZone();
 const savedView = loadView();
 const savedWorkspaceMode = loadWorkspaceMode();
 const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspaceMode)

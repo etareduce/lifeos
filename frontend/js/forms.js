@@ -16,7 +16,7 @@ import {
   getOccurrenceKeyFromBlob,
   getViewRange,
   getWeekStart,
-  inferTimeZoneFromLocation,
+  getLocalTimeZone,
   isBlobEditableInMainUi,
   normalizeOccurrenceKey,
   overlaps,
@@ -359,7 +359,8 @@ function populateTimeZones() {
       "Australia/Sydney",
     ];
   }
-  select.innerHTML = zones.map((zone) => `<option value="${zone}">${zone}</option>`).join("");
+  const manualOptions = zones.map((zone) => `<option value="${zone}">${zone}</option>`).join("");
+  select.innerHTML = `<option value="__device__">Auto (Device)</option>${manualOptions}`;
   select.dataset.populated = "true";
 }
 
@@ -379,7 +380,9 @@ function hydrateSettingsForm() {
     Math.round((appConfig.lookaheadSeconds || 14 * 24 * 60 * 60) / 60)
   );
   dom.settingsForm.lookaheadMinutes.value = lookaheadMinutes;
-  dom.settingsForm.userTimeZone.value = appConfig.userTimeZone || "";
+  dom.settingsForm.userTimeZone.value = appConfig.useDeviceTimeZone
+    ? "__device__"
+    : (appConfig.userTimeZone || "");
   if (dom.settingsForm.engineInitialTemp) {
     dom.settingsForm.engineInitialTemp.value = appConfig.engineInitialTemp ?? 10.0;
   }
@@ -2914,10 +2917,6 @@ async function handleBlobSubmit(event) {
   const recurrenceName = formData.get("recurrenceName");
   const recurrenceDescription = formData.get("recurrenceDescription") || null;
   const blobLocation = dom.blobForm.blobLocation?.value?.toString?.().trim?.() || "";
-  const recognizedBlobTimeZone = inferTimeZoneFromLocation(
-    blobLocation,
-    appConfig.userTimeZone
-  );
   const schedulableStart = formData.get("schedulableStart");
   const schedulableEnd = formData.get("schedulableEnd");
   const defaultStart = blobType === BLOB_TYPES.EVENT
@@ -3042,7 +3041,7 @@ async function handleBlobSubmit(event) {
     name: blobName,
     description: blobDescription,
     location: blobLocation || null,
-    tz: recognizedBlobTimeZone,
+    tz: appConfig.userTimeZone,
     default_scheduled_timerange: {
       start: toProjectIsoFromLocalInput(
         defaultStart,
@@ -3129,7 +3128,7 @@ async function handleBlobSubmit(event) {
         name: perSlot && slot.name ? slot.name : sharedName,
         description: perSlot ? slot.description || null : sharedDescription,
         location: slotLocation || null,
-        tz: inferTimeZoneFromLocation(slotLocation, appConfig.userTimeZone),
+        tz: appConfig.userTimeZone,
         default_scheduled_timerange: {
           start: defaultStart,
           end: defaultEnd,
@@ -3183,7 +3182,7 @@ async function handleBlobSubmit(event) {
       name: slot.name,
       description: slot.description || null,
       location: slot.location || null,
-      tz: inferTimeZoneFromLocation(slot.location, appConfig.userTimeZone),
+      tz: appConfig.userTimeZone,
       default_scheduled_timerange: {
         start: toProjectIsoFromLocalInput(
           slot.defaultStart,
@@ -3320,7 +3319,9 @@ function handleSettingsSubmit(event) {
   const includeActiveOccurrences =
     formData.get("includeActiveOccurrences") === "on";
   const lookaheadMinutes = Math.max(1, Number(formData.get("lookaheadMinutes") || 1));
-  const userTimeZone = formData.get("userTimeZone")?.toString().trim() || "";
+  const userTimeZoneSetting = formData.get("userTimeZone")?.toString().trim() || "__device__";
+  const useDeviceTimeZone = userTimeZoneSetting === "__device__";
+  const userTimeZone = useDeviceTimeZone ? getLocalTimeZone() : userTimeZoneSetting;
   const theme = formData.get("theme")?.toString().trim() || "sand";
   const engineInitialTemp = Math.max(0.0001, Number(formData.get("engineInitialTemp") || 0.0001));
   const engineFinalTemp = Math.max(0.000001, Number(formData.get("engineFinalTemp") || 0.000001));
@@ -3346,7 +3347,7 @@ function handleSettingsSubmit(event) {
     0,
     Number(formData.get("engineGranularityCostWeight") || 0)
   );
-  if (userTimeZone) {
+  if (!useDeviceTimeZone && userTimeZone) {
     try {
       Intl.DateTimeFormat("en-US", { timeZone: userTimeZone });
     } catch (error) {
@@ -3372,9 +3373,8 @@ function handleSettingsSubmit(event) {
   appConfig.engineConsistencyCostWeight = engineConsistencyCostWeight;
   appConfig.engineGranularityCostWeight = engineGranularityCostWeight;
   appConfig.keybinds = keybinds;
-  if (userTimeZone) {
-    appConfig.userTimeZone = userTimeZone;
-  }
+  appConfig.useDeviceTimeZone = useDeviceTimeZone;
+  appConfig.userTimeZone = userTimeZone || getLocalTimeZone();
   dom.brandTitle.textContent = appConfig.scheduleName;
   dom.brandSubtitle.textContent = appConfig.subtitle;
   applyTheme(appConfig.theme);

@@ -151,6 +151,10 @@ const defaultConfig = {
     1,
     Number(window.APP_CONFIG?.lookaheadSeconds || 14 * 24 * 60 * 60)
   ),
+  useDeviceTimeZone:
+    typeof window.APP_CONFIG?.useDeviceTimeZone === "boolean"
+      ? window.APP_CONFIG.useDeviceTimeZone
+      : true,
   userTimeZone: window.APP_CONFIG?.userTimeZone || null,
   theme: window.APP_CONFIG?.theme || "sand",
   sidebarCollapsed: Boolean(window.APP_CONFIG?.sidebarCollapsed || false),
@@ -200,6 +204,7 @@ const appConfig = {
   ...(storedConfig || {}),
 };
 appConfig.keybinds = normalizeKeybindConfig(appConfig.keybinds);
+appConfig.useDeviceTimeZone = appConfig.useDeviceTimeZone !== false;
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 240;
@@ -218,11 +223,11 @@ if (!Number.isFinite(Number(appConfig.sidebarWidth))) {
 }
 appConfig.sidebarWidth = clampSidebarWidthValue(appConfig.sidebarWidth);
 
-if (!appConfig.userTimeZone) {
+if (appConfig.useDeviceTimeZone || !appConfig.userTimeZone) {
   appConfig.userTimeZone = getLocalTimeZone();
 }
 try {
-  Intl.DateTimeFormat("en-US", { timeZone: appConfig.userTimeZone });
+  Intl.DateTimeFormat("en-US", { timeZone: appConfig.userTimeZone || "UTC" });
 } catch (error) {
   appConfig.userTimeZone = getLocalTimeZone();
 }
