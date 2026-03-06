@@ -2,12 +2,14 @@ import {
   appConfig,
   applyTheme,
   isTypingInField,
+  loadViewAnchor,
   loadView,
   loadWorkspaceMode,
   normalizeKeybindCombo,
   normalizeKeybindConfig,
   normalizeKeybindToken,
   saveSettings,
+  saveViewAnchor,
   saveWorkspaceMode,
   state,
 } from "./core.js";
@@ -94,6 +96,10 @@ const BASE_VISUAL_VIEWPORT_SCALE =
 let pendingRetroactiveCompletionId = null;
 let taskCompletionLastFocusedElement = null;
 let preferenceFlushQueued = false;
+
+function shouldPersistViewAnchor(view) {
+  return view === "month" || view === "year";
+}
 
 function getCurrentZoomFactor() {
   const viewportScale =
@@ -522,6 +528,9 @@ async function switchWorkspaceMode(mode) {
 async function refreshView(nextView = state.view, options = {}) {
   const view = nextView || state.view;
   const dayBoundaryMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
+  if (state.workspaceMode === WORKSPACE_MODE.HOME && shouldPersistViewAnchor(view)) {
+    saveViewAnchor(view, state.anchorDate);
+  }
   if (options?.forceReload) {
     state.loadedRange = null;
   }
@@ -1316,6 +1325,12 @@ const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspa
   ? savedWorkspaceMode
   : WORKSPACE_MODE.HOME;
 if (initialWorkspaceMode === WORKSPACE_MODE.HOME) {
+  if (shouldPersistViewAnchor(savedView)) {
+    const savedAnchorDate = loadViewAnchor(savedView);
+    if (savedAnchorDate) {
+      state.anchorDate = savedAnchorDate;
+    }
+  }
   setWorkspaceMode(WORKSPACE_MODE.HOME);
   refreshView(savedView || "day");
 } else {

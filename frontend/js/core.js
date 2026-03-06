@@ -260,6 +260,36 @@ function loadView() {
   }
 }
 
+function saveViewAnchor(view, anchorDate) {
+  const normalizedView = String(view || "").trim();
+  if (!normalizedView) return;
+  if (!(anchorDate instanceof Date) || Number.isNaN(anchorDate.getTime())) return;
+  try {
+    window.localStorage.setItem(
+      `elastisched:view-anchor:${normalizedView}`,
+      anchorDate.toISOString()
+    );
+  } catch (error) {
+    // Ignore storage errors.
+  }
+}
+
+function loadViewAnchor(view) {
+  const normalizedView = String(view || "").trim();
+  if (!normalizedView) return null;
+  try {
+    const value = window.localStorage.getItem(`elastisched:view-anchor:${normalizedView}`);
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
 function saveWorkspaceMode(mode) {
   try {
     window.localStorage.setItem("elastisched:workspace-mode", mode);
@@ -328,7 +358,9 @@ export {
   normalizeKeybindConfig,
   normalizeKeybindToken,
   applyTheme,
+  loadViewAnchor,
   saveSettings,
+  saveViewAnchor,
   saveView,
   saveWorkspaceMode,
   state,
