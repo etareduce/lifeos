@@ -96,9 +96,11 @@ const BASE_VISUAL_VIEWPORT_SCALE =
 let pendingRetroactiveCompletionId = null;
 let taskCompletionLastFocusedElement = null;
 let preferenceFlushQueued = false;
+const VIEWS_WITH_ANCHOR_PERSISTENCE = new Set(["day", "week", "month", "year"]);
 
 function shouldPersistViewAnchor(view) {
-  return view === "month" || view === "year";
+  const normalizedView = String(view || "").trim();
+  return VIEWS_WITH_ANCHOR_PERSISTENCE.has(normalizedView);
 }
 
 function getCurrentZoomFactor() {
