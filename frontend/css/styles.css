@@ -3027,7 +3027,8 @@ body.modal-open .info-card {
 }
 
 .info-id-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
@@ -3049,11 +3050,12 @@ body.modal-open .info-card {
   border-radius: 999px;
   border: 1px solid rgba(107, 103, 92, 0.24);
   background: var(--cream);
-  max-width: 210px;
+  max-width: 100%;
   min-width: 0;
 }
 
 .info-copy {
+  flex: 0 0 auto;
   padding: 4px 10px;
   display: inline-flex;
   align-items: center;
