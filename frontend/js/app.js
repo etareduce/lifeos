@@ -1192,6 +1192,7 @@ window.addEventListener("keydown", (event) => {
   const closePanelsMatch = matchesKeybind(event, keybinds.closePanels);
   const createTaskMatch = matchesKeybind(event, keybinds.createTask);
   const createEventMatch = matchesKeybind(event, keybinds.createEvent);
+  const goTodayMatch = matchesKeybind(event, keybinds.goToday);
   const navigatePrevMatch = matchesKeybind(event, keybinds.navigatePrev);
   const navigateNextMatch = matchesKeybind(event, keybinds.navigateNext);
   const editSelectionMatch =
@@ -1260,6 +1261,16 @@ window.addEventListener("keydown", (event) => {
   if (createEventMatch) {
     event.preventDefault();
     openCreateForm("event");
+    return;
+  }
+  if (goTodayMatch) {
+    if (state.workspaceMode !== WORKSPACE_MODE.HOME) {
+      return;
+    }
+    const dayBoundaryMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
+    state.anchorDate = new Date(Date.now() - dayBoundaryMinutes * 60000);
+    event.preventDefault();
+    refreshView(state.view);
     return;
   }
   if (navigatePrevMatch || navigateNextMatch) {

@@ -43,6 +43,7 @@ const KEYBIND_DEFAULTS = Object.freeze({
   closePanels: "Escape",
   createTask: "N",
   createEvent: "C",
+  goToday: "T",
   navigatePrev: "ArrowLeft",
   navigateNext: "ArrowRight",
 });

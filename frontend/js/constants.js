@@ -24,6 +24,7 @@ window.APP_CONFIG = {
     closePanels: "Escape",
     createTask: "N",
     createEvent: "C",
+    goToday: "T",
     navigatePrev: "ArrowLeft",
     navigateNext: "ArrowRight",
   },

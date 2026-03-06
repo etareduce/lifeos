@@ -77,6 +77,7 @@ const KEYBIND_FIELD_BY_ACTION = Object.freeze({
   closePanels: "keybindClosePanels",
   createTask: "keybindCreateTask",
   createEvent: "keybindCreateEvent",
+  goToday: "keybindGoToday",
   navigatePrev: "keybindNavigatePrev",
   navigateNext: "keybindNavigateNext",
 });
@@ -300,6 +301,7 @@ function getSettingsKeybindValues(formData) {
     closePanels: formData.get(KEYBIND_FIELD_BY_ACTION.closePanels),
     createTask: formData.get(KEYBIND_FIELD_BY_ACTION.createTask),
     createEvent: formData.get(KEYBIND_FIELD_BY_ACTION.createEvent),
+    goToday: formData.get(KEYBIND_FIELD_BY_ACTION.goToday),
     navigatePrev: formData.get(KEYBIND_FIELD_BY_ACTION.navigatePrev),
     navigateNext: formData.get(KEYBIND_FIELD_BY_ACTION.navigateNext),
   });
