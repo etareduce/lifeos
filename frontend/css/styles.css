@@ -2877,6 +2877,9 @@ body.modal-open .info-card {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .info-title-actions {
@@ -2978,6 +2981,9 @@ body.modal-open .info-card {
 .info-text {
   font-size: 12px;
   color: var(--ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .info-tags {
@@ -3008,9 +3014,9 @@ body.modal-open .info-card {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .info-id-pill {
@@ -3019,6 +3025,7 @@ body.modal-open .info-card {
   border: 1px solid rgba(107, 103, 92, 0.24);
   background: var(--cream);
   max-width: 210px;
+  min-width: 0;
 }
 
 .info-copy {
@@ -3082,9 +3089,9 @@ body.modal-open .info-card {
 }
 
 .info-list li {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .info-divider {
