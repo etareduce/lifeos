@@ -2331,6 +2331,7 @@ function renderWeek() {
       const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
       const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
       const startStamp = partsToDayStamp(startParts);
+      const endStamp = partsToDayStamp(endParts);
       const fullDay = isAllDayOccurrenceParts(startParts, endParts);
       const baseRange = blob.realized_timerange || blob.default_scheduled_timerange || {};
       const baseEnd = toDate(baseRange.end);
