@@ -3,6 +3,8 @@ import { toProjectIsoFromDate } from "./utils.js";
 
 let occurrenceRequestVersion = 0;
 let activeOccurrenceController = null;
+const SCHEDULE_STATUS_TIMEOUT_MS = 8000;
+const SCHEDULE_STATUS_MAX_ATTEMPTS = 2;
 
 async function fetchOccurrences(start, end) {
   const requestVersion = ++occurrenceRequestVersion;
@@ -59,24 +61,35 @@ async function ensureOccurrences(start, end) {
 }
 
 async function fetchScheduleStatus() {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(`${API_BASE}/schedule/status`, {
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error("Failed to fetch schedule status");
+  let lastError = null;
+  for (let attempt = 1; attempt <= SCHEDULE_STATUS_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      SCHEDULE_STATUS_TIMEOUT_MS
+    );
+    try {
+      const response = await fetch(`${API_BASE}/schedule/status`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch schedule status");
+      }
+      return response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt < SCHEDULE_STATUS_MAX_ATTEMPTS) {
+        continue;
+      }
+      if (error?.name === "AbortError") {
+        throw new Error("Schedule status request timed out");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-    return response.json();
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error("Schedule status request timed out");
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
   }
+  throw lastError || new Error("Failed to fetch schedule status");
 }
 
 async function runSchedule(granularityMinutes, lookaheadSeconds) {
