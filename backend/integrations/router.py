@@ -1927,6 +1927,16 @@ def _resolve_oauth_redirect_uri(request: Request) -> str:
     configured = get_google_oauth_redirect_uri().strip()
     if configured:
         return configured
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    if not forwarded_host:
+        forwarded_host = str(request.headers.get("host") or "").split(",")[0].strip()
+    if forwarded_host:
+        forwarded_host = forwarded_host.split("/", 1)[0].strip()
+        if "://" not in forwarded_host:
+            forwarded_proto = str(request.headers.get("x-forwarded-proto") or "")
+            forwarded_proto = forwarded_proto.split(",")[0].strip().lower()
+            scheme = forwarded_proto if forwarded_proto in {"http", "https"} else request.url.scheme
+            return f"{scheme}://{forwarded_host}/integrations/google/oauth/callback"
     base = str(request.base_url).rstrip("/")
     return f"{base}/integrations/google/oauth/callback"
 

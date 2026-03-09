@@ -3,6 +3,7 @@ import importlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import pytest_asyncio
@@ -547,3 +548,31 @@ async def test_export_user_data_archive(tmp_path_factory):
     assert archive["recurrences"][0]["id"] == created["id"]
     assert archive["analytics"]["occurrence_completion_events"]
     assert archive["analytics"]["schedule_feedback_batches"]
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_start_redirect_uri_uses_forwarded_origin(api_client, monkeypatch):
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.delenv("GOOGLE_OAUTH_REDIRECT_URI", raising=False)
+
+    async with api_client as client:
+        response = await client.get(
+            "/integrations/google/oauth/start",
+            headers={
+                "host": "api:8000",
+                "x-forwarded-host": "localhost:8080",
+                "x-forwarded-proto": "http",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+    location = response.headers["location"]
+    parsed = urlsplit(location)
+    query = parse_qs(parsed.query)
+
+    assert parsed.netloc == "accounts.google.com"
+    assert query["redirect_uri"] == [
+        "http://localhost:8080/integrations/google/oauth/callback"
+    ]
