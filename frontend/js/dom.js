@@ -50,6 +50,7 @@ const dom = {
   llmPanel: document.getElementById("llmPanel"),
   closeLlmBtn: document.getElementById("closeLlmBtn"),
   llmForm: document.getElementById("llmForm"),
+  llmCalendarView: document.getElementById("llmCalendarView"),
   llmStatus: document.getElementById("llmStatus"),
   llmConfirmBtn: document.getElementById("llmConfirmBtn"),
   llmDiscardBtn: document.getElementById("llmDiscardBtn"),
