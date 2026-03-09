@@ -1353,6 +1353,10 @@ body.modal-open .info-card {
   display: none;
 }
 
+.recurrence-visual-toggle.hidden {
+  display: none;
+}
+
 .tag-label {
   font-size: 13px;
   color: var(--muted);
@@ -2209,6 +2213,10 @@ body.modal-open .info-card {
 }
 
 .weekly-slots:not(.per-slot) .weekly-slot .policy-label-row {
+  display: none;
+}
+
+.weekly-slots:not(.per-slot) .weekly-slot .slot-visual-row {
   display: none;
 }
 

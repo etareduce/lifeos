@@ -1351,12 +1351,21 @@ function applyPolicyToSlot(slot, policy) {
   if (trackOnTasksPageEl) {
     trackOnTasksPageEl.checked = flags.showOnTasksPage;
   }
+  const showBordersOnlyEl = slot.querySelector('[name="slotShowBordersOnly"]');
+  if (showBordersOnlyEl) {
+    showBordersOnlyEl.checked = Boolean(
+      policy?.show_borders_only ?? policy?.showBordersOnly
+    );
+  }
   setPolicyAdvancedVisibility(slot, flags.splittable);
 }
 
 function syncSlotPoliciesFromForm() {
   if (!dom.weeklySlots) return;
-  const sharedPolicy = getPolicyPayloadFromForm();
+  const sharedPolicy = {
+    ...getPolicyPayloadFromForm(),
+    show_borders_only: getRecurrenceShowBordersOnly(),
+  };
   dom.weeklySlots.querySelectorAll(".weekly-slot").forEach((slot) => {
     applyPolicyToSlot(slot, sharedPolicy);
   });
@@ -1423,6 +1432,9 @@ function updateRecurrenceUI() {
   });
   document.querySelectorAll(".color-field").forEach((field) => {
     field.classList.toggle("hidden", isMultiple);
+  });
+  document.querySelectorAll(".recurrence-visual-toggle").forEach((field) => {
+    field.classList.toggle("hidden", isMultiple || (type === "weekly" && isWeeklyPerSlot));
   });
   document.querySelectorAll(".recurrence-extras").forEach((field) => {
     field.classList.toggle("hidden", isMultiple);
@@ -1632,6 +1644,14 @@ function createWeeklySlot(slotData = {}) {
     typeof slotData.trackOnTasksPage === "boolean"
       ? slotData.trackOnTasksPage
       : policyFlags.showOnTasksPage;
+  const showBordersOnly =
+    typeof slotData.showBordersOnly === "boolean"
+      ? slotData.showBordersOnly
+      : Boolean(
+        slotData.policy?.show_borders_only ??
+        slotData.policy?.showBordersOnly ??
+        getRecurrenceShowBordersOnly()
+      );
   slot.innerHTML = `
     <div class="weekly-slot-row slot-day-row">
       <div class="slot-day-field">
@@ -1664,6 +1684,12 @@ function createWeeklySlot(slotData = {}) {
           data-track-on-tasks-page
         />
         <span>Show on Tasks page</span>
+      </label>
+    </div>
+    <div class="weekly-slot-row slot-visual-row">
+      <label class="policy-option">
+        <input type="checkbox" name="slotShowBordersOnly" ${showBordersOnly ? "checked" : ""} />
+        <span>Show borders only</span>
       </label>
     </div>
     <div class="weekly-slot-row time-range-row schedulable-range-row">
@@ -1898,6 +1924,9 @@ function getWeeklySlotSelections() {
     const trackOnTasksPage = Boolean(
       slot.querySelector('[name="slotTrackOnTasksPage"]')?.checked ?? true
     );
+    const showBordersOnly = Boolean(
+      slot.querySelector('[name="slotShowBordersOnly"]')?.checked
+    );
     const schedStart = slot.querySelector('[name="slotSchedStart"]').value;
     const schedEnd = slot.querySelector('[name="slotSchedEnd"]').value;
     const defaultStart = slotType === BLOB_TYPES.EVENT
@@ -1906,6 +1935,16 @@ function getWeeklySlotSelections() {
     const defaultEnd = slotType === BLOB_TYPES.EVENT
       ? schedEnd
       : slot.querySelector('[name="slotDefaultEnd"]').value;
+    const policy = getPolicyPayloadFromFlags(
+      splittable,
+      overlappable,
+      invisible,
+      maxSplits,
+      minSplitMinutes * 60,
+      roundToGranularity,
+      trackOnTasksPage
+    );
+    policy.show_borders_only = showBordersOnly;
     selections.push({
       days: getSelectedDays(slot),
       blobType: slotType,
@@ -1917,15 +1956,7 @@ function getWeeklySlotSelections() {
       description: slot.querySelector('[name="slotDescription"]').value,
       location: slot.querySelector('[name="slotLocation"]')?.value || "",
       tags: getSlotTags(slot),
-      policy: getPolicyPayloadFromFlags(
-        splittable,
-        overlappable,
-        invisible,
-        maxSplits,
-        minSplitMinutes * 60,
-        roundToGranularity,
-        trackOnTasksPage
-      ),
+      policy,
     });
   });
   return selections;
@@ -2735,6 +2766,12 @@ function openEditForm(blob) {
         policy: weeklyBlob.policy || {},
         days: [dayValue],
         trackOnTasksPage: isBlobShownOnTasksPage(weeklyBlob.policy || {}),
+        showBordersOnly: Boolean(
+          weeklyBlob.policy?.show_borders_only ??
+          weeklyBlob.policy?.showBordersOnly ??
+          blob.recurrence_payload?.show_borders_only ??
+          blob.recurrence_payload?.showBordersOnly
+        ),
         blobType: isEventFromRanges(
           timeValueFromDate(start, "09:00", slotTimeZone),
           timeValueFromDate(end, "10:00", slotTimeZone),
@@ -2755,6 +2792,7 @@ function openEditForm(blob) {
         tags: normalizedTags,
         policy: policyFlags,
         trackOnTasksPage: slot.trackOnTasksPage,
+        showBordersOnly: slot.showBordersOnly,
       });
       const existing = groupedSlots.get(key);
       if (existing) {
@@ -2778,6 +2816,7 @@ function openEditForm(blob) {
         tags: slot.tags,
         policy: slot.policy,
         trackOnTasksPage: slot.trackOnTasksPage,
+        showBordersOnly: slot.showBordersOnly,
         blobType: slot.blobType,
       });
     });
@@ -2985,7 +3024,10 @@ async function handleBlobSubmit(event) {
   const blobType = normalizeBlobType(formData.get("blobType"));
   const perSlot = recurrenceType === "weekly" && Boolean(dom.weeklyPerSlot?.checked);
   const recurrenceColor = getRecurrenceColor();
-  const showBordersOnly = getRecurrenceShowBordersOnly();
+  const showBordersOnly =
+    recurrenceType === "weekly" && perSlot
+      ? false
+      : getRecurrenceShowBordersOnly();
   const recurrenceEnd = getRecurrenceEndValue();
   const recurrenceName = formData.get("recurrenceName");
   const recurrenceDescription = formData.get("recurrenceDescription") || null;
