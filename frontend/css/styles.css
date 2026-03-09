@@ -2119,6 +2119,10 @@ body.modal-open .info-card {
   height: 18px;
 }
 
+.blob-form .policy-option.recurrence-visual-toggle.hidden {
+  display: none;
+}
+
 .blob-form .slot-policy-advanced label {
   display: grid;
   gap: 6px;
