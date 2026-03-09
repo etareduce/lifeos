@@ -2111,7 +2111,8 @@ def _build_recurrence_payload(
         account_id=account_id,
         account_name=account_name,
     )
-    color = _color_for_key(imported.key)
+    # Keep one stable color per synced source calendar.
+    color = _color_for_key(calendar_view_id)
     common_payload = {
         "recurrence_name": imported.title,
         "recurrence_description": imported.description,

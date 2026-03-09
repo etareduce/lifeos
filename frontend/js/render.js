@@ -512,7 +512,7 @@ function getPolicyAllowsOverlap(blob) {
 function occurrenceConflict(blob, nextRange) {
   if (!blob || !nextRange) return true;
   const currentKey = getOccurrenceKeyFromBlob(blob);
-  return state.blobs.some((other) => {
+  return getCalendarBlobs().some((other) => {
     if (!other || other.preview) return false;
     if (other.id === blob.id) return false;
     if (
@@ -571,11 +571,100 @@ function isBlobVisible(blob) {
   return visibility[calendarViewId] !== false;
 }
 
+function importedGoogleOccurrenceDedupKey(blob) {
+  const payload = blob?.recurrence_payload;
+  if (!payload || typeof payload !== "object") return "";
+  const source =
+    payload.integration_source && typeof payload.integration_source === "object"
+      ? payload.integration_source
+      : null;
+  const calendarView =
+    payload.calendar_view && typeof payload.calendar_view === "object"
+      ? payload.calendar_view
+      : null;
+  const integrationLinks = Array.isArray(payload.integration_links)
+    ? payload.integration_links
+    : [];
+  const googleLink =
+    integrationLinks.find(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        String(item.provider || "")
+          .trim()
+          .toLowerCase() === "google"
+    ) || null;
+  const provider = String(
+    source?.provider || googleLink?.provider || calendarView?.source || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (provider !== "google") return "";
+  const calendarId = String(
+    source?.calendar_id || googleLink?.calendar_id || calendarView?.calendar_id || ""
+  ).trim();
+  const externalKey = String(source?.external_key || "").trim();
+  let externalRecurrenceId = String(
+    source?.external_recurrence_id || googleLink?.external_recurrence_id || ""
+  ).trim();
+  if (!externalRecurrenceId && externalKey) {
+    externalRecurrenceId = externalKey.includes(":")
+      ? externalKey.split(":").slice(1).join(":")
+      : externalKey;
+  }
+  if (!calendarId || !externalRecurrenceId) return "";
+  const occurrenceKey =
+    getOccurrenceKeyFromBlob(blob) ||
+    String(
+      blob?.default_scheduled_timerange?.start ||
+        blob?.schedulable_timerange?.start ||
+        ""
+    ).trim();
+  if (!occurrenceKey) return "";
+  return `google:${calendarId}:${externalRecurrenceId}:${occurrenceKey}`;
+}
+
 function getCalendarBlobs() {
   const visiblePrimary = state.blobs.filter(isBlobVisible);
   const preview = Array.isArray(state.previewBlobs) ? state.previewBlobs : [];
   const visiblePreview = preview.filter(isBlobVisible);
-  return visiblePreview.length ? visiblePrimary.concat(visiblePreview) : visiblePrimary;
+  const merged = [...visiblePrimary];
+  if (visiblePreview.length) {
+    const indexById = new Map();
+    merged.forEach((item, index) => {
+      const normalizedId = normalizeTimelineBlobId(item?.id);
+      if (normalizedId) {
+        indexById.set(normalizedId, index);
+      }
+    });
+    visiblePreview.forEach((item) => {
+      const normalizedId = normalizeTimelineBlobId(item?.id);
+      if (!normalizedId) {
+        merged.push(item);
+        return;
+      }
+      const existingIndex = indexById.get(normalizedId);
+      if (existingIndex === undefined) {
+        indexById.set(normalizedId, merged.length);
+        merged.push(item);
+        return;
+      }
+      merged[existingIndex] = item;
+    });
+  }
+  const deduped = [];
+  const seenImportedGoogleKeys = new Set();
+  merged.forEach((item) => {
+    const dedupKey = importedGoogleOccurrenceDedupKey(item);
+    if (dedupKey) {
+      if (seenImportedGoogleKeys.has(dedupKey)) {
+        return;
+      }
+      seenImportedGoogleKeys.add(dedupKey);
+    }
+    deduped.push(item);
+  });
+  return deduped;
 }
 
 function getBlobById(blobId) {
@@ -635,8 +724,47 @@ function renderPolicyBadges(policy, { compact = false } = {}) {
     .join("");
 }
 
+const SYNC_COLOR_SEQUENCE = [
+  "sand",
+  "sage",
+  "mist",
+  "clay",
+  "moss",
+  "coral",
+  "sky",
+  "violet",
+  "teal",
+  "lemon",
+  "indigo",
+  "ruby",
+  "mint",
+  "slate",
+];
+
+function colorForKey(value) {
+  const raw = String(value || "");
+  if (!raw) return "";
+  let checksum = 0;
+  for (const char of raw) checksum += char.charCodeAt(0);
+  return SYNC_COLOR_SEQUENCE[checksum % SYNC_COLOR_SEQUENCE.length] || "";
+}
+
+function importedGoogleCalendarColor(blob) {
+  const payload = blob?.recurrence_payload;
+  if (!payload || typeof payload !== "object") return "";
+  const source = payload.integration_source;
+  if (!source || typeof source !== "object") return "";
+  if (String(source.provider || "").toLowerCase() !== "google") return "";
+  const calendarView = payload.calendar_view;
+  if (!calendarView || typeof calendarView !== "object") return "";
+  const calendarViewId = String(calendarView.id || "").trim();
+  if (!calendarViewId || calendarViewId === "main") return "";
+  return colorForKey(calendarViewId);
+}
+
 function getRecurrenceColorClass(blob) {
-  const color = blob?.recurrence_payload?.color;
+  const importedColor = importedGoogleCalendarColor(blob);
+  const color = importedColor || blob?.recurrence_payload?.color;
   return color ? `palette-${color}` : "";
 }
 
@@ -695,16 +823,65 @@ function partsToDayStamp(parts) {
   return Date.UTC(parts.year, parts.month - 1, parts.day);
 }
 
+function normalizePartsHour(hour) {
+  return hour === 24 ? 0 : hour;
+}
+
+function isMidnightParts(parts) {
+  if (!parts) return false;
+  return (
+    normalizePartsHour(parts.hour) === 0 &&
+    parts.minute === 0 &&
+    (parts.second || 0) === 0
+  );
+}
+
+function isEndOfDayParts(parts) {
+  if (!parts) return false;
+  return normalizePartsHour(parts.hour) === 23 && parts.minute >= 59;
+}
+
 function isAllDayOccurrenceParts(startParts, endParts) {
   if (!startParts || !endParts) return false;
-  return (
-    partsToDayStamp(startParts) === partsToDayStamp(endParts) &&
-    startParts.hour === 0 &&
-    startParts.minute === 0 &&
-    (startParts.second || 0) === 0 &&
-    endParts.hour === 23 &&
-    endParts.minute >= 59
+  if (!isMidnightParts(startParts)) return false;
+  const startStamp = partsToDayStamp(startParts);
+  const endStamp = partsToDayStamp(endParts);
+  const endExclusiveAllDay = isMidnightParts(endParts) && endStamp > startStamp;
+  const endInclusiveAllDay = startStamp === endStamp && isEndOfDayParts(endParts);
+  return endExclusiveAllDay || endInclusiveAllDay;
+}
+
+function allDaySpansDayStamp(startParts, endParts, viewDayStamp) {
+  if (!isAllDayOccurrenceParts(startParts, endParts)) return false;
+  const startStamp = partsToDayStamp(startParts);
+  const endStamp = partsToDayStamp(endParts);
+  const endExclusive = isMidnightParts(endParts) && endStamp > startStamp;
+  if (endExclusive) {
+    return viewDayStamp >= startStamp && viewDayStamp < endStamp;
+  }
+  return viewDayStamp === startStamp;
+}
+
+function fullDayRenderKey(blob) {
+  const importedKey = importedGoogleOccurrenceDedupKey(blob);
+  if (importedKey) return importedKey;
+  const normalizedId = normalizeTimelineBlobId(blob?.id);
+  if (normalizedId) return `id:${normalizedId}`;
+  const occurrenceKey = getOccurrenceKeyFromBlob(blob);
+  if (occurrenceKey) return `occ:${occurrenceKey}`;
+  const recurrenceId = String(blob?.recurrence_id || "").trim();
+  const fallbackStart = String(
+    blob?.default_scheduled_timerange?.start ||
+      blob?.schedulable_timerange?.start ||
+      ""
   );
+  const fallbackEnd = String(
+    blob?.default_scheduled_timerange?.end ||
+      blob?.schedulable_timerange?.end ||
+      ""
+  );
+  const title = String(blob?.name || "").trim();
+  return `fallback:${recurrenceId}:${fallbackStart}:${fallbackEnd}:${title}`;
 }
 
 function minutesFromParts(parts) {
@@ -1657,6 +1834,7 @@ function renderDay() {
   const hours = buildTimelineHourLabels(dayBoundaryMinutes);
 
   const fullDayEvents = [];
+  const fullDayEventKeys = new Set();
   const blocks = getCalendarBlobs()
     .map((blob) => {
       const blobTimeZone = getBlobTimeZone(blob);
@@ -1673,10 +1851,14 @@ function renderDay() {
       const normalizedStart = normalizeDayPoint(startParts, dayBoundaryMinutes);
       const normalizedEnd = normalizeDayPoint(endParts, dayBoundaryMinutes);
       if (!normalizedStart || !normalizedEnd) return null;
-      const startStamp = partsToDayStamp(startParts);
       const fullDay = isAllDayOccurrenceParts(startParts, endParts);
       if (fullDay) {
-        if (startStamp === viewDayStamp) {
+        if (allDaySpansDayStamp(startParts, endParts, viewDayStamp)) {
+          const fullDayKey = fullDayRenderKey(blob);
+          if (fullDayEventKeys.has(fullDayKey)) {
+            return null;
+          }
+          fullDayEventKeys.add(fullDayKey);
           fullDayEvents.push({
             id: blob.id,
             title: blob.name,
@@ -2330,8 +2512,6 @@ function renderWeek() {
       if (!normalizedStart || !normalizedEnd) return null;
       const schedStartParts = getZonedParts(blob.schedulable_timerange?.start, blobTimeZone);
       const schedEndParts = getZonedParts(blob.schedulable_timerange?.end, blobTimeZone);
-      const startStamp = partsToDayStamp(startParts);
-      const endStamp = partsToDayStamp(endParts);
       const fullDay = isAllDayOccurrenceParts(startParts, endParts);
       const baseRange = blob.realized_timerange || blob.default_scheduled_timerange || {};
       const baseEnd = toDate(baseRange.end);
@@ -2341,6 +2521,7 @@ function renderWeek() {
         effectiveRange.effectiveEnd.getTime() !== baseEnd.getTime();
       return {
         id: blob.id,
+        fullDayKey: fullDayRenderKey(blob),
         title: blob.name,
         type: getTagType(blob.tags),
         colorClass: getRecurrenceColorClass(blob),
@@ -2352,8 +2533,6 @@ function renderWeek() {
         effectiveRange,
         startParts,
         endParts,
-        startStamp,
-        endStamp,
         normalizedStartStamp: normalizedStart.stamp,
         normalizedEndStamp: normalizedEnd.stamp,
         fullDay,
@@ -2375,12 +2554,17 @@ function renderWeek() {
 
   const dayEntries = days.map((date, dayIndex) => {
     const fullDayEvents = [];
+    const fullDayEventKeys = new Set();
     const blocks = blobMetas
       .map((meta) => {
         const viewStamp = meta.dayStamps[dayIndex];
         if (!viewStamp) return null;
         if (meta.fullDay) {
-          if (meta.startStamp === viewStamp) {
+          if (allDaySpansDayStamp(meta.startParts, meta.endParts, viewStamp)) {
+            if (fullDayEventKeys.has(meta.fullDayKey)) {
+              return null;
+            }
+            fullDayEventKeys.add(meta.fullDayKey);
             fullDayEvents.push({
               id: meta.id,
               title: meta.title,
