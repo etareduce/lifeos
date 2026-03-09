@@ -38,11 +38,14 @@ let occurrenceCreateSession = null;
 let selectedTimelineBlobId = null;
 let suppressTimelineClearClick = false;
 let timelineHighlightSession = null;
+let suppressTimelineContextMenuUntil = 0;
 const starUpdateTokenByRecurrence = new Map();
 
 const DRAG_START_THRESHOLD_PX = 4;
 const TRACK_MINUTES = 24 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LEFT_MOUSE_BUTTON = 0;
+const RIGHT_MOUSE_BUTTON = 2;
 
 function isCreateSessionActive() {
   return Boolean(occurrenceCreateSession);
@@ -154,8 +157,62 @@ function setTimelineSelection(viewRoot, blobIds, options = {}) {
   applyTimelineSelection(viewRoot);
 }
 
+function selectedTimelineBlobIdSet() {
+  return new Set(
+    (Array.isArray(state.selectedOccurrenceIds) ? state.selectedOccurrenceIds : [])
+      .map((blobId) => normalizeTimelineBlobId(blobId))
+      .filter(Boolean)
+  );
+}
+
+function shiftedRangeByMs(range, deltaMs) {
+  if (!range) return null;
+  const startMs = range.start?.getTime?.();
+  const endMs = range.end?.getTime?.();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !Number.isFinite(deltaMs)) {
+    return null;
+  }
+  return {
+    start: new Date(startMs + deltaMs),
+    end: new Date(endMs + deltaMs),
+  };
+}
+
+function getEditableSelectedShiftTargets(anchorBlob) {
+  const anchorId = normalizeTimelineBlobId(anchorBlob?.id);
+  if (!anchorId) return [];
+  const selectedIds = selectedTimelineBlobIdSet();
+  if (!selectedIds.has(anchorId) || selectedIds.size <= 1) return [];
+  const targets = [];
+  selectedIds.forEach((selectedId) => {
+    const blob = getBlobById(selectedId);
+    if (!blob || !canEditTiming(blob)) return;
+    const originalDefaultRange = occurrenceRangeFromBlob(blob);
+    const originalSchedulableRange = schedulableRangeFromBlob(blob);
+    if (!originalDefaultRange || !originalSchedulableRange) return;
+    targets.push({
+      blob,
+      normalizedId: selectedId,
+      originalDefaultRange,
+      originalSchedulableRange,
+    });
+  });
+  return targets.length > 1 ? targets : [];
+}
+
 function removeTimelineHighlightBox() {
   timelineHighlightSession?.box?.remove();
+}
+
+function suppressTimelineContextMenu(durationMs = 500) {
+  suppressTimelineContextMenuUntil = Math.max(
+    suppressTimelineContextMenuUntil,
+    Date.now() + durationMs
+  );
+}
+
+function shouldSuppressTimelineContextMenu() {
+  return Boolean(timelineHighlightSession) || Date.now() < suppressTimelineContextMenuUntil;
 }
 
 function cleanupTimelineHighlight() {
@@ -509,12 +566,16 @@ function getPolicyAllowsOverlap(blob) {
   return getPolicyFlags(blob?.policy || {}).overlappable;
 }
 
-function occurrenceConflict(blob, nextRange) {
+function occurrenceConflict(blob, nextRange, options = {}) {
   if (!blob || !nextRange) return true;
+  const ignoreBlobIds = options.ignoreBlobIds instanceof Set ? options.ignoreBlobIds : null;
+  const currentBlobId = normalizeTimelineBlobId(blob.id);
   const currentKey = getOccurrenceKeyFromBlob(blob);
   return getCalendarBlobs().some((other) => {
     if (!other || other.preview) return false;
-    if (other.id === blob.id) return false;
+    const otherBlobId = normalizeTimelineBlobId(other.id);
+    if (otherBlobId && ignoreBlobIds?.has(otherBlobId)) return false;
+    if (otherBlobId === currentBlobId) return false;
     if (
       other.recurrence_id === blob.recurrence_id &&
       getOccurrenceKeyFromBlob(other) === currentKey
@@ -1145,6 +1206,43 @@ function validateSessionRanges(session, nextDefaultRange, nextSchedulableRange) 
   if (!containsRange(nextSchedulableRange, nextDefaultRange)) {
     return { valid: false, changed };
   }
+  if (
+    session.mode === "move" &&
+    Array.isArray(session.shiftTargets) &&
+    session.shiftTargets.length > 1
+  ) {
+    const deltaMs =
+      nextDefaultRange.start.getTime() - session.originalDefaultRange.start.getTime();
+    if (!Number.isFinite(deltaMs)) {
+      return { valid: false, changed };
+    }
+    const ignoreBlobIds = new Set(
+      session.shiftTargets.map((target) => target.normalizedId).filter(Boolean)
+    );
+    for (const target of session.shiftTargets) {
+      const shiftedDefaultRange = shiftedRangeByMs(target.originalDefaultRange, deltaMs);
+      const shiftedSchedulableRange = shiftedRangeByMs(
+        target.originalSchedulableRange,
+        deltaMs
+      );
+      if (!shiftedDefaultRange || !shiftedSchedulableRange) {
+        return { valid: false, changed };
+      }
+      if (shiftedDefaultRange.end <= shiftedDefaultRange.start) {
+        return { valid: false, changed };
+      }
+      if (shiftedSchedulableRange.end <= shiftedSchedulableRange.start) {
+        return { valid: false, changed };
+      }
+      if (!containsRange(shiftedSchedulableRange, shiftedDefaultRange)) {
+        return { valid: false, changed };
+      }
+      if (occurrenceConflict(target.blob, shiftedDefaultRange, { ignoreBlobIds })) {
+        return { valid: false, changed };
+      }
+    }
+    return { valid: true, changed };
+  }
   if (session.mode !== "sched-start" && session.mode !== "sched-end") {
     if (occurrenceConflict(session.blob, nextDefaultRange)) {
       return { valid: false, changed };
@@ -1175,6 +1273,39 @@ function consumeSuppressedTimelineClearClick() {
 
 async function commitOccurrenceDrag(session) {
   if (!session?.nextDefaultRange || !session?.nextSchedulableRange) return;
+  if (
+    session.mode === "move" &&
+    Array.isArray(session.shiftTargets) &&
+    session.shiftTargets.length > 1
+  ) {
+    const deltaMs =
+      session.nextDefaultRange.start.getTime() - session.originalDefaultRange.start.getTime();
+    if (!Number.isFinite(deltaMs) || deltaMs === 0) {
+      return;
+    }
+    for (let index = 0; index < session.shiftTargets.length; index += 1) {
+      const target = session.shiftTargets[index];
+      const shiftedDefaultRange = shiftedRangeByMs(target.originalDefaultRange, deltaMs);
+      const shiftedSchedulableRange = shiftedRangeByMs(
+        target.originalSchedulableRange,
+        deltaMs
+      );
+      if (!shiftedDefaultRange || !shiftedSchedulableRange) {
+        continue;
+      }
+      await updateOccurrenceTimingWithUndo(
+        target.blob,
+        {
+          defaultScheduledRange: shiftedDefaultRange,
+          schedulableRange: shiftedSchedulableRange,
+        },
+        {
+          skipRefresh: index < session.shiftTargets.length - 1,
+        }
+      );
+    }
+    return;
+  }
   const defaultScheduledRange =
     session.mode === "move" || session.mode === "default-start" || session.mode === "default-end"
       ? session.nextDefaultRange
@@ -1781,6 +1912,7 @@ async function handleInfoCardDelete(event) {
 async function handleInfoCardEdit(event) {
   const button = event.target.closest(".info-edit");
   if (!button) return;
+  if (selectedTimelineBlobIdSet().size > 1) return;
   const blobId = dom.infoCard?.dataset?.blobId || state.lockedBlobId;
   if (!blobId) return;
   const blob = getBlobById(blobId);
@@ -2064,6 +2196,7 @@ function renderDay() {
     const originalDefaultRange = occurrenceRangeFromBlob(blob);
     const originalSchedulableRange = schedulableRangeFromBlob(blob);
     if (!originalDefaultRange || !originalSchedulableRange) return;
+    const shiftTargets = mode === "move" ? getEditableSelectedShiftTargets(blob) : [];
     const initialPointerDate = getPointerDateForSession(
       {
         view: "day",
@@ -2092,6 +2225,7 @@ function renderDay() {
       anchorOffsetMs: initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
       nextDefaultRange: originalDefaultRange,
       nextSchedulableRange: originalSchedulableRange,
+      shiftTargets,
       dragging: false,
       valid: false,
       restoreUi: () => {
@@ -2174,13 +2308,19 @@ function renderDay() {
       const handle = event.target.closest("[data-drag-handle]");
       const mode = handle?.getAttribute("data-drag-handle") || "move";
       const blobId = normalizeTimelineBlobId(blob.id);
-      if (mode === "move" && selectedTimelineBlobId !== blobId) {
+      const selectedIds = selectedTimelineBlobIdSet();
+      const selectedCount = selectedIds.size;
+      const isSelected = selectedIds.has(blobId);
+      if (mode === "move" && !isSelected) {
         activateTimelineSelection(dom.views.day, blobId);
         state.infoCardLocked = true;
         state.lockedBlobId = blobId;
         applyInfoCardAndOverlay(blockEl);
+      } else if (mode === "move" && selectedTimelineBlobId !== blobId) {
+        selectedTimelineBlobId = blobId;
+        applyTimelineSelection(dom.views.day);
       }
-      if (mode !== "move" && selectedTimelineBlobId !== blobId) {
+      if (mode !== "move" && (selectedCount > 1 || selectedTimelineBlobId !== blobId)) {
         return;
       }
       if (mode === "default-start" && blockEl.dataset.pieceStart !== "true") return;
@@ -2252,6 +2392,7 @@ function renderDay() {
     if (event.button !== 0) return;
     const handle = event.target.closest("[data-drag-handle]");
     if (!handle) return;
+    if (selectedTimelineBlobIdSet().size > 1) return;
     const blobId = overlay.dataset.blobId;
     const blob = getBlobById(blobId);
     if (!blob || selectedTimelineBlobId !== normalizeTimelineBlobId(blob.id)) return;
@@ -2449,21 +2590,36 @@ function renderDay() {
     window.addEventListener("resize", state.selectionScrollHandler);
   } else {
     if (dom.views.day) {
+      dom.views.day.oncontextmenu = (event) => {
+        if (!shouldSuppressTimelineContextMenu()) return;
+        event.preventDefault();
+      };
       dom.views.day.onpointerdown = (event) => {
-        if (event.button !== 0) return;
+        const isLeftButton = event.button === LEFT_MOUSE_BUTTON;
+        const isRightButton = event.button === RIGHT_MOUSE_BUTTON;
+        if (!isLeftButton && !isRightButton) return;
         if (dom.formPanel?.classList.contains("active")) return;
         if (!event.target.closest(".all-day-row, .day-track")) return;
         const isTimedTrack = Boolean(event.target.closest(".day-track"));
         const additive = event.metaKey || event.ctrlKey;
-        if (
-          event.target.closest("[data-blob-id]") ||
+        const hitsInteractiveOverlay = Boolean(
           event.target.closest(".schedulable-overlay") ||
-          event.target.closest(".selection-overlay") ||
-          event.target.closest(".selection-caret")
-        ) {
+            event.target.closest(".selection-overlay") ||
+            event.target.closest(".selection-caret")
+        );
+        if (hitsInteractiveOverlay) {
+          return;
+        }
+        const hitsBlob = Boolean(event.target.closest("[data-blob-id]"));
+        if (!isRightButton && hitsBlob) {
           return;
         }
         event.preventDefault();
+        if (isRightButton) {
+          suppressTimelineContextMenu();
+          startTimelineHighlight(dom.views.day, event, { additive: false });
+          return;
+        }
         if (isTimedTrack && !additive) {
           startDayCreate(event);
           return;
@@ -2738,6 +2894,7 @@ function renderWeek() {
     const originalDefaultRange = occurrenceRangeFromBlob(blob);
     const originalSchedulableRange = schedulableRangeFromBlob(blob);
     if (!originalDefaultRange || !originalSchedulableRange) return;
+    const shiftTargets = mode === "move" ? getEditableSelectedShiftTargets(blob) : [];
     const initialPointerDate = getPointerDateForSession(
       {
         view: "week",
@@ -2767,6 +2924,7 @@ function renderWeek() {
       anchorOffsetMs: initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
       nextDefaultRange: originalDefaultRange,
       nextSchedulableRange: originalSchedulableRange,
+      shiftTargets,
       dragging: false,
       valid: false,
       restoreUi: () => {
@@ -2982,13 +3140,19 @@ function renderWeek() {
         const handle = event.target.closest("[data-drag-handle]");
         const mode = handle?.getAttribute("data-drag-handle") || "move";
         const blobId = normalizeTimelineBlobId(blob.id);
-        if (mode === "move" && selectedTimelineBlobId !== blobId) {
+        const selectedIds = selectedTimelineBlobIdSet();
+        const selectedCount = selectedIds.size;
+        const isSelected = selectedIds.has(blobId);
+        if (mode === "move" && !isSelected) {
           activateTimelineSelection(dom.views.week, blobId);
           state.infoCardLocked = true;
           state.lockedBlobId = blobId;
           applyInfoCardAndOverlay();
+        } else if (mode === "move" && selectedTimelineBlobId !== blobId) {
+          selectedTimelineBlobId = blobId;
+          applyTimelineSelection(dom.views.week);
         }
-        if (mode !== "move" && selectedTimelineBlobId !== blobId) {
+        if (mode !== "move" && (selectedCount > 1 || selectedTimelineBlobId !== blobId)) {
           return;
         }
         if (mode === "default-start" && blockEl.dataset.pieceStart !== "true") return;
@@ -3013,6 +3177,7 @@ function renderWeek() {
       if (event.button !== 0) return;
       const handle = event.target.closest("[data-drag-handle]");
       if (!handle) return;
+      if (selectedTimelineBlobIdSet().size > 1) return;
       const blobId = overlay.dataset.blobId;
       const blob = getBlobById(blobId);
       if (!blob || selectedTimelineBlobId !== normalizeTimelineBlobId(blob.id)) return;
@@ -3285,8 +3450,14 @@ function renderWeek() {
     window.addEventListener("resize", state.selectionScrollHandler);
   } else {
     if (dom.views.week) {
+      dom.views.week.oncontextmenu = (event) => {
+        if (!shouldSuppressTimelineContextMenu()) return;
+        event.preventDefault();
+      };
       dom.views.week.onpointerdown = (event) => {
-        if (event.button !== 0) return;
+        const isLeftButton = event.button === LEFT_MOUSE_BUTTON;
+        const isRightButton = event.button === RIGHT_MOUSE_BUTTON;
+        if (!isLeftButton && !isRightButton) return;
         if (dom.formPanel?.classList.contains("active")) return;
         const isTimedTrack = Boolean(event.target.closest(".week-day-track"));
         const additive = event.metaKey || event.ctrlKey;
@@ -3297,15 +3468,24 @@ function renderWeek() {
         ) {
           return;
         }
-        if (
-          event.target.closest("[data-blob-id]") ||
+        const hitsInteractiveOverlay = Boolean(
           event.target.closest(".schedulable-overlay") ||
-          event.target.closest(".selection-overlay") ||
-          event.target.closest(".selection-caret")
-        ) {
+            event.target.closest(".selection-overlay") ||
+            event.target.closest(".selection-caret")
+        );
+        if (hitsInteractiveOverlay) {
+          return;
+        }
+        const hitsBlob = Boolean(event.target.closest("[data-blob-id]"));
+        if (!isRightButton && hitsBlob) {
           return;
         }
         event.preventDefault();
+        if (isRightButton) {
+          suppressTimelineContextMenu();
+          startTimelineHighlight(dom.views.week, event, { additive: false });
+          return;
+        }
         if (isTimedTrack && !additive) {
           startWeekCreate(event);
           return;

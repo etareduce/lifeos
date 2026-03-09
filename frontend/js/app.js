@@ -32,7 +32,6 @@ import {
 import {
   bindFormHandlers,
   openCreateForm,
-  openBatchEditForm,
   openEditForm,
   resetFormMode,
   toggleForm,
@@ -1103,7 +1102,10 @@ document.addEventListener(
       .filter(Boolean)
       .filter((blob) => !blob.preview);
     if (selectedBlobs.length > 1) {
-      openBatchEditForm(selectedBlobs);
+      return;
+    }
+    if (selectedBlobs.length === 1) {
+      openEditForm(selectedBlobs[0]);
       return;
     }
     const blob = state.blobs.find((item) => String(item.id) === String(blobId));
@@ -1236,10 +1238,6 @@ window.addEventListener("keydown", (event) => {
       .map((blobId) => state.blobs.find((item) => String(item.id) === String(blobId)))
       .filter(Boolean)
       .filter((blob) => !blob.preview);
-    if (selectedBlobs.length > 1) {
-      openBatchEditForm(selectedBlobs);
-      return;
-    }
     if (selectedBlobs.length === 1) {
       openEditForm(selectedBlobs[0]);
       return;
