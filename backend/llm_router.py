@@ -88,9 +88,7 @@ def _format_context(parts) -> str:
     return "\n\n".join(blocks)
 
 
-def _normalize_calendar_view_context(
-    selected_calendar_view_id: str, raw_calendar_views
-) -> tuple[dict[str, dict], dict | None, str, str]:
+def _normalize_calendar_view_context(raw_calendar_views) -> tuple[dict[str, dict], str]:
     calendar_views_by_id: dict[str, dict] = {}
     for raw_view in raw_calendar_views or []:
         view_id = str(getattr(raw_view, "id", "") or "").strip()
@@ -118,17 +116,6 @@ def _normalize_calendar_view_context(
             "is_main": True,
         }
 
-    selected_id = str(selected_calendar_view_id or "main").strip() or "main"
-    if selected_id not in calendar_views_by_id:
-        selected_id = "main"
-
-    selected_calendar_view = calendar_views_by_id.get(selected_id)
-    default_calendar_view = (
-        dict(selected_calendar_view)
-        if selected_calendar_view and not selected_calendar_view.get("is_main")
-        else None
-    )
-
     view_lines: list[str] = []
     ordered_ids = sorted(calendar_views_by_id.keys(), key=lambda item: (item != "main", item))
     for view_id in ordered_ids:
@@ -144,19 +131,13 @@ def _normalize_calendar_view_context(
             if value:
                 line_parts.append(f"{key}={value}")
         view_lines.append("- " + ", ".join(line_parts))
-    return (
-        calendar_views_by_id,
-        default_calendar_view,
-        selected_id,
-        "\n".join(view_lines),
-    )
+    return (calendar_views_by_id, "\n".join(view_lines))
 
 
 def _normalize_llm_recurrence(
     recurrence: RecurrenceCreate,
     user_timezone: str,
     fallback_name: str,
-    default_calendar_view: dict | None = None,
     available_calendar_views_by_id: dict[str, dict] | None = None,
 ) -> RecurrenceCreate:
     payload = dict(recurrence.payload or {})
@@ -240,25 +221,7 @@ def _normalize_llm_recurrence(
         elif matched:
             payload["calendar_view"] = dict(matched)
         else:
-            normalized_calendar_view = {}
-            if explicit_id and explicit_id != "main":
-                normalized_calendar_view["id"] = explicit_id
-            if explicit_name:
-                normalized_calendar_view["name"] = str(raw_calendar_view.get("name")).strip()
-            source = str(raw_calendar_view.get("source") or "").strip()
-            if source:
-                normalized_calendar_view["source"] = source
-            for key in ("account_key", "account_name", "account_id", "calendar_id"):
-                value = str(raw_calendar_view.get(key) or "").strip()
-                if value:
-                    normalized_calendar_view[key] = value
-            if normalized_calendar_view:
-                normalized_calendar_view.setdefault("is_main", False)
-                payload["calendar_view"] = normalized_calendar_view
-            else:
-                payload.pop("calendar_view", None)
-    elif default_calendar_view:
-        payload["calendar_view"] = dict(default_calendar_view)
+            payload.pop("calendar_view", None)
     else:
         payload.pop("calendar_view", None)
 
@@ -347,13 +310,8 @@ async def llm_recurrence_draft(
             "required": ["recurrences"],
         },
     )
-    (
-        calendar_views_by_id,
-        default_calendar_view,
-        selected_calendar_view_id,
-        calendar_view_lines,
-    ) = _normalize_calendar_view_context(
-        payload.selected_calendar_view_id, payload.calendar_views
+    (calendar_views_by_id, calendar_view_lines) = _normalize_calendar_view_context(
+        payload.calendar_views
     )
     system = (
         "You are a scheduling assistant for Elastisched.\n"
@@ -374,7 +332,7 @@ async def llm_recurrence_draft(
         "Do not include edit-time metadata like starred, stars, unstarred, or exclusions.\n"
         "Optional calendar targeting uses payload.calendar_view.\n"
         "If the user specifies a calendar by name/id, set payload.calendar_view to that exact calendar view.\n"
-        f"If no calendar is specified, default to selected calendar view id '{selected_calendar_view_id}'.\n"
+        "If no calendar is specified or no valid calendar can be matched, default to main by omitting payload.calendar_view.\n"
         "Available calendar views:\n"
         f"{calendar_view_lines}\n"
         "Tags belong in blob.tags as a list of strings (not in description).\n"
@@ -433,7 +391,6 @@ async def llm_recurrence_draft(
                             RecurrenceCreate.model_validate(item),
                             payload.user_timezone,
                             f"Draft {index}",
-                            default_calendar_view,
                             calendar_views_by_id,
                         )
                     )

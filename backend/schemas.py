@@ -131,7 +131,6 @@ class LLMRecurrenceDraftRequest(BaseModel):
     user_timezone: str = Field(default="UTC", max_length=64)
     project_timezone: str = Field(default="UTC", max_length=64)
     granularity_minutes: int = Field(default=5, ge=1, le=120)
-    selected_calendar_view_id: str = Field(default="main", max_length=256)
     calendar_views: list[LLMCalendarViewContext] = Field(default_factory=list)
 
 

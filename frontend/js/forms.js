@@ -964,15 +964,6 @@ function getSelectedRecurrenceCalendarViewId() {
   return String(select?.value || "main").trim() || "main";
 }
 
-function setLlmCalendarViewOptions(selectedId = null) {
-  setCalendarViewOptions(dom.llmCalendarView || dom.llmForm?.llmCalendarView, selectedId);
-}
-
-function getSelectedLlmCalendarViewId() {
-  const select = dom.llmCalendarView || dom.llmForm?.llmCalendarView;
-  return String(select?.value || "main").trim() || "main";
-}
-
 function buildRecurrenceCalendarViewPayload(viewId) {
   const selected = getCalendarViewsForForm().find((view) => view.id === viewId);
   if (!selected || selected.isMain) return null;
@@ -3704,7 +3695,6 @@ function handleSettingsClick() {
 
 function handleLlmOpen() {
   toggleLlm(true);
-  setLlmCalendarViewOptions(getSelectedLlmCalendarViewId());
   setLlmPreviewControls(Boolean(state.previewBlobs?.length));
 }
 
@@ -3726,7 +3716,6 @@ async function handleLlmSubmit(event) {
   const contextRaw = formData.get("llmContext")?.toString().trim() || "";
   const context = contextRaw ? [{ type: "text", content: contextRaw, label: "User notes" }] : [];
   const range = getViewRange(state.view, state.anchorDate, appConfig.dayEndsAtMinutes);
-  const selectedCalendarViewId = getSelectedLlmCalendarViewId();
   const payload = {
     message,
     context,
@@ -3735,7 +3724,6 @@ async function handleLlmSubmit(event) {
     user_timezone: appConfig.userTimeZone,
     project_timezone: appConfig.projectTimeZone,
     granularity_minutes: appConfig.minuteGranularity,
-    selected_calendar_view_id: selectedCalendarViewId,
     calendar_views: getLlmCalendarViewsPayload(),
   };
   try {
@@ -3793,24 +3781,6 @@ async function handleLlmSubmit(event) {
   }
 }
 
-function applyCalendarViewToDraftRecurrences(drafts, calendarViewPayload) {
-  return (Array.isArray(drafts) ? drafts : []).map((draft) => {
-    if (!draft || typeof draft !== "object") return draft;
-    const payload = draft.payload && typeof draft.payload === "object"
-      ? { ...draft.payload }
-      : {};
-    if (calendarViewPayload) {
-      payload.calendar_view = { ...calendarViewPayload };
-    } else {
-      delete payload.calendar_view;
-    }
-    return {
-      ...draft,
-      payload,
-    };
-  });
-}
-
 async function handleLlmConfirm() {
   if (!state.llmDraftRecurrences?.length) {
     if (dom.llmStatus) dom.llmStatus.textContent = "No draft to confirm yet.";
@@ -3818,14 +3788,7 @@ async function handleLlmConfirm() {
   }
   if (dom.llmStatus) dom.llmStatus.textContent = "Saving draft...";
   try {
-    const calendarViewPayload = buildRecurrenceCalendarViewPayload(
-      getSelectedLlmCalendarViewId()
-    );
-    const recurrences = applyCalendarViewToDraftRecurrences(
-      state.llmDraftRecurrences,
-      calendarViewPayload
-    );
-    await createRecurrencesBulk(recurrences);
+    await createRecurrencesBulk(state.llmDraftRecurrences);
     await clearLlmPreview();
     if (dom.llmStatus) dom.llmStatus.textContent = "Saved.";
     toggleLlm(false);
@@ -4219,10 +4182,8 @@ function bindFormHandlers(onRefresh) {
   }
   window.addEventListener("elastisched:calendar-views-updated", () => {
     setRecurrenceCalendarViewOptions(getSelectedRecurrenceCalendarViewId());
-    setLlmCalendarViewOptions(getSelectedLlmCalendarViewId());
   });
   setRecurrenceCalendarViewOptions("main");
-  setLlmCalendarViewOptions("main");
   setLlmPreviewControls(Boolean(state.previewBlobs?.length));
   bindBlobTypeToggle(nonWeeklyField);
   applySidebarState();

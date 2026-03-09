@@ -75,17 +75,18 @@ def test_normalize_weekly_wraps_root_blob_shape():
     assert normalized.payload["blobs_of_week"][0]["description"] == "Team sync"
 
 
-def test_normalize_applies_default_non_main_calendar_view():
+def test_normalize_matches_known_non_main_calendar_view_by_name():
     recurrence = RecurrenceCreate.model_validate(
         {
             "type": "single",
             "payload": {
                 "recurrence_name": "Focused Work",
+                "calendar_view": {"name": "Team Calendar"},
                 "blob": _blob_payload(),
             },
         }
     )
-    default_calendar_view = {
+    known_calendar_view = {
         "id": "google:acct:team",
         "name": "Team Calendar",
         "source": "google",
@@ -98,25 +99,24 @@ def test_normalize_applies_default_non_main_calendar_view():
         recurrence,
         "America/New_York",
         "Draft 4",
-        default_calendar_view=default_calendar_view,
-        available_calendar_views_by_id={"google:acct:team": default_calendar_view},
+        available_calendar_views_by_id={"google:acct:team": known_calendar_view},
     )
 
-    assert normalized.payload["calendar_view"] == default_calendar_view
+    assert normalized.payload["calendar_view"] == known_calendar_view
 
 
-def test_normalize_keeps_explicit_main_calendar_view_when_default_non_main():
+def test_normalize_defaults_to_main_when_calendar_view_is_unknown():
     recurrence = RecurrenceCreate.model_validate(
         {
             "type": "single",
             "payload": {
                 "recurrence_name": "Inbox Zero",
-                "calendar_view": {"id": "main", "is_main": True, "name": "Main"},
+                "calendar_view": {"name": "Calendar That Does Not Exist"},
                 "blob": _blob_payload(),
             },
         }
     )
-    default_calendar_view = {
+    known_calendar_view = {
         "id": "google:acct:team",
         "name": "Team Calendar",
         "source": "google",
@@ -127,8 +127,7 @@ def test_normalize_keeps_explicit_main_calendar_view_when_default_non_main():
         recurrence,
         "America/New_York",
         "Draft 5",
-        default_calendar_view=default_calendar_view,
-        available_calendar_views_by_id={"google:acct:team": default_calendar_view},
+        available_calendar_views_by_id={"google:acct:team": known_calendar_view},
     )
 
     assert "calendar_view" not in normalized.payload
