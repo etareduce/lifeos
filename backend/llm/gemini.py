@@ -16,12 +16,16 @@ class GeminiProvider(BaseModelProvider):
         api_key: str,
         model: str = "gemini-1.5-pro",
         api_base: str = "https://generativelanguage.googleapis.com/v1beta",
+        timeout_seconds: float = 30.0,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._api_base = api_base.rstrip("/")
-        self._client = client or httpx.AsyncClient(timeout=30.0)
+        timeout = max(1.0, float(timeout_seconds))
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout=timeout, connect=min(10.0, timeout))
+        )
         self._owns_client = client is None
 
     def _build_contents(self, messages: list[Message]) -> list[dict[str, Any]]:

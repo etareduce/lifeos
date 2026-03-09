@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
 from backend.config import (
     get_gemini_api_key,
+    get_gemini_http_timeout_seconds,
     get_gemini_model,
     get_max_blob_creation_retries,
 )
@@ -30,6 +32,14 @@ from backend.schemas import (
 llm_router = APIRouter(prefix="/llm", tags=["llm"])
 
 
+def _build_gemini_provider(api_key: str) -> GeminiProvider:
+    return GeminiProvider(
+        api_key=api_key,
+        model=get_gemini_model(),
+        timeout_seconds=get_gemini_http_timeout_seconds(),
+    )
+
+
 @llm_router.post("/chat", response_model=LLMChatResponse, operation_id="llm_chat")
 async def llm_chat(payload: LLMChatRequest, request: Request) -> LLMChatResponse:
     api_key = get_gemini_api_key()
@@ -41,7 +51,7 @@ async def llm_chat(payload: LLMChatRequest, request: Request) -> LLMChatResponse
 
     base_url = str(request.base_url).rstrip("/")
     registry = OpenAPIToolRegistry.from_openapi(request.app.openapi(), base_url=base_url)
-    provider = GeminiProvider(api_key=api_key, model=get_gemini_model())
+    provider = _build_gemini_provider(api_key)
     runtime = ToolCallingRuntime(provider, registry, max_steps=payload.max_steps or 6)
 
     messages = []
@@ -51,6 +61,16 @@ async def llm_chat(payload: LLMChatRequest, request: Request) -> LLMChatResponse
 
     try:
         response, _conversation = await runtime.run(messages)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="LLM request timed out. Try a shorter prompt or retry.",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM provider request failed.",
+        ) from exc
     finally:
         await provider.aclose()
         await registry.aclose()
@@ -184,7 +204,7 @@ async def llm_recurrence_draft(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="GEMINI_API_KEY is not configured",
         )
-    provider = GeminiProvider(api_key=api_key, model=get_gemini_model())
+    provider = _build_gemini_provider(api_key)
     tool_spec = ToolSpec(
         name="propose_recurrences",
         description="Return draft recurrences for the scheduler.",
@@ -251,7 +271,18 @@ async def llm_recurrence_draft(
                         ),
                     )
                 )
-            response = await provider.generate(messages, [tool_spec])
+            try:
+                response = await provider.generate(messages, [tool_spec])
+            except httpx.TimeoutException as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="LLM request timed out. Try a shorter prompt or retry.",
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="LLM provider request failed.",
+                ) from exc
             if not response.tool_calls:
                 last_error = "LLM did not return a draft recurrence."
                 continue
@@ -311,7 +342,7 @@ async def llm_estimate_duration(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="GEMINI_API_KEY is not configured",
         )
-    provider = GeminiProvider(api_key=api_key, model=get_gemini_model())
+    provider = _build_gemini_provider(api_key)
     tool_spec = ToolSpec(
         name="estimate_duration",
         description="Estimate task duration in minutes.",
@@ -345,6 +376,16 @@ async def llm_estimate_duration(
 
     try:
         response = await provider.generate(messages, [tool_spec])
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="LLM request timed out. Try again.",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM provider request failed.",
+        ) from exc
     finally:
         await provider.aclose()
 
