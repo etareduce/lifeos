@@ -1,7 +1,11 @@
 import pytest
 from fastapi import HTTPException
 
-from backend.llm_router import _normalize_llm_recurrence, _validate_llm_recurrences
+from backend.llm_router import (
+    _infer_calendar_view_from_text,
+    _normalize_llm_recurrence,
+    _validate_llm_recurrences,
+)
 from backend.schemas import RecurrenceCreate
 
 
@@ -108,6 +112,34 @@ def test_normalize_matches_known_non_main_calendar_view_by_name():
     assert normalized.payload["calendar_view"] == known_calendar_view
 
 
+def test_normalize_matches_known_non_main_calendar_view_by_partial_name():
+    recurrence = RecurrenceCreate.model_validate(
+        {
+            "type": "single",
+            "payload": {
+                "recurrence_name": "Team Notes",
+                "calendar_view": {"name": "Team"},
+                "blob": _blob_payload(),
+            },
+        }
+    )
+    known_calendar_view = {
+        "id": "google:acct:team",
+        "name": "Team Calendar",
+        "source": "google",
+        "is_main": False,
+    }
+
+    normalized = _normalize_llm_recurrence(
+        recurrence,
+        "America/New_York",
+        "Draft 4a",
+        available_calendar_views_by_id={"google:acct:team": known_calendar_view},
+    )
+
+    assert normalized.payload["calendar_view"] == known_calendar_view
+
+
 def test_normalize_defaults_to_main_when_calendar_view_is_unknown():
     recurrence = RecurrenceCreate.model_validate(
         {
@@ -134,6 +166,55 @@ def test_normalize_defaults_to_main_when_calendar_view_is_unknown():
     )
 
     assert "calendar_view" not in normalized.payload
+
+
+def test_normalize_uses_inferred_calendar_when_llm_omits_target():
+    recurrence = RecurrenceCreate.model_validate(
+        {
+            "type": "single",
+            "payload": {
+                "recurrence_name": "Focused Work",
+                "blob": _blob_payload(),
+            },
+        }
+    )
+    known_calendar_view = {
+        "id": "google:acct:team",
+        "name": "Team Calendar",
+        "source": "google",
+        "is_main": False,
+    }
+
+    normalized = _normalize_llm_recurrence(
+        recurrence,
+        "America/New_York",
+        "Draft 5a",
+        available_calendar_views_by_id={"google:acct:team": known_calendar_view},
+        inferred_calendar_view=known_calendar_view,
+    )
+
+    assert normalized.payload["calendar_view"] == known_calendar_view
+
+
+def test_infer_calendar_view_from_text_matches_name():
+    known_calendar_view = {
+        "id": "google:acct:team",
+        "name": "Team Calendar",
+        "source": "google",
+        "is_main": False,
+    }
+    available_views = {
+        "main": {"id": "main", "name": "Main", "source": "main", "is_main": True},
+        "google:acct:team": known_calendar_view,
+    }
+
+    inferred = _infer_calendar_view_from_text(
+        "Please add this to the Team Calendar every Tuesday.",
+        [],
+        available_views,
+    )
+
+    assert inferred == known_calendar_view
 
 
 def test_validate_recurrences_rejects_non_object_blob_entries():

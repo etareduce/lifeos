@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -136,21 +137,113 @@ def _normalize_calendar_view_context(raw_calendar_views) -> tuple[dict[str, dict
     return (calendar_views_by_id, "\n".join(view_lines))
 
 
+def _calendar_strong_aliases(view: dict) -> set[str]:
+    aliases: set[str] = set()
+    for key in ("name", "calendar_id"):
+        value = str(view.get(key) or "").strip().lower()
+        if value:
+            aliases.add(value)
+    return aliases
+
+
+def _tokenize_lower(value: str) -> list[str]:
+    return [token for token in re.split(r"[^a-z0-9]+", value.lower()) if token]
+
+
+def _match_calendar_view(
+    explicit_id: str, explicit_name: str, available_calendar_views_by_id: dict[str, dict]
+) -> dict | None:
+    if explicit_id:
+        matched = available_calendar_views_by_id.get(explicit_id)
+        if matched:
+            return matched
+        if explicit_id == "main":
+            return {"id": "main", "is_main": True}
+
+    normalized_name = explicit_name.strip().lower()
+    if not normalized_name:
+        return None
+
+    query_tokens = set(_tokenize_lower(normalized_name))
+    best_view: dict | None = None
+    best_score = 0
+    tie = False
+    for view in available_calendar_views_by_id.values():
+        if not isinstance(view, dict):
+            continue
+        score = 0
+        for alias in _calendar_strong_aliases(view):
+            if normalized_name == alias:
+                score = max(score, 1000 + len(alias))
+                continue
+            if normalized_name in alias or alias in normalized_name:
+                score = max(score, 600 + min(len(alias), len(normalized_name)))
+                continue
+            alias_tokens = [token for token in _tokenize_lower(alias) if len(token) >= 3]
+            if alias_tokens and all(token in query_tokens for token in alias_tokens):
+                score = max(score, 200 + sum(len(token) for token in alias_tokens))
+        if score > best_score:
+            best_score = score
+            best_view = view
+            tie = False
+        elif score == best_score and score > 0:
+            tie = True
+    if best_score <= 0 or tie:
+        return None
+    return best_view
+
+
+def _infer_calendar_view_from_text(
+    message: str,
+    context_parts,
+    available_calendar_views_by_id: dict[str, dict],
+) -> dict | None:
+    chunks = [str(message or "").strip()]
+    for part in context_parts or []:
+        content = str(getattr(part, "content", "") or "").strip()
+        if content:
+            chunks.append(content)
+    combined = " ".join(chunk for chunk in chunks if chunk).strip().lower()
+    if not combined:
+        return None
+
+    text_tokens = set(_tokenize_lower(combined))
+    best_view: dict | None = None
+    best_score = 0
+    tie = False
+    for view in available_calendar_views_by_id.values():
+        if not isinstance(view, dict) or view.get("is_main"):
+            continue
+        score = 0
+        for alias in _calendar_strong_aliases(view):
+            if alias in combined:
+                score = max(score, 1000 + len(alias))
+                continue
+            alias_tokens = [token for token in _tokenize_lower(alias) if len(token) >= 3]
+            if alias_tokens and all(token in text_tokens for token in alias_tokens):
+                score = max(score, 200 + sum(len(token) for token in alias_tokens))
+        if score > best_score:
+            best_score = score
+            best_view = view
+            tie = False
+        elif score == best_score and score > 0:
+            tie = True
+    if best_score <= 0 or tie:
+        return None
+    return dict(best_view)
+
+
 def _normalize_llm_recurrence(
     recurrence: RecurrenceCreate,
     user_timezone: str,
     fallback_name: str,
     available_calendar_views_by_id: dict[str, dict] | None = None,
+    inferred_calendar_view: dict | None = None,
 ) -> RecurrenceCreate:
     payload = dict(recurrence.payload or {})
     recurrence_name = payload.get("recurrence_name")
     recurrence_description = payload.get("recurrence_description")
     available_calendar_views_by_id = available_calendar_views_by_id or {}
-    available_calendar_views_by_name = {
-        str((view or {}).get("name") or "").strip().lower(): view
-        for view in available_calendar_views_by_id.values()
-        if isinstance(view, dict) and str((view or {}).get("name") or "").strip()
-    }
 
     def _apply_blob_defaults(blob: dict) -> dict:
         if not isinstance(blob, dict):
@@ -211,19 +304,19 @@ def _normalize_llm_recurrence(
     if isinstance(raw_calendar_view, dict):
         explicit_id = str(raw_calendar_view.get("id") or "").strip()
         explicit_name = str(raw_calendar_view.get("name") or "").strip().lower()
-        matched = None
-        if explicit_id:
-            matched = available_calendar_views_by_id.get(explicit_id)
-            if explicit_id == "main":
-                matched = {"id": "main", "is_main": True}
-        if matched is None and explicit_name:
-            matched = available_calendar_views_by_name.get(explicit_name)
+        matched = _match_calendar_view(
+            explicit_id, explicit_name, available_calendar_views_by_id
+        )
         if matched and matched.get("is_main"):
             payload.pop("calendar_view", None)
         elif matched:
             payload["calendar_view"] = dict(matched)
+        elif inferred_calendar_view:
+            payload["calendar_view"] = dict(inferred_calendar_view)
         else:
             payload.pop("calendar_view", None)
+    elif inferred_calendar_view:
+        payload["calendar_view"] = dict(inferred_calendar_view)
     else:
         payload.pop("calendar_view", None)
 
@@ -356,6 +449,11 @@ async def llm_recurrence_draft(
         Message(role="system", content=system),
         Message(role="user", content="\n".join(user_lines)),
     ]
+    inferred_calendar_view = _infer_calendar_view_from_text(
+        payload.message,
+        payload.context,
+        calendar_views_by_id,
+    )
     retries = get_max_blob_creation_retries()
     request_timeout_seconds = get_llm_recurrence_draft_timeout_seconds()
     last_error = "LLM did not return a draft recurrence."
@@ -402,6 +500,7 @@ async def llm_recurrence_draft(
                                     payload.user_timezone,
                                     f"Draft {index}",
                                     calendar_views_by_id,
+                                    inferred_calendar_view,
                                 )
                             )
                     except Exception:
