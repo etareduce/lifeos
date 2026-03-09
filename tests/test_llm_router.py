@@ -1,4 +1,7 @@
-from backend.llm_router import _normalize_llm_recurrence
+import pytest
+from fastapi import HTTPException
+
+from backend.llm_router import _normalize_llm_recurrence, _validate_llm_recurrences
 from backend.schemas import RecurrenceCreate
 
 
@@ -131,3 +134,20 @@ def test_normalize_defaults_to_main_when_calendar_view_is_unknown():
     )
 
     assert "calendar_view" not in normalized.payload
+
+
+def test_validate_recurrences_rejects_non_object_blob_entries():
+    recurrence = RecurrenceCreate.model_validate(
+        {
+            "type": "weekly",
+            "payload": {
+                "blobs_of_week": ["invalid-blob-item"],
+            },
+        }
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        _validate_llm_recurrences([recurrence])
+
+    assert excinfo.value.status_code == 422
+    assert "must be an object" in str(excinfo.value.detail)

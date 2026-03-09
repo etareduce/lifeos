@@ -248,6 +248,11 @@ def _validate_llm_recurrences(recurrences: list[RecurrenceCreate]) -> None:
         if not blobs:
             continue
         for blob_idx, blob in enumerate(blobs, start=1):
+            if not isinstance(blob, dict):
+                missing.append(
+                    f"recurrence {idx} ({recurrence.type}) blob {blob_idx} must be an object"
+                )
+                continue
             default_tr = blob.get("default_scheduled_timerange") or {}
             sched_tr = blob.get("schedulable_timerange") or {}
             if not default_tr.get("start"):
