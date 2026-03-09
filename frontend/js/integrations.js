@@ -365,13 +365,20 @@ function renderCalendarList() {
 }
 
 function syncCalendarVisibilityState() {
+  const views = Array.isArray(googleState.calendarViews) ? googleState.calendarViews : [];
   const visibilityById = {};
-  for (const view of Array.isArray(googleState.calendarViews) ? googleState.calendarViews : []) {
+  for (const view of views) {
     const viewId = String(view?.id || "").trim();
     if (!viewId) continue;
     visibilityById[viewId] = view.visible !== false;
   }
   state.calendarVisibilityByViewId = visibilityById;
+  state.calendarViews = views.map((view) => ({ ...view }));
+  window.dispatchEvent(
+    new CustomEvent("elastisched:calendar-views-updated", {
+      detail: { calendarViews: state.calendarViews },
+    })
+  );
 }
 
 function renderCalendarViews() {

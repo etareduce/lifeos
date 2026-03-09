@@ -879,6 +879,87 @@ function setRecurrenceShowBordersOnly(value) {
   dom.blobForm.showBordersOnly.checked = Boolean(value);
 }
 
+function calendarSourceLabel(source) {
+  const normalized = String(source || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "main") return "Main";
+  if (normalized === "google") return "Google";
+  if (normalized === "custom") return "Custom";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function getCalendarViewsForForm() {
+  const rawViews = Array.isArray(state.calendarViews) ? state.calendarViews : [];
+  const views = [];
+  const seen = new Set();
+  let mainView = { id: "main", name: "Main", source: "main", isMain: true };
+  rawViews.forEach((view) => {
+    const id = String(view?.id || "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const source = String(view?.source || "").trim().toLowerCase();
+    const isMain = Boolean(view?.is_main) || id === "main" || source === "main";
+    const normalized = {
+      id,
+      name: String(view?.name || id).trim() || id,
+      source,
+      isMain,
+      accountKey: view?.account_key ? String(view.account_key) : null,
+      accountName: view?.account_name ? String(view.account_name) : null,
+      accountId: view?.account_id ? String(view.account_id) : null,
+      calendarId: view?.calendar_id ? String(view.calendar_id) : null,
+    };
+    if (isMain) {
+      mainView = normalized;
+      return;
+    }
+    views.push(normalized);
+  });
+  return [mainView, ...views];
+}
+
+function formatCalendarViewOptionLabel(view) {
+  if (!view || view.isMain) return "Main";
+  const sourceLabel = calendarSourceLabel(view.source);
+  return sourceLabel ? `${view.name} (${sourceLabel})` : view.name;
+}
+
+function setRecurrenceCalendarViewOptions(selectedId = null) {
+  const select = dom.recurrenceCalendarView || dom.blobForm.recurrenceCalendarView;
+  if (!select) return;
+  const options = getCalendarViewsForForm();
+  const targetId = String(selectedId || select.value || "main").trim() || "main";
+  select.innerHTML = "";
+  options.forEach((view) => {
+    const option = document.createElement("option");
+    option.value = view.id;
+    option.textContent = formatCalendarViewOptionLabel(view);
+    select.appendChild(option);
+  });
+  const hasTarget = options.some((view) => view.id === targetId);
+  select.value = hasTarget ? targetId : "main";
+}
+
+function getSelectedRecurrenceCalendarViewId() {
+  const select = dom.recurrenceCalendarView || dom.blobForm.recurrenceCalendarView;
+  return String(select?.value || "main").trim() || "main";
+}
+
+function buildRecurrenceCalendarViewPayload(viewId) {
+  const selected = getCalendarViewsForForm().find((view) => view.id === viewId);
+  if (!selected || selected.isMain) return null;
+  return {
+    id: selected.id,
+    name: selected.name,
+    source: selected.source || "custom",
+    is_main: false,
+    ...(selected.accountKey ? { account_key: selected.accountKey } : {}),
+    ...(selected.accountName ? { account_name: selected.accountName } : {}),
+    ...(selected.accountId ? { account_id: selected.accountId } : {}),
+    ...(selected.calendarId ? { calendar_id: selected.calendarId } : {}),
+  };
+}
+
 function getRecurrenceEndValue() {
   if (!dom.recurrenceEnd) return null;
   const value = dom.recurrenceEnd.value;
@@ -2498,6 +2579,7 @@ function resetFormMode() {
   if (dom.recurrenceType) {
     dom.recurrenceType.value = "single";
   }
+  setRecurrenceCalendarViewOptions("main");
   setRecurrenceColor(null);
   setRecurrenceShowBordersOnly(false);
   setRecurrenceEndValue(null);
@@ -2559,6 +2641,7 @@ function openBatchEditForm(blobs) {
   if (dom.recurrenceType) {
     dom.recurrenceType.value = "single";
   }
+  setRecurrenceCalendarViewOptions("main");
   dom.blobForm.recurrenceName.value = seed.name || "";
   dom.blobForm.recurrenceDescription.value = seed.description || "";
   if (dom.blobForm.blobLocation) {
@@ -2624,6 +2707,9 @@ function openEditForm(blob) {
   if (dom.recurrenceType) {
     dom.recurrenceType.value = recurrenceType;
   }
+  setRecurrenceCalendarViewOptions(
+    blob.recurrence_payload?.calendar_view?.id || "main"
+  );
   dom.blobForm.recurrenceName.value = blob.recurrence_payload?.recurrence_name || "";
   dom.blobForm.recurrenceDescription.value =
     blob.recurrence_payload?.recurrence_description || "";
@@ -3021,6 +3107,10 @@ async function handleBlobSubmit(event) {
   const dependencies = getDependencies();
   const tags = getTags();
   const recurrenceType = formData.get("recurrenceType") || "single";
+  const recurrenceCalendarViewId =
+    String(formData.get("recurrenceCalendarView") || "main").trim() || "main";
+  const recurrenceCalendarViewPayload =
+    buildRecurrenceCalendarViewPayload(recurrenceCalendarViewId);
   const blobType = normalizeBlobType(formData.get("blobType"));
   const perSlot = recurrenceType === "weekly" && Boolean(dom.weeklyPerSlot?.checked);
   const recurrenceColor = getRecurrenceColor();
@@ -3401,6 +3491,15 @@ async function handleBlobSubmit(event) {
       exclusions: Array.isArray(priorPayload.exclusions) ? priorPayload.exclusions : [],
       unstarred: Array.isArray(priorPayload.unstarred) ? priorPayload.unstarred : [],
     };
+  }
+  if (recurrenceCalendarViewPayload) {
+    recurrencePayload = {
+      ...recurrencePayload,
+      calendar_view: recurrenceCalendarViewPayload,
+    };
+  } else {
+    const { calendar_view: _ignored, ...nextPayload } = recurrencePayload;
+    recurrencePayload = nextPayload;
   }
   try {
     const isEditing = Boolean(state.editingRecurrenceId);
@@ -4061,6 +4160,10 @@ function bindFormHandlers(onRefresh) {
   if (dom.multipleSlots && dom.multipleSlots.children.length === 0) {
     createMultipleSlot();
   }
+  window.addEventListener("elastisched:calendar-views-updated", () => {
+    setRecurrenceCalendarViewOptions(getSelectedRecurrenceCalendarViewId());
+  });
+  setRecurrenceCalendarViewOptions("main");
   setLlmPreviewControls(Boolean(state.previewBlobs?.length));
   bindBlobTypeToggle(nonWeeklyField);
   applySidebarState();

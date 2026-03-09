@@ -29,6 +29,7 @@ const dom = {
   formTitle: document.getElementById("formTitle"),
   formSubmitBtn: document.getElementById("formSubmitBtn"),
   recurrenceType: document.getElementById("recurrenceType"),
+  recurrenceCalendarView: document.getElementById("recurrenceCalendarView"),
   recurrenceSummary: document.getElementById("recurrenceSummary"),
   recurrenceEnd: document.querySelector('[name="recurrenceEnd"]'),
   blobTypeInput: document.getElementById("blobTypeInput"),
