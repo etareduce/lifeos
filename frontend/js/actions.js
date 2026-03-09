@@ -329,8 +329,14 @@ async function updateOccurrencesWithUndo(blobs, changes = {}) {
   });
   if (!unique.length) return null;
   const records = [];
-  for (const blob of unique) {
-    const record = await updateOccurrenceWithUndo(blob, changes, {
+  for (let index = 0; index < unique.length; index += 1) {
+    const blob = unique[index];
+    const resolvedChanges =
+      typeof changes === "function" ? changes(blob, index) : changes;
+    if (!resolvedChanges || !Object.keys(resolvedChanges).length) {
+      continue;
+    }
+    const record = await updateOccurrenceWithUndo(blob, resolvedChanges, {
       skipHistory: true,
       skipRefresh: true,
     });

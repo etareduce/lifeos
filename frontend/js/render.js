@@ -6,6 +6,7 @@ import {
   deleteRecurrenceWithUndo,
   moveOccurrenceToMainWithRefresh,
   moveRecurrenceToMainWithRefresh,
+  updateOccurrencesWithUndo,
   updateOccurrenceTimingWithUndo,
 } from "./actions.js";
 import { updateRecurrence } from "./api.js";
@@ -1283,27 +1284,32 @@ async function commitOccurrenceDrag(session) {
     if (!Number.isFinite(deltaMs) || deltaMs === 0) {
       return;
     }
-    for (let index = 0; index < session.shiftTargets.length; index += 1) {
-      const target = session.shiftTargets[index];
-      const shiftedDefaultRange = shiftedRangeByMs(target.originalDefaultRange, deltaMs);
-      const shiftedSchedulableRange = shiftedRangeByMs(
-        target.originalSchedulableRange,
-        deltaMs
-      );
-      if (!shiftedDefaultRange || !shiftedSchedulableRange) {
-        continue;
-      }
-      await updateOccurrenceTimingWithUndo(
-        target.blob,
-        {
-          defaultScheduledRange: shiftedDefaultRange,
-          schedulableRange: shiftedSchedulableRange,
-        },
-        {
-          skipRefresh: index < session.shiftTargets.length - 1,
+    const targetById = new Map(
+      session.shiftTargets
+        .map((target) => [normalizeTimelineBlobId(target.blob?.id), target])
+        .filter(([id]) => Boolean(id))
+    );
+    await updateOccurrencesWithUndo(
+      session.shiftTargets.map((target) => target.blob),
+      (blob) => {
+        const target = targetById.get(normalizeTimelineBlobId(blob?.id));
+        if (!target) return null;
+        const shiftedDefaultRange = shiftedRangeByMs(target.originalDefaultRange, deltaMs);
+        const shiftedSchedulableRange = shiftedRangeByMs(
+          target.originalSchedulableRange,
+          deltaMs
+        );
+        if (!shiftedDefaultRange || !shiftedSchedulableRange) {
+          return null;
         }
-      );
-    }
+        return {
+          defaultStart: shiftedDefaultRange.start,
+          defaultEnd: shiftedDefaultRange.end,
+          schedStart: shiftedSchedulableRange.start,
+          schedEnd: shiftedSchedulableRange.end,
+        };
+      }
+    );
     return;
   }
   const defaultScheduledRange =
