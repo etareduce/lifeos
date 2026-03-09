@@ -112,6 +112,17 @@ class LLMContextPart(BaseModel):
     label: str | None = None
 
 
+class LLMCalendarViewContext(BaseModel):
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=256)
+    source: str = Field(default="main", max_length=64)
+    is_main: bool = False
+    account_key: str | None = Field(default=None, max_length=256)
+    account_name: str | None = Field(default=None, max_length=256)
+    account_id: str | None = Field(default=None, max_length=256)
+    calendar_id: str | None = Field(default=None, max_length=256)
+
+
 class LLMRecurrenceDraftRequest(BaseModel):
     message: str = Field(min_length=1)
     context: list[LLMContextPart] = Field(default_factory=list)
@@ -120,6 +131,8 @@ class LLMRecurrenceDraftRequest(BaseModel):
     user_timezone: str = Field(default="UTC", max_length=64)
     project_timezone: str = Field(default="UTC", max_length=64)
     granularity_minutes: int = Field(default=5, ge=1, le=120)
+    selected_calendar_view_id: str = Field(default="main", max_length=256)
+    calendar_views: list[LLMCalendarViewContext] = Field(default_factory=list)
 
 
 class PreviewOccurrence(OccurrenceRead):

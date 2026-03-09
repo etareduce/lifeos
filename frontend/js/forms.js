@@ -918,6 +918,19 @@ function getCalendarViewsForForm() {
   return [mainView, ...views];
 }
 
+function getLlmCalendarViewsPayload() {
+  return getCalendarViewsForForm().map((view) => ({
+    id: view.id,
+    name: view.name,
+    source: view.source || "main",
+    is_main: Boolean(view.isMain),
+    ...(view.accountKey ? { account_key: view.accountKey } : {}),
+    ...(view.accountName ? { account_name: view.accountName } : {}),
+    ...(view.accountId ? { account_id: view.accountId } : {}),
+    ...(view.calendarId ? { calendar_id: view.calendarId } : {}),
+  }));
+}
+
 function formatCalendarViewOptionLabel(view) {
   if (!view || view.isMain) return "Main";
   const sourceLabel = calendarSourceLabel(view.source);
@@ -3713,6 +3726,7 @@ async function handleLlmSubmit(event) {
   const contextRaw = formData.get("llmContext")?.toString().trim() || "";
   const context = contextRaw ? [{ type: "text", content: contextRaw, label: "User notes" }] : [];
   const range = getViewRange(state.view, state.anchorDate, appConfig.dayEndsAtMinutes);
+  const selectedCalendarViewId = getSelectedLlmCalendarViewId();
   const payload = {
     message,
     context,
@@ -3721,6 +3735,8 @@ async function handleLlmSubmit(event) {
     user_timezone: appConfig.userTimeZone,
     project_timezone: appConfig.projectTimeZone,
     granularity_minutes: appConfig.minuteGranularity,
+    selected_calendar_view_id: selectedCalendarViewId,
+    calendar_views: getLlmCalendarViewsPayload(),
   };
   try {
     const draft = await createLLMRecurrenceDraft(payload);

@@ -88,12 +88,86 @@ def _format_context(parts) -> str:
     return "\n\n".join(blocks)
 
 
+def _normalize_calendar_view_context(
+    selected_calendar_view_id: str, raw_calendar_views
+) -> tuple[dict[str, dict], dict | None, str, str]:
+    calendar_views_by_id: dict[str, dict] = {}
+    for raw_view in raw_calendar_views or []:
+        view_id = str(getattr(raw_view, "id", "") or "").strip()
+        if not view_id:
+            continue
+        source = str(getattr(raw_view, "source", "") or "").strip().lower() or "main"
+        is_main = bool(getattr(raw_view, "is_main", False)) or view_id == "main" or source == "main"
+        normalized = {
+            "id": view_id,
+            "name": str(getattr(raw_view, "name", "") or view_id).strip() or view_id,
+            "source": source,
+            "is_main": is_main,
+        }
+        for key in ("account_key", "account_name", "account_id", "calendar_id"):
+            value = str(getattr(raw_view, key, "") or "").strip()
+            if value:
+                normalized[key] = value
+        calendar_views_by_id[view_id] = normalized
+
+    if "main" not in calendar_views_by_id:
+        calendar_views_by_id["main"] = {
+            "id": "main",
+            "name": "Main",
+            "source": "main",
+            "is_main": True,
+        }
+
+    selected_id = str(selected_calendar_view_id or "main").strip() or "main"
+    if selected_id not in calendar_views_by_id:
+        selected_id = "main"
+
+    selected_calendar_view = calendar_views_by_id.get(selected_id)
+    default_calendar_view = (
+        dict(selected_calendar_view)
+        if selected_calendar_view and not selected_calendar_view.get("is_main")
+        else None
+    )
+
+    view_lines: list[str] = []
+    ordered_ids = sorted(calendar_views_by_id.keys(), key=lambda item: (item != "main", item))
+    for view_id in ordered_ids:
+        view = calendar_views_by_id[view_id]
+        line_parts = [
+            f"id={view['id']}",
+            f"name={view.get('name')}",
+            f"source={view.get('source')}",
+            f"is_main={'true' if view.get('is_main') else 'false'}",
+        ]
+        for key in ("account_key", "account_name", "account_id", "calendar_id"):
+            value = view.get(key)
+            if value:
+                line_parts.append(f"{key}={value}")
+        view_lines.append("- " + ", ".join(line_parts))
+    return (
+        calendar_views_by_id,
+        default_calendar_view,
+        selected_id,
+        "\n".join(view_lines),
+    )
+
+
 def _normalize_llm_recurrence(
-    recurrence: RecurrenceCreate, user_timezone: str, fallback_name: str
+    recurrence: RecurrenceCreate,
+    user_timezone: str,
+    fallback_name: str,
+    default_calendar_view: dict | None = None,
+    available_calendar_views_by_id: dict[str, dict] | None = None,
 ) -> RecurrenceCreate:
     payload = dict(recurrence.payload or {})
     recurrence_name = payload.get("recurrence_name")
     recurrence_description = payload.get("recurrence_description")
+    available_calendar_views_by_id = available_calendar_views_by_id or {}
+    available_calendar_views_by_name = {
+        str((view or {}).get("name") or "").strip().lower(): view
+        for view in available_calendar_views_by_id.values()
+        if isinstance(view, dict) and str((view or {}).get("name") or "").strip()
+    }
 
     def _apply_blob_defaults(blob: dict) -> dict:
         if not isinstance(blob, dict):
@@ -149,6 +223,45 @@ def _normalize_llm_recurrence(
             payload["blobs_of_week"] = [
                 _apply_blob_defaults(blob) for blob in payload.get("blobs_of_week") or []
             ]
+
+    raw_calendar_view = payload.get("calendar_view")
+    if isinstance(raw_calendar_view, dict):
+        explicit_id = str(raw_calendar_view.get("id") or "").strip()
+        explicit_name = str(raw_calendar_view.get("name") or "").strip().lower()
+        matched = None
+        if explicit_id:
+            matched = available_calendar_views_by_id.get(explicit_id)
+            if explicit_id == "main":
+                matched = {"id": "main", "is_main": True}
+        if matched is None and explicit_name:
+            matched = available_calendar_views_by_name.get(explicit_name)
+        if matched and matched.get("is_main"):
+            payload.pop("calendar_view", None)
+        elif matched:
+            payload["calendar_view"] = dict(matched)
+        else:
+            normalized_calendar_view = {}
+            if explicit_id and explicit_id != "main":
+                normalized_calendar_view["id"] = explicit_id
+            if explicit_name:
+                normalized_calendar_view["name"] = str(raw_calendar_view.get("name")).strip()
+            source = str(raw_calendar_view.get("source") or "").strip()
+            if source:
+                normalized_calendar_view["source"] = source
+            for key in ("account_key", "account_name", "account_id", "calendar_id"):
+                value = str(raw_calendar_view.get(key) or "").strip()
+                if value:
+                    normalized_calendar_view[key] = value
+            if normalized_calendar_view:
+                normalized_calendar_view.setdefault("is_main", False)
+                payload["calendar_view"] = normalized_calendar_view
+            else:
+                payload.pop("calendar_view", None)
+    elif default_calendar_view:
+        payload["calendar_view"] = dict(default_calendar_view)
+    else:
+        payload.pop("calendar_view", None)
+
     return recurrence.model_copy(update={"payload": payload})
 
 
@@ -234,6 +347,14 @@ async def llm_recurrence_draft(
             "required": ["recurrences"],
         },
     )
+    (
+        calendar_views_by_id,
+        default_calendar_view,
+        selected_calendar_view_id,
+        calendar_view_lines,
+    ) = _normalize_calendar_view_context(
+        payload.selected_calendar_view_id, payload.calendar_views
+    )
     system = (
         "You are a scheduling assistant for Elastisched.\n"
         "Use the propose_recurrences tool to return draft recurrences.\n"
@@ -243,10 +364,19 @@ async def llm_recurrence_draft(
         "Each timerange must include start and end datetimes.\n"
         "Ensure default_scheduled_timerange is within schedulable_timerange.\n"
         "Provide recurrence_name and recurrence_description when available.\n"
-        "For multiple recurrences, include payload.blobs (a list of blobs).\n"
+        "Recurrence payload shape by type: single/date -> payload.blob, delta -> payload.start_blob + payload.delta_seconds, "
+        "multiple -> payload.blobs, weekly -> payload.blobs_of_week.\n"
+        "For weekly recurrences, always use payload.blobs_of_week (never payload.blob or payload.blobs).\n"
         "Blob policies are supported via blob.policy. When a task should be splittable/overlappable/invisible "
         "or rounded, include policy keys: is_splittable, is_overlappable, is_invisible, round_to_granularity, "
         "max_splits, min_split_duration_seconds. If is_splittable is true, set max_splits and min_split_duration_seconds.\n"
+        "Supported recurrence-level display keys include color and show_borders_only.\n"
+        "Do not include edit-time metadata like starred, stars, unstarred, or exclusions.\n"
+        "Optional calendar targeting uses payload.calendar_view.\n"
+        "If the user specifies a calendar by name/id, set payload.calendar_view to that exact calendar view.\n"
+        f"If no calendar is specified, default to selected calendar view id '{selected_calendar_view_id}'.\n"
+        "Available calendar views:\n"
+        f"{calendar_view_lines}\n"
         "Tags belong in blob.tags as a list of strings (not in description).\n"
         "Set blob.tz to the user timezone.\n"
         f"Current datetime: {datetime.now(timezone.utc).isoformat()} (UTC).\n"
@@ -303,6 +433,8 @@ async def llm_recurrence_draft(
                             RecurrenceCreate.model_validate(item),
                             payload.user_timezone,
                             f"Draft {index}",
+                            default_calendar_view,
+                            calendar_views_by_id,
                         )
                     )
             except Exception:
