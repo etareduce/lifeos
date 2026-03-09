@@ -870,6 +870,15 @@ function setRecurrenceColor(value) {
   });
 }
 
+function getRecurrenceShowBordersOnly() {
+  return Boolean(dom.blobForm.showBordersOnly?.checked);
+}
+
+function setRecurrenceShowBordersOnly(value) {
+  if (!dom.blobForm.showBordersOnly) return;
+  dom.blobForm.showBordersOnly.checked = Boolean(value);
+}
+
 function getRecurrenceEndValue() {
   if (!dom.recurrenceEnd) return null;
   const value = dom.recurrenceEnd.value;
@@ -2442,6 +2451,7 @@ function resetFormMode() {
     dom.recurrenceType.value = "single";
   }
   setRecurrenceColor(null);
+  setRecurrenceShowBordersOnly(false);
   setRecurrenceEndValue(null);
   applyPolicyToForm({});
   setDependencies([]);
@@ -2571,9 +2581,16 @@ function openEditForm(blob) {
     blob.recurrence_payload?.recurrence_description || "";
   setRecurrenceEndValue(blob.recurrence_payload?.end_date || null);
   setRecurrenceColor(blob.recurrence_payload?.color || null);
+  setRecurrenceShowBordersOnly(
+    Boolean(
+      blob.recurrence_payload?.show_borders_only ??
+      blob.recurrence_payload?.showBordersOnly
+    )
+  );
   if (recurrenceType === "multiple") {
     setRecurrenceEndValue(null);
     setRecurrenceColor(null);
+    setRecurrenceShowBordersOnly(false);
   }
   if (recurrenceType !== "multiple") {
     dom.blobForm.blobName.value = blob.name || "";
@@ -2941,6 +2958,7 @@ async function handleBlobSubmit(event) {
   const blobType = normalizeBlobType(formData.get("blobType"));
   const perSlot = recurrenceType === "weekly" && Boolean(dom.weeklyPerSlot?.checked);
   const recurrenceColor = getRecurrenceColor();
+  const showBordersOnly = getRecurrenceShowBordersOnly();
   const recurrenceEnd = getRecurrenceEndValue();
   const recurrenceName = formData.get("recurrenceName");
   const recurrenceDescription = formData.get("recurrenceDescription") || null;
@@ -3179,6 +3197,7 @@ async function handleBlobSubmit(event) {
       recurrence_description: recurrenceDescription,
       end_date: recurrenceEnd,
       color: recurrenceColor,
+      show_borders_only: showBordersOnly,
       weekly_per_slot: perSlot,
       blobs_of_week: blobsOfWeek,
     };
@@ -3197,6 +3216,7 @@ async function handleBlobSubmit(event) {
       recurrence_description: recurrenceDescription,
       end_date: recurrenceEnd,
       color: recurrenceColor,
+      show_borders_only: showBordersOnly,
       start_blob: baseBlob,
     };
   } else if (recurrenceType === "multiple") {
@@ -3291,6 +3311,7 @@ async function handleBlobSubmit(event) {
       recurrence_description: recurrenceDescription,
       end_date: recurrenceEnd,
       color: recurrenceColor,
+      show_borders_only: showBordersOnly,
       blob: baseBlob,
     };
   } else {
@@ -3299,6 +3320,7 @@ async function handleBlobSubmit(event) {
       recurrence_description: recurrenceDescription,
       end_date: recurrenceEnd,
       color: recurrenceColor,
+      show_borders_only: showBordersOnly,
       blob: baseBlob,
     };
   }

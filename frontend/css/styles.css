@@ -1780,6 +1780,10 @@ body.modal-open .info-card {
   gap: 10px;
 }
 
+.recurrence-visual-toggle {
+  margin-top: 2px;
+}
+
 .color-label {
   font-size: 13px;
   color: var(--muted);
@@ -3585,6 +3589,7 @@ html[data-zoomed="true"] .views {
 }
 
 .full-day-chip {
+  --boundary-color: color-mix(in srgb, var(--ink) 72%, var(--ocean) 28%);
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 12px;
@@ -3714,6 +3719,76 @@ html[data-zoomed="true"] .views {
   background: var(--palette-slate);
 }
 
+.full-day-chip.palette-sand,
+.day-block.palette-sand {
+  --boundary-color: var(--palette-sand);
+}
+
+.full-day-chip.palette-sage,
+.day-block.palette-sage {
+  --boundary-color: var(--palette-sage);
+}
+
+.full-day-chip.palette-mist,
+.day-block.palette-mist {
+  --boundary-color: var(--palette-mist);
+}
+
+.full-day-chip.palette-clay,
+.day-block.palette-clay {
+  --boundary-color: var(--palette-clay);
+}
+
+.full-day-chip.palette-moss,
+.day-block.palette-moss {
+  --boundary-color: var(--palette-moss);
+}
+
+.full-day-chip.palette-coral,
+.day-block.palette-coral {
+  --boundary-color: var(--palette-coral);
+}
+
+.full-day-chip.palette-sky,
+.day-block.palette-sky {
+  --boundary-color: var(--palette-sky);
+}
+
+.full-day-chip.palette-violet,
+.day-block.palette-violet {
+  --boundary-color: var(--palette-violet);
+}
+
+.full-day-chip.palette-teal,
+.day-block.palette-teal {
+  --boundary-color: var(--palette-teal);
+}
+
+.full-day-chip.palette-lemon,
+.day-block.palette-lemon {
+  --boundary-color: var(--palette-lemon);
+}
+
+.full-day-chip.palette-indigo,
+.day-block.palette-indigo {
+  --boundary-color: var(--palette-indigo);
+}
+
+.full-day-chip.palette-ruby,
+.day-block.palette-ruby {
+  --boundary-color: var(--palette-ruby);
+}
+
+.full-day-chip.palette-mint,
+.day-block.palette-mint {
+  --boundary-color: var(--palette-mint);
+}
+
+.full-day-chip.palette-slate,
+.day-block.palette-slate {
+  --boundary-color: var(--palette-slate);
+}
+
 .full-day-chip.preview {
   background: rgba(58, 110, 122, 0.12);
   border: 1px dashed rgba(58, 110, 122, 0.6);
@@ -3722,6 +3797,11 @@ html[data-zoomed="true"] .views {
 
 .full-day-chip.preview .full-day-star-toggle {
   display: none;
+}
+
+.full-day-chip.boundary-only {
+  background: transparent !important;
+  border: 1.5px solid var(--boundary-color);
 }
 
 .schedulable-overlay {
@@ -3893,6 +3973,7 @@ html[data-zoomed="true"] .views {
 }
 
 .day-block {
+  --boundary-color: color-mix(in srgb, var(--ink) 72%, var(--ocean) 28%);
   position: absolute;
   left: 8px;
   width: calc(100% - 16px);
@@ -4109,6 +4190,48 @@ html[data-zoomed="true"] .views {
   background: rgba(180, 73, 63, 0.18);
   border-color: rgba(180, 73, 63, 0.7);
   color: #7a2f28;
+}
+
+.day-block.boundary-only {
+  background: transparent !important;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.day-block.boundary-only::before,
+.day-block.boundary-only::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  border-top: 2px solid var(--boundary-color);
+}
+
+.day-block.boundary-only::before {
+  top: 0;
+}
+
+.day-block.boundary-only::after {
+  bottom: 0;
+}
+
+.day-block.boundary-only[data-piece-start="false"]::before {
+  display: none;
+}
+
+.day-block.boundary-only[data-piece-end="false"]::after {
+  display: none;
+}
+
+.day-block.boundary-only .event-header,
+.day-block.boundary-only .policy-badges,
+.day-block.boundary-only .star-toggle {
+  display: none;
+}
+
+.day-block.boundary-only.drag-preview.invalid::before,
+.day-block.boundary-only.drag-preview.invalid::after {
+  border-top-color: rgba(180, 73, 63, 0.9);
 }
 
 .timeline-highlight-box {

@@ -856,6 +856,18 @@ function getRecurrenceColorClass(blob) {
   return color ? `palette-${color}` : "";
 }
 
+function recurrenceShowsBoundariesOnly(blob) {
+  const payload = blob?.recurrence_payload;
+  if (!payload || typeof payload !== "object") return false;
+  if (typeof payload.show_borders_only === "boolean") {
+    return payload.show_borders_only;
+  }
+  if (typeof payload.showBordersOnly === "boolean") {
+    return payload.showBordersOnly;
+  }
+  return false;
+}
+
 function getBlobTimeZone(blob) {
   return blob?.tz || appConfig.userTimeZone;
 }
@@ -1047,11 +1059,16 @@ function renderOccurrencePreview(session, nextDefaultRange, invalid, options = {
   const title = options.title || session.title;
   const blockType = options.blockType || session.blockType;
   const colorClass = options.colorClass || session.colorClass;
+  const boundaryOnly =
+    typeof options.boundaryOnly === "boolean"
+      ? options.boundaryOnly
+      : Boolean(session.boundaryOnly);
   const className = [
     "day-block",
     "drag-preview",
     blockType,
     colorClass,
+    boundaryOnly ? "boundary-only" : "",
     invalid ? "invalid" : "",
   ]
     .filter(Boolean)
@@ -1125,6 +1142,7 @@ function renderShiftGroupPreview(session, anchorRange, invalid) {
       title: blob.name || "Untitled",
       blockType: getTagType(blob.tags),
       colorClass: getRecurrenceColorClass(blob),
+      boundaryOnly: recurrenceShowsBoundariesOnly(blob),
     });
   });
 }
@@ -2054,6 +2072,7 @@ function renderDay() {
             title: blob.name,
             type: getTagType(blob.tags),
             colorClass: getRecurrenceColorClass(blob),
+            boundaryOnly: recurrenceShowsBoundariesOnly(blob),
             starred: isOccurrenceStarred(blob),
             preview: Boolean(blob.preview),
           });
@@ -2081,6 +2100,7 @@ function renderDay() {
         ),
         type: getTagType(blob.tags),
         colorClass: getRecurrenceColorClass(blob),
+        boundaryOnly: recurrenceShowsBoundariesOnly(blob),
         policy: blob.policy,
         starred: isOccurrenceStarred(blob),
         top: (clamped.startMin / 60) * hourHeight,
@@ -2114,7 +2134,7 @@ function renderDay() {
           ${fullDayEvents
             .map(
               (event) => `
-              <div class="full-day-chip ${event.type} ${event.colorClass} ${event.preview ? "preview" : ""}" data-blob-id="${event.id}" data-preview="${event.preview ? "true" : "false"}">
+              <div class="full-day-chip ${event.type} ${event.colorClass} ${event.boundaryOnly ? "boundary-only" : ""} ${event.preview ? "preview" : ""}" data-blob-id="${event.id}" data-preview="${event.preview ? "true" : "false"}">
                 <button class="full-day-chip-button" type="button" title="${event.title || "Untitled"}">
                   <span>${event.title || "Untitled"}</span>
                 </button>
@@ -2132,7 +2152,7 @@ function renderDay() {
       (block) => {
         const policyBadges = renderPolicyBadges(block.policy, { compact: true });
         return `
-        <div class="day-block ${block.type} ${block.colorClass} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; left: ${block.leftCss || "8px"}; width: ${block.widthCss || "calc(100% - 16px)"}; --active-left: ${block.activeLeftCss || block.leftCss || "8px"}; --active-width: ${block.activeWidthCss || block.widthCss || "calc(100% - 16px)"};" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}" data-piece-start="${block.pieceStart ? "true" : "false"}" data-piece-end="${block.pieceEnd ? "true" : "false"}">
+        <div class="day-block ${block.type} ${block.colorClass} ${block.boundaryOnly ? "boundary-only" : ""} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; left: ${block.leftCss || "8px"}; width: ${block.widthCss || "calc(100% - 16px)"}; --active-left: ${block.activeLeftCss || block.leftCss || "8px"}; --active-width: ${block.activeWidthCss || block.widthCss || "calc(100% - 16px)"};" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}" data-piece-start="${block.pieceStart ? "true" : "false"}" data-piece-end="${block.pieceEnd ? "true" : "false"}">
           <div class="drag-handle occurrence-handle start" data-drag-handle="default-start"></div>
           <div class="drag-handle occurrence-handle end" data-drag-handle="default-end"></div>
           ${
@@ -2272,6 +2292,7 @@ function renderDay() {
       title: blob.name || "Untitled",
       blockType: getTagType(blob.tags),
       colorClass: getRecurrenceColorClass(blob),
+      boundaryOnly: recurrenceShowsBoundariesOnly(blob),
       blobTimeZone: getBlobTimeZone(blob),
       originalDefaultRange,
       originalSchedulableRange,
@@ -2739,6 +2760,7 @@ function renderWeek() {
         title: blob.name,
         type: getTagType(blob.tags),
         colorClass: getRecurrenceColorClass(blob),
+        boundaryOnly: recurrenceShowsBoundariesOnly(blob),
         policy: blob.policy,
         starred: isOccurrenceStarred(blob),
         preview: Boolean(blob.preview),
@@ -2784,6 +2806,7 @@ function renderWeek() {
               title: meta.title,
               type: meta.type,
               colorClass: meta.colorClass,
+              boundaryOnly: meta.boundaryOnly,
               starred: meta.starred,
               preview: meta.preview,
             });
@@ -2800,6 +2823,7 @@ function renderWeek() {
           time: meta.time,
           type: meta.type,
           colorClass: meta.colorClass,
+          boundaryOnly: meta.boundaryOnly,
           policy: meta.policy,
           starred: meta.starred,
           top: (clamped.startMin / 60) * hourHeight,
@@ -2857,7 +2881,7 @@ function renderWeek() {
             ${fullDayEvents
               .map(
                 (event) => `
-                <div class="full-day-chip ${event.type} ${event.colorClass} ${event.preview ? "preview" : ""}" data-blob-id="${event.id}" data-preview="${event.preview ? "true" : "false"}">
+                <div class="full-day-chip ${event.type} ${event.colorClass} ${event.boundaryOnly ? "boundary-only" : ""} ${event.preview ? "preview" : ""}" data-blob-id="${event.id}" data-preview="${event.preview ? "true" : "false"}">
                   <button class="full-day-chip-button" type="button" title="${event.title || "Untitled"}">
                     <span>${event.title || "Untitled"}</span>
                   </button>
@@ -2882,7 +2906,7 @@ function renderWeek() {
           (block) => {
             const policyBadges = renderPolicyBadges(block.policy, { compact: true });
             return `
-        <div class="day-block ${block.type} ${block.colorClass} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; left: ${block.leftCss || "8px"}; width: ${block.widthCss || "calc(100% - 16px)"}; --active-left: ${block.activeLeftCss || block.leftCss || "8px"}; --active-width: ${block.activeWidthCss || block.widthCss || "calc(100% - 16px)"};" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}" data-piece-start="${block.pieceStart ? "true" : "false"}" data-piece-end="${block.pieceEnd ? "true" : "false"}">
+        <div class="day-block ${block.type} ${block.colorClass} ${block.boundaryOnly ? "boundary-only" : ""} ${block.preview ? "preview" : ""} ${block.showContent ? "" : "continuation"}" style="top: ${block.top}px; height: ${block.height}px; left: ${block.leftCss || "8px"}; width: ${block.widthCss || "calc(100% - 16px)"}; --active-left: ${block.activeLeftCss || block.leftCss || "8px"}; --active-width: ${block.activeWidthCss || block.widthCss || "calc(100% - 16px)"};" data-blob-id="${block.id}" data-preview="${block.preview ? "true" : "false"}" data-sched-start="${block.schedStartIso}" data-sched-end="${block.schedEndIso}" data-original-start="${block.originalStartIso}" data-original-end="${block.originalEndIso}" data-adjusted="${block.adjusted ? "true" : "false"}" data-piece-start="${block.pieceStart ? "true" : "false"}" data-piece-end="${block.pieceEnd ? "true" : "false"}">
           <div class="drag-handle occurrence-handle start" data-drag-handle="default-start"></div>
           <div class="drag-handle occurrence-handle end" data-drag-handle="default-end"></div>
           ${
@@ -2971,6 +2995,7 @@ function renderWeek() {
       title: blob.name || "Untitled",
       blockType: getTagType(blob.tags),
       colorClass: getRecurrenceColorClass(blob),
+      boundaryOnly: recurrenceShowsBoundariesOnly(blob),
       blobTimeZone: getBlobTimeZone(blob),
       originalDefaultRange,
       originalSchedulableRange,
