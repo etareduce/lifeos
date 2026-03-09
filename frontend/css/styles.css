@@ -4235,10 +4235,22 @@ html[data-zoomed="true"] .views {
   display: none;
 }
 
-.day-block.boundary-only .event-header,
 .day-block.boundary-only .policy-badges,
 .day-block.boundary-only .star-toggle {
   display: none;
+}
+
+.day-block.boundary-only .event-time {
+  display: none;
+}
+
+.day-block.boundary-only .event-header {
+  display: block;
+  padding-top: 2px;
+}
+
+.day-block.boundary-only .event-title {
+  padding-right: 0;
 }
 
 .day-block.boundary-only.drag-preview.invalid::before,
