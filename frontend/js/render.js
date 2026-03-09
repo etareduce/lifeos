@@ -1211,6 +1211,21 @@ function canEditTiming(blob) {
   return Boolean(blob?.recurrence_id) && !blob?.preview && isBlobEditableInMainUi(blob);
 }
 
+function layoutTimedBlocks(blocks) {
+  const safeBlocks = Array.isArray(blocks) ? blocks : [];
+  const overlapCandidates = safeBlocks.filter((block) => !block?.boundaryOnly);
+  layoutBlocks(overlapCandidates);
+  safeBlocks.forEach((block) => {
+    if (!block?.boundaryOnly) return;
+    block.columns = 1;
+    block.columnSpan = 1;
+    block.leftCss = "8px";
+    block.widthCss = "calc(100% - 16px)";
+    block.activeLeftCss = "8px";
+    block.activeWidthCss = "calc(100% - 16px)";
+  });
+}
+
 function getPointerDateForSession(session, clientX, clientY) {
   if (!session) return null;
   if (session.view === "day") {
@@ -2133,7 +2148,7 @@ function renderDay() {
     .filter(Boolean)
     .sort((a, b) => a.top - b.top);
 
-  layoutBlocks(blocks);
+  layoutTimedBlocks(blocks);
 
   const hoursHtml = hours.map((hour) => `<div class="hour">${hour}</div>`).join("");
   const fullDayHtml = fullDayEvents.length
@@ -2856,7 +2871,7 @@ function renderWeek() {
       .filter(Boolean)
       .sort((a, b) => a.top - b.top);
 
-    layoutBlocks(blocks);
+    layoutTimedBlocks(blocks);
 
     return { date, fullDayEvents, blocks };
   });
