@@ -2029,6 +2029,13 @@ function createMultipleSlot(slotData = {}) {
     typeof slotData.trackOnTasksPage === "boolean"
       ? slotData.trackOnTasksPage
       : policyFlags.showOnTasksPage;
+  const showBordersOnly =
+    typeof slotData.showBordersOnly === "boolean"
+      ? slotData.showBordersOnly
+      : Boolean(
+        slotData.policy?.show_borders_only ??
+        slotData.policy?.showBordersOnly
+      );
 
   slot.innerHTML = `
     <div class="weekly-slot-row blob-type-row">
@@ -2051,6 +2058,12 @@ function createMultipleSlot(slotData = {}) {
           data-track-on-tasks-page
         />
         <span>Show on Tasks page</span>
+      </label>
+    </div>
+    <div class="weekly-slot-row">
+      <label class="policy-option">
+        <input type="checkbox" name="multiShowBordersOnly" ${showBordersOnly ? "checked" : ""} />
+        <span>Show borders only</span>
       </label>
     </div>
     <div class="weekly-slot-row time-range-row schedulable-range-row">
@@ -2360,6 +2373,18 @@ function getMultipleSlots() {
     const slotType = normalizeBlobType(slot.querySelector('[name="multiBlobType"]')?.value);
     const schedStart = slot.querySelector('[name="multiSchedStart"]')?.value || "";
     const schedEnd = slot.querySelector('[name="multiSchedEnd"]')?.value || "";
+    const policy = getPolicyPayloadFromFlags(
+      Boolean(slot.querySelector('[name="slotPolicySplittable"]')?.checked),
+      Boolean(slot.querySelector('[name="slotPolicyOverlappable"]')?.checked),
+      Boolean(slot.querySelector('[name="slotPolicyInvisible"]')?.checked),
+      Number(slot.querySelector('[name="slotPolicyMaxSplits"]')?.value || 0),
+      Number(slot.querySelector('[name="slotPolicyMinSplitDuration"]')?.value || 0),
+      Boolean(slot.querySelector('[name="slotPolicyRoundToGranularity"]')?.checked),
+      Boolean(slot.querySelector('[name="multiTrackOnTasksPage"]')?.checked ?? true)
+    );
+    policy.show_borders_only = Boolean(
+      slot.querySelector('[name="multiShowBordersOnly"]')?.checked
+    );
     slots.push({
       blobType: slotType,
       defaultStart: slotType === BLOB_TYPES.EVENT
@@ -2375,15 +2400,7 @@ function getMultipleSlots() {
       location: slot.querySelector('[name="multiLocation"]')?.value?.trim() || "",
       tags: getSlotTags(slot),
       dependencies: getSlotDependencies(slot),
-      policy: getPolicyPayloadFromFlags(
-        Boolean(slot.querySelector('[name="slotPolicySplittable"]')?.checked),
-        Boolean(slot.querySelector('[name="slotPolicyOverlappable"]')?.checked),
-        Boolean(slot.querySelector('[name="slotPolicyInvisible"]')?.checked),
-        Number(slot.querySelector('[name="slotPolicyMaxSplits"]')?.value || 0),
-        Number(slot.querySelector('[name="slotPolicyMinSplitDuration"]')?.value || 0),
-        Boolean(slot.querySelector('[name="slotPolicyRoundToGranularity"]')?.checked),
-        Boolean(slot.querySelector('[name="multiTrackOnTasksPage"]')?.checked ?? true)
-      ),
+      policy,
     });
   });
   return slots;
@@ -2768,6 +2785,10 @@ function openEditForm(blob) {
     setTags(hasCustom ? [] : sharedTags);
   } else if (recurrenceType === "multiple" && blob.recurrence_payload?.blobs) {
     const blobs = blob.recurrence_payload.blobs;
+    const recurrenceShowBordersOnly = Boolean(
+      blob.recurrence_payload?.show_borders_only ??
+      blob.recurrence_payload?.showBordersOnly
+    );
     if (!blobs.length) {
       createMultipleSlot();
     } else {
@@ -2800,6 +2821,12 @@ function openEditForm(blob) {
           tags: Array.isArray(multiBlob.tags) ? multiBlob.tags : [],
           dependencies: Array.isArray(multiBlob.dependencies) ? multiBlob.dependencies : [],
           policy: multiBlob.policy || {},
+          showBordersOnly:
+            typeof multiBlob.policy?.show_borders_only === "boolean"
+              ? multiBlob.policy.show_borders_only
+              : typeof multiBlob.policy?.showBordersOnly === "boolean"
+                ? multiBlob.policy.showBordersOnly
+                : recurrenceShowBordersOnly,
           trackOnTasksPage: isBlobShownOnTasksPage(multiBlob.policy || {}),
           blobType: isEventFromRanges(defaultStart, defaultEnd, schedStart, schedEnd)
             ? BLOB_TYPES.EVENT

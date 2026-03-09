@@ -857,6 +857,15 @@ function getRecurrenceColorClass(blob) {
 }
 
 function recurrenceShowsBoundariesOnly(blob) {
+  const policy = blob?.policy;
+  if (policy && typeof policy === "object") {
+    if (typeof policy.show_borders_only === "boolean") {
+      return policy.show_borders_only;
+    }
+    if (typeof policy.showBordersOnly === "boolean") {
+      return policy.showBordersOnly;
+    }
+  }
   const payload = blob?.recurrence_payload;
   if (!payload || typeof payload !== "object") return false;
   if (typeof payload.show_borders_only === "boolean") {
