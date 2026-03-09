@@ -597,6 +597,32 @@ function removeDragPreview() {
   document.querySelectorAll(".day-block.drag-preview").forEach((el) => el.remove());
 }
 
+function isMultiShiftDragSession(session) {
+  return (
+    session?.mode === "move" &&
+    Array.isArray(session?.shiftTargets) &&
+    session.shiftTargets.length > 1
+  );
+}
+
+function getDragSourceBlobIds(session) {
+  if (isMultiShiftDragSession(session)) {
+    return session.shiftTargets
+      .map((target) => normalizeTimelineBlobId(target?.blob?.id))
+      .filter(Boolean);
+  }
+  const blobId = normalizeTimelineBlobId(session?.blob?.id);
+  return blobId ? [blobId] : [];
+}
+
+function setDragSourceStateForSession(session, dragging) {
+  if (!session) return;
+  const viewRoot = session.view === "week" ? dom.views.week : dom.views.day;
+  getDragSourceBlobIds(session).forEach((blobId) => {
+    setTimelineDragSourceState(viewRoot, blobId, dragging);
+  });
+}
+
 function getPolicyFlags(policy = {}) {
   const rawMask = Number(policy.scheduling_policies);
   const mask = Number.isFinite(rawMask) ? rawMask : 0;
@@ -1009,18 +1035,23 @@ function getClampedMinutes(
   };
 }
 
-function renderOccurrencePreview(session, nextDefaultRange, invalid) {
+function renderOccurrencePreview(session, nextDefaultRange, invalid, options = {}) {
   if (!session || !nextDefaultRange) return;
-  removeDragPreview();
-  const timeZone = session.blobTimeZone;
+  if (options.clear !== false) {
+    removeDragPreview();
+  }
+  const timeZone = options.timeZone || session.blobTimeZone;
   const startParts = getZonedParts(nextDefaultRange.start, timeZone);
   const endParts = getZonedParts(nextDefaultRange.end, timeZone);
   if (!startParts || !endParts) return;
+  const title = options.title || session.title;
+  const blockType = options.blockType || session.blockType;
+  const colorClass = options.colorClass || session.colorClass;
   const className = [
     "day-block",
     "drag-preview",
-    session.blockType,
-    session.colorClass,
+    blockType,
+    colorClass,
     invalid ? "invalid" : "",
   ]
     .filter(Boolean)
@@ -1044,7 +1075,7 @@ function renderOccurrencePreview(session, nextDefaultRange, invalid) {
     )}px`;
     preview.innerHTML = `
       <div class="event-header">
-        <span class="event-title">${session.title}</span>
+        <span class="event-title">${title}</span>
         <span class="event-time">${timeLabel}</span>
       </div>
     `;
@@ -1066,7 +1097,7 @@ function renderOccurrencePreview(session, nextDefaultRange, invalid) {
     if (clamped.startStamp === viewStamp) {
       preview.innerHTML = `
         <div class="event-header">
-          <span class="event-title">${session.title}</span>
+          <span class="event-title">${title}</span>
           <span class="event-time">${timeLabel}</span>
         </div>
       `;
@@ -1074,6 +1105,27 @@ function renderOccurrencePreview(session, nextDefaultRange, invalid) {
       preview.classList.add("continuation");
     }
     column.querySelector(".week-day-track")?.appendChild(preview);
+  });
+}
+
+function renderShiftGroupPreview(session, anchorRange, invalid) {
+  if (!isMultiShiftDragSession(session) || !anchorRange) return;
+  const deltaMs =
+    anchorRange.start.getTime() - session.originalDefaultRange.start.getTime();
+  if (!Number.isFinite(deltaMs)) return;
+  removeDragPreview();
+  session.shiftTargets.forEach((target) => {
+    const blob = target?.blob;
+    if (!blob) return;
+    const shiftedDefaultRange = shiftedRangeByMs(target.originalDefaultRange, deltaMs);
+    if (!shiftedDefaultRange) return;
+    renderOccurrencePreview(session, shiftedDefaultRange, invalid, {
+      clear: false,
+      timeZone: getBlobTimeZone(blob),
+      title: blob.name || "Untitled",
+      blockType: getTagType(blob.tags),
+      colorClass: getRecurrenceColorClass(blob),
+    });
   });
 }
 
@@ -1258,7 +1310,7 @@ function cleanupOccurrenceDrag(options = {}) {
   document.removeEventListener("pointermove", occurrenceDragSession.onPointerMove);
   document.removeEventListener("pointerup", occurrenceDragSession.onPointerUp);
   document.removeEventListener("pointercancel", occurrenceDragSession.onPointerCancel);
-  setTimelineDragSourceState(active.view === "week" ? dom.views.week : dom.views.day, active.blob?.id, false);
+  setDragSourceStateForSession(active, false);
   removeDragPreview();
   if (options.restore !== false && typeof active.restoreUi === "function") {
     active.restoreUi();
@@ -1340,11 +1392,7 @@ function beginOccurrenceDrag(session) {
       }
       session.dragging = true;
       document.body.classList.add("occurrence-dragging");
-      setTimelineDragSourceState(
-        session.view === "week" ? dom.views.week : dom.views.day,
-        session.blob?.id,
-        true
-      );
+      setDragSourceStateForSession(session, true);
     }
     const pointerDate = getPointerDateForSession(session, event.clientX, event.clientY);
     const nextRanges = createNextRangesFromSession(session, pointerDate);
@@ -1357,7 +1405,11 @@ function beginOccurrenceDrag(session) {
     session.nextDefaultRange = nextRanges.defaultRange;
     session.nextSchedulableRange = nextRanges.schedulableRange;
     session.valid = valid && changed;
-    renderOccurrencePreview(session, nextRanges.defaultRange, !valid);
+    if (isMultiShiftDragSession(session)) {
+      renderShiftGroupPreview(session, nextRanges.defaultRange, !valid);
+    } else {
+      renderOccurrencePreview(session, nextRanges.defaultRange, !valid);
+    }
     renderSchedulablePreview(session, nextRanges.schedulableRange);
   };
   session.onPointerUp = async () => {
