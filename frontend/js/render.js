@@ -21,6 +21,7 @@ import {
   getWeekStart,
   getTagType,
   getTimeZoneParts,
+  isBlobEditableInMainUi,
   layoutBlocks,
   normalizeDayBoundaryMinutes,
   normalizeOccurrenceKey,
@@ -1207,7 +1208,7 @@ function renderSchedulablePreview(session, nextSchedulableRange) {
 }
 
 function canEditTiming(blob) {
-  return Boolean(blob?.recurrence_id) && !blob?.preview && getBlobCalendarContext(blob).isMain;
+  return Boolean(blob?.recurrence_id) && !blob?.preview && isBlobEditableInMainUi(blob);
 }
 
 function getPointerDateForSession(session, clientX, clientY) {

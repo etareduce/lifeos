@@ -383,16 +383,21 @@ function getBlobCalendarContext(blob) {
     Boolean(calendarView?.is_main) ||
     calendarViewId === "main" ||
     (!calendarView && !integrationSource);
+  const source = String(calendarView?.source || "").trim().toLowerCase();
+  const hasImportedSource = Boolean(integrationSource);
+  const isUserCustomCalendar = !isMain && source === "custom" && !hasImportedSource;
   return {
     calendarView,
     integrationSource,
     calendarViewId,
     isMain,
+    isUserCustomCalendar,
   };
 }
 
 function isBlobEditableInMainUi(blob) {
-  return getBlobCalendarContext(blob).isMain;
+  const context = getBlobCalendarContext(blob);
+  return context.isMain || context.isUserCustomCalendar;
 }
 
 function overlaps(rangeStart, rangeEnd, eventStart, eventEnd) {
