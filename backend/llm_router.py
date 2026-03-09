@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 import httpx
@@ -7,6 +8,7 @@ from backend.config import (
     get_gemini_api_key,
     get_gemini_http_timeout_seconds,
     get_gemini_model,
+    get_llm_recurrence_draft_timeout_seconds,
     get_max_blob_creation_retries,
 )
 from backend.llm import (
@@ -355,71 +357,79 @@ async def llm_recurrence_draft(
         Message(role="user", content="\n".join(user_lines)),
     ]
     retries = get_max_blob_creation_retries()
+    request_timeout_seconds = get_llm_recurrence_draft_timeout_seconds()
     last_error = "LLM did not return a draft recurrence."
 
     try:
-        for attempt in range(retries + 1):
-            messages = list(base_messages)
-            if attempt > 0:
-                messages.append(
-                    Message(
-                        role="user",
-                        content=(
-                            "The previous attempt failed validation with this error:\n"
-                            f"{last_error}\n"
-                            "Please correct the recurrence payloads and try again."
-                        ),
-                    )
-                )
-            try:
-                response = await provider.generate(messages, [tool_spec])
-            except httpx.TimeoutException as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                    detail="LLM request timed out. Try a shorter prompt or retry.",
-                ) from exc
-            except httpx.HTTPError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="LLM provider request failed.",
-                ) from exc
-            if not response.tool_calls:
-                last_error = "LLM did not return a draft recurrence."
-                continue
-            call = response.tool_calls[0]
-            raw_recurrences = call.arguments.get("recurrences") or []
-            try:
-                recurrences = []
-                for index, item in enumerate(raw_recurrences, start=1):
-                    recurrences.append(
-                        _normalize_llm_recurrence(
-                            RecurrenceCreate.model_validate(item),
-                            payload.user_timezone,
-                            f"Draft {index}",
-                            calendar_views_by_id,
+        try:
+            async with asyncio.timeout(request_timeout_seconds):
+                for attempt in range(retries + 1):
+                    messages = list(base_messages)
+                    if attempt > 0:
+                        messages.append(
+                            Message(
+                                role="user",
+                                content=(
+                                    "The previous attempt failed validation with this error:\n"
+                                    f"{last_error}\n"
+                                    "Please correct the recurrence payloads and try again."
+                                ),
+                            )
                         )
+                    try:
+                        response = await provider.generate(messages, [tool_spec])
+                    except httpx.TimeoutException as exc:
+                        raise HTTPException(
+                            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                            detail="LLM request timed out. Try a shorter prompt or retry.",
+                        ) from exc
+                    except httpx.HTTPError as exc:
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="LLM provider request failed.",
+                        ) from exc
+                    if not response.tool_calls:
+                        last_error = "LLM did not return a draft recurrence."
+                        continue
+                    call = response.tool_calls[0]
+                    raw_recurrences = call.arguments.get("recurrences") or []
+                    try:
+                        recurrences = []
+                        for index, item in enumerate(raw_recurrences, start=1):
+                            recurrences.append(
+                                _normalize_llm_recurrence(
+                                    RecurrenceCreate.model_validate(item),
+                                    payload.user_timezone,
+                                    f"Draft {index}",
+                                    calendar_views_by_id,
+                                )
+                            )
+                    except Exception:
+                        last_error = "LLM returned invalid recurrence payloads."
+                        continue
+                    try:
+                        _validate_llm_recurrences(recurrences)
+                        occurrences = build_preview_occurrences(
+                            recurrences, payload.view_start, payload.view_end
+                        )
+                    except HTTPException as exc:
+                        last_error = str(exc.detail)
+                        continue
+                    preview_occurrences = [
+                        PreviewOccurrence.model_validate({**item.model_dump(), "preview": True})
+                        for item in occurrences
+                    ]
+                    notes = call.arguments.get("notes")
+                    return LLMRecurrenceDraftResponse(
+                        recurrences=recurrences,
+                        occurrences=preview_occurrences,
+                        notes=notes,
                     )
-            except Exception:
-                last_error = "LLM returned invalid recurrence payloads."
-                continue
-            try:
-                _validate_llm_recurrences(recurrences)
-                occurrences = build_preview_occurrences(
-                    recurrences, payload.view_start, payload.view_end
-                )
-            except HTTPException as exc:
-                last_error = str(exc.detail)
-                continue
-            preview_occurrences = [
-                PreviewOccurrence.model_validate({**item.model_dump(), "preview": True})
-                for item in occurrences
-            ]
-            notes = call.arguments.get("notes")
-            return LLMRecurrenceDraftResponse(
-                recurrences=recurrences,
-                occurrences=preview_occurrences,
-                notes=notes,
-            )
+        except TimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Draft generation timed out. Try a shorter prompt or retry.",
+            ) from exc
     finally:
         await provider.aclose()
 

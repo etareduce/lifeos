@@ -5,6 +5,7 @@ DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./core.db"
 DEFAULT_ANALYTICS_DATABASE_URL = "sqlite+aiosqlite:///./analytics.db"
 DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
 DEFAULT_GEMINI_HTTP_TIMEOUT_SECONDS = 55.0
+DEFAULT_LLM_RECURRENCE_DRAFT_TIMEOUT_SECONDS = 120.0
 DEFAULT_MAX_BLOB_CREATION_RETRIES = 2
 DEFAULT_PREFERENCE_BATCH_SIZE = 20
 DEFAULT_GOOGLE_OAUTH_SCOPES = (
@@ -37,6 +38,18 @@ def get_gemini_http_timeout_seconds() -> float:
         value = float(raw)
     except ValueError:
         return DEFAULT_GEMINI_HTTP_TIMEOUT_SECONDS
+    return max(1.0, value)
+
+
+def get_llm_recurrence_draft_timeout_seconds() -> float:
+    raw = os.getenv(
+        "LLM_RECURRENCE_DRAFT_TIMEOUT_SECONDS",
+        str(DEFAULT_LLM_RECURRENCE_DRAFT_TIMEOUT_SECONDS),
+    )
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_LLM_RECURRENCE_DRAFT_TIMEOUT_SECONDS
     return max(1.0, value)
 
 
