@@ -138,6 +138,13 @@ def _normalize_llm_recurrence(
         if "start_blob" in payload:
             payload["start_blob"] = _apply_blob_defaults(payload.get("start_blob"))
     if recurrence.type == "weekly":
+        if "blobs_of_week" not in payload:
+            if "blob" in payload:
+                payload["blobs_of_week"] = [payload.pop("blob")]
+            elif "blobs" in payload:
+                payload["blobs_of_week"] = payload.pop("blobs")
+            elif {"default_scheduled_timerange", "schedulable_timerange"}.issubset(payload):
+                payload = {"blobs_of_week": [payload]}
         if "blobs_of_week" in payload:
             payload["blobs_of_week"] = [
                 _apply_blob_defaults(blob) for blob in payload.get("blobs_of_week") or []
