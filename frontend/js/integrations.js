@@ -1,5 +1,6 @@
 import { appConfig, state } from "./core.js";
 import { dom } from "./dom.js";
+import { setActive, updateNowIndicators } from "./render.js";
 import {
   buildGoogleOAuthStartUrl,
   connectGoogleAccount,
@@ -28,6 +29,7 @@ const MAX_SYNC_DAYS = 90;
 
 let refreshHandler = null;
 let forceReloadTimerId = null;
+let repaintRafId = null;
 const calendarViewMutationVersions = new Map();
 const sourceCalendarMutationVersions = new Map();
 const calendarVisibilityPersistChains = new Map();
@@ -38,6 +40,17 @@ function setRefreshHandler(handler) {
 }
 
 function refreshCalendarNow() {
+  if (state.workspaceMode === "home") {
+    if (repaintRafId !== null) {
+      window.cancelAnimationFrame(repaintRafId);
+    }
+    repaintRafId = window.requestAnimationFrame(() => {
+      repaintRafId = null;
+      setActive(state.view);
+      updateNowIndicators();
+    });
+    return;
+  }
   if (!refreshHandler) return;
   void refreshHandler(state.view).catch(() => {});
 }
