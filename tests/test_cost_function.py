@@ -275,7 +275,7 @@ def test_consistency_cost_penalizes_daily_time_drift_within_recurrence_family():
 def test_consistency_cost_uses_stable_group_even_if_default_start_is_overridden():
     schedulable_low = 0
     schedulable_high = 2 * DAY
-    anchor_group = "phase=14400|dur=900|span=86340|policy=0|name=japanese study|tags=|deps="
+    anchor_group = "phase=14400|dur=900|policy=0|name=japanese study|tags=|deps="
 
     job_a = _make_job(
         schedulable_low=schedulable_low,

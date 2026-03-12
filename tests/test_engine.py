@@ -417,6 +417,72 @@ def test_scheduler_forms_maximal_consistent_subsets_across_weeks_when_global_pha
     assert sorted(phase_counts.values()) == [2, 6]
 
 
+def test_scheduler_aligns_all_legal_days_across_weeks_when_only_saturday_conflicts(monkeypatch):
+    monkeypatch.setenv("ELASTISCHED_RNG_SEED", "20260313")
+
+    policy = engine.Policy(0, 0)
+    family_jobs = []
+
+    for week_offset in [0, WEEK]:
+        for day in [
+            Day.MONDAY,
+            Day.TUESDAY,
+            Day.WEDNESDAY,
+            Day.THURSDAY,
+            Day.FRIDAY,
+            Day.SATURDAY,
+            Day.SUNDAY,
+        ]:
+            schedulable_start = week_offset + day * DAY + Hour.TWELVE_PM * HOUR
+            schedulable_end = week_offset + day * DAY + Hour.EIGHT_PM * HOUR
+            default_start = week_offset + day * DAY + Hour.ONE_PM * HOUR
+            default_end = default_start + 30 * MINUTE
+            family_jobs.append(
+                engine.Job(
+                    30 * MINUTE,
+                    engine.TimeRange(schedulable_start, schedulable_end),
+                    engine.TimeRange(default_start, default_end),
+                    f"family_day_{week_offset}_{day}",
+                    policy,
+                    set(),
+                    set(),
+                    "recurrence-sat-conflict",
+                )
+            )
+
+    blockers = []
+    for week_offset in [0, WEEK]:
+        saturday_start = week_offset + Day.SATURDAY * DAY + Hour.ONE_PM * HOUR
+        blockers.append(
+            engine.Job(
+                2 * HOUR,
+                engine.TimeRange(saturday_start, saturday_start + 2 * HOUR),
+                engine.TimeRange(saturday_start, saturday_start + 2 * HOUR),
+                f"saturday_blocker_{week_offset}",
+                policy,
+                set(),
+                set(),
+            )
+        )
+
+    schedule, _ = engine.schedule_jobs(
+        [*family_jobs, *blockers],
+        5 * MINUTE,
+        20.0,
+        1e-4,
+        200000,
+    )
+
+    scheduled_family = [
+        job for job in schedule.scheduled_jobs if job.recurrence_id == "recurrence-sat-conflict"
+    ]
+    phase_counts = Counter(job.scheduled_time_range.get_low() % DAY for job in scheduled_family)
+
+    # Both Saturdays are constrained away from the dominant phase; all other days should align.
+    assert len(phase_counts) == 2
+    assert sorted(phase_counts.values()) == [2, 12]
+
+
 def test_scheduler_finds_legal_slot_when_default_overlaps_fixed_blocker(monkeypatch):
     monkeypatch.setenv("ELASTISCHED_RNG_SEED", "20260312")
 

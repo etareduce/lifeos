@@ -280,12 +280,6 @@ def _occurrence_consistency_group_id(occurrence) -> str:
             - _as_utc(occurrence.default_scheduled_timerange.start)
         ).total_seconds()
     )
-    sched_span_seconds = int(
-        (
-            _as_utc(occurrence.schedulable_timerange.end)
-            - _as_utc(occurrence.schedulable_timerange.start)
-        ).total_seconds()
-    )
     tags = sorted(str(tag).strip() for tag in (occurrence.tags or []) if str(tag).strip())
     dependencies = sorted(
         str(dep).strip() for dep in (occurrence.dependencies or []) if str(dep).strip()
@@ -293,7 +287,7 @@ def _occurrence_consistency_group_id(occurrence) -> str:
     policy_sig = _policy_signature(occurrence.policy if isinstance(occurrence.policy, dict) else {})
     name_sig = str(occurrence.name or "").strip().lower()
     return (
-        f"phase={phase_seconds}|dur={default_duration_seconds}|span={sched_span_seconds}|"
+        f"phase={phase_seconds}|dur={default_duration_seconds}|"
         f"policy={policy_sig}|name={name_sig}|tags={','.join(tags)}|deps={','.join(dependencies)}"
     )
 

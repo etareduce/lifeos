@@ -594,7 +594,7 @@ async function handleRunSchedule() {
   setScheduleStatusState("running", "Scheduling...");
   try {
     await runSchedule(appConfig.minuteGranularity, appConfig.lookaheadSeconds);
-    await refreshView(state.view);
+    await refreshView(state.view, { forceReload: true });
   } catch (error) {
     setScheduleStatusState("error", error?.message || "Scheduler failed");
   } finally {
