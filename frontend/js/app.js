@@ -25,6 +25,7 @@ import {
 import { pushHistoryAction, redoHistoryAction, undoHistoryAction } from "./history.js";
 import { alertDialog, bindDialogEvents, choiceDialog, confirmDialog } from "./popups.js";
 import {
+  deleteOccurrenceAndLaterWithUndo,
   deleteOccurrenceWithUndo,
   deleteOccurrencesWithUndo,
   deleteRecurrenceWithUndo,
@@ -862,21 +863,29 @@ async function deleteSelectedOccurrences() {
   if (blobs.length === 1) {
     const blob = blobs[0];
     if (blob.recurrence_id && blob.recurrence_type !== "single") {
-      const choice = await choiceDialog("Delete this occurrence or the full recurrence?", {
-        confirmText: "Delete recurrence",
-        confirmValue: "recurrence",
-        altText: "Delete occurrence",
-        altValue: "occurrence",
-        cancelText: "Cancel",
-        destructive: true,
-        altDestructive: true,
-        confirmVariant: "ghost",
-        altVariant: "ghost",
-        actionOrder: "confirm-alt-cancel",
-      });
+      const choice = await choiceDialog(
+        "Delete this occurrence, this occurrence and later, or the full recurrence?",
+        {
+          confirmText: "Delete recurrence",
+          confirmValue: "recurrence",
+          altText: "Delete and later",
+          altValue: "occurrence-and-later",
+          cancelText: "Delete occurrence",
+          cancelValue: "occurrence",
+          destructive: true,
+          altDestructive: true,
+          cancelDestructive: true,
+          confirmVariant: "ghost",
+          altVariant: "ghost",
+          actionOrder: "confirm-alt-cancel",
+          dismissValue: null,
+        }
+      );
       if (!choice) return false;
       if (choice === "recurrence") {
         await deleteRecurrenceWithUndo(blob.recurrence_id);
+      } else if (choice === "occurrence-and-later") {
+        await deleteOccurrenceAndLaterWithUndo(blob);
       } else {
         await deleteOccurrenceWithUndo(blob);
       }

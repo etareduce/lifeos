@@ -11,6 +11,7 @@ def _make_job(
     policy=None,
     job_id="job",
     recurrence_id="",
+    consistency_group_id="",
 ):
     policy = policy or engine.Policy(0, 0)
     tr_schedulable = engine.TimeRange(schedulable_low, schedulable_high)
@@ -25,6 +26,7 @@ def _make_job(
         set(),
         set(),
         recurrence_id,
+        consistency_group_id,
     )
 
 
@@ -135,11 +137,15 @@ def test_consistency_cost_penalizes_same_recurrence_time_drift():
     job_b = _make_job(
         schedulable_low=schedulable_low,
         schedulable_high=schedulable_high,
-        scheduled_low=WEEK + Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR,
-        scheduled_high=WEEK + Day.MONDAY * DAY + Hour.EIGHT_PM * HOUR,
+        scheduled_low=WEEK + Day.MONDAY * DAY + Hour.SIX_PM * HOUR,
+        scheduled_high=WEEK + Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR,
         job_id="job_b",
         recurrence_id="recurrence-1",
     )
+    shifted_start = WEEK + Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR
+    shifted_end = WEEK + Day.MONDAY * DAY + Hour.EIGHT_PM * HOUR
+    job_b.scheduled_time_ranges = [engine.TimeRange(shifted_start, shifted_end)]
+    job_b.scheduled_time_range = engine.TimeRange(shifted_start, shifted_end)
     schedule = engine.Schedule([job_a, job_b])
 
     cost_function = engine.ScheduleCostFunction(
@@ -152,7 +158,157 @@ def test_consistency_cost_penalizes_same_recurrence_time_drift():
         0.0,
     )
 
-    assert cost_function.schedule_cost() == pytest.approx(HOUR / WEEK, rel=1e-6)
+    # One pair in the family is in different daily-phase slots.
+    expected_mismatch_pairs = 1.0
+    assert cost_function.schedule_cost() == pytest.approx(expected_mismatch_pairs, rel=1e-6)
+
+
+def test_consistency_cost_scopes_to_recurrence_family_pattern():
+    schedulable_low = 0
+    schedulable_high = 2 * WEEK
+    # Family A: Mondays at 6 PM.
+    family_a_week_1 = _make_job(
+        schedulable_low=schedulable_low,
+        schedulable_high=schedulable_high,
+        scheduled_low=Day.MONDAY * DAY + Hour.SIX_PM * HOUR,
+        scheduled_high=Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR,
+        job_id="family_a_week_1",
+        recurrence_id="recurrence-1",
+    )
+    family_a_week_2 = _make_job(
+        schedulable_low=schedulable_low,
+        schedulable_high=schedulable_high,
+        scheduled_low=WEEK + Day.MONDAY * DAY + Hour.SIX_PM * HOUR,
+        scheduled_high=WEEK + Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR,
+        job_id="family_a_week_2",
+        recurrence_id="recurrence-1",
+    )
+    moved_start = WEEK + Day.MONDAY * DAY + Hour.SEVEN_PM * HOUR
+    moved_end = WEEK + Day.MONDAY * DAY + Hour.EIGHT_PM * HOUR
+    family_a_week_2.scheduled_time_ranges = [engine.TimeRange(moved_start, moved_end)]
+    family_a_week_2.scheduled_time_range = engine.TimeRange(moved_start, moved_end)
+
+    # Family B: Tuesdays at 9 AM (should not be cross-coupled with Family A).
+    family_b_week_1 = _make_job(
+        schedulable_low=schedulable_low + DAY,
+        schedulable_high=schedulable_high + DAY,
+        scheduled_low=Day.TUESDAY * DAY + Hour.NINE_AM * HOUR,
+        scheduled_high=Day.TUESDAY * DAY + Hour.TEN_AM * HOUR,
+        job_id="family_b_week_1",
+        recurrence_id="recurrence-1",
+    )
+    family_b_week_2 = _make_job(
+        schedulable_low=schedulable_low + DAY,
+        schedulable_high=schedulable_high + DAY,
+        scheduled_low=WEEK + Day.TUESDAY * DAY + Hour.NINE_AM * HOUR,
+        scheduled_high=WEEK + Day.TUESDAY * DAY + Hour.TEN_AM * HOUR,
+        job_id="family_b_week_2",
+        recurrence_id="recurrence-1",
+    )
+
+    schedule = engine.Schedule(
+        [family_a_week_1, family_a_week_2, family_b_week_1, family_b_week_2]
+    )
+    cost_function = engine.ScheduleCostFunction(
+        schedule,
+        MINUTE,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    )
+
+    # Family A contributes one mismatched pair; Family B remains aligned.
+    expected_mismatch_pairs = 1.0
+    assert cost_function.schedule_cost() == pytest.approx(expected_mismatch_pairs, rel=1e-6)
+
+
+def test_consistency_cost_penalizes_daily_time_drift_within_recurrence_family():
+    day_zero_start = Day.MONDAY * DAY + Hour.SIX_PM * HOUR
+
+    day_1 = _make_job(
+        schedulable_low=day_zero_start,
+        schedulable_high=day_zero_start + 3 * HOUR,
+        scheduled_low=day_zero_start,
+        scheduled_high=day_zero_start + HOUR,
+        job_id="day_1",
+        recurrence_id="recurrence-daily",
+    )
+    day_2 = _make_job(
+        schedulable_low=day_zero_start + DAY,
+        schedulable_high=day_zero_start + DAY + 3 * HOUR,
+        scheduled_low=day_zero_start + DAY,
+        scheduled_high=day_zero_start + DAY + HOUR,
+        job_id="day_2",
+        recurrence_id="recurrence-daily",
+    )
+    day_3 = _make_job(
+        schedulable_low=day_zero_start + 2 * DAY,
+        schedulable_high=day_zero_start + 2 * DAY + 3 * HOUR,
+        scheduled_low=day_zero_start + 2 * DAY,
+        scheduled_high=day_zero_start + 2 * DAY + HOUR,
+        job_id="day_3",
+        recurrence_id="recurrence-daily",
+    )
+    shifted_day_2_start = day_zero_start + DAY + HOUR
+    shifted_day_2_end = day_zero_start + DAY + 2 * HOUR
+    day_2.scheduled_time_ranges = [engine.TimeRange(shifted_day_2_start, shifted_day_2_end)]
+    day_2.scheduled_time_range = engine.TimeRange(shifted_day_2_start, shifted_day_2_end)
+
+    schedule = engine.Schedule([day_1, day_2, day_3])
+    cost_function = engine.ScheduleCostFunction(
+        schedule,
+        MINUTE,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    )
+
+    # day_2 is in a different slot than day_1/day_3, producing two mismatched pairs.
+    expected_mismatch_pairs = 2.0
+    assert cost_function.schedule_cost() == pytest.approx(expected_mismatch_pairs, rel=1e-6)
+
+
+def test_consistency_cost_uses_stable_group_even_if_default_start_is_overridden():
+    schedulable_low = 0
+    schedulable_high = 2 * DAY
+    anchor_group = "phase=14400|dur=900|span=86340|policy=0|name=japanese study|tags=|deps="
+
+    job_a = _make_job(
+        schedulable_low=schedulable_low,
+        schedulable_high=schedulable_high,
+        scheduled_low=Hour.FOUR_PM * HOUR,
+        scheduled_high=Hour.FOUR_PM * HOUR + 15 * MINUTE,
+        job_id="job_a",
+        recurrence_id="recurrence-override",
+        consistency_group_id=anchor_group,
+    )
+    job_b = _make_job(
+        schedulable_low=schedulable_low + DAY,
+        schedulable_high=schedulable_high + DAY,
+        scheduled_low=DAY + Hour.EIGHT_PM * HOUR,
+        scheduled_high=DAY + Hour.EIGHT_PM * HOUR + 15 * MINUTE,
+        job_id="job_b",
+        recurrence_id="recurrence-override",
+        consistency_group_id=anchor_group,
+    )
+
+    schedule = engine.Schedule([job_a, job_b])
+    cost_function = engine.ScheduleCostFunction(
+        schedule,
+        MINUTE,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    )
+
+    expected_mismatch_pairs = 1.0
+    assert cost_function.schedule_cost() == pytest.approx(expected_mismatch_pairs, rel=1e-6)
 
 
 def test_granularity_cost_penalizes_off_half_hour_starts():

@@ -67,8 +67,21 @@ function getOccurrenceOverride(blob) {
   if (!key) return null;
   const overrides = blob.recurrence_payload?.occurrence_overrides;
   if (!overrides || typeof overrides !== "object") return null;
-  const override = overrides[key];
-  return override && typeof override === "object" ? override : null;
+  if (overrides[key] && typeof overrides[key] === "object") {
+    return overrides[key];
+  }
+  const keyMs = toDate(key)?.getTime?.();
+  if (!Number.isFinite(keyMs)) return null;
+  let matched = null;
+  Object.entries(overrides).forEach(([overrideKey, overrideValue]) => {
+    if (!overrideValue || typeof overrideValue !== "object") return;
+    const overrideMs = toDate(overrideKey)?.getTime?.();
+    if (!Number.isFinite(overrideMs)) return;
+    if (overrideMs === keyMs) {
+      matched = overrideValue;
+    }
+  });
+  return matched;
 }
 
 function getEffectiveOccurrenceRange(blob) {

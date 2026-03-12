@@ -59,7 +59,7 @@ PYBIND11_MODULE(engine, m) {
 
     // Job
     py::class_<Job>(m, "Job")
-        .def(py::init<sec_t, Interval<sec_t>, Interval<sec_t>, std::string, Policy, std::set<std::string>, std::set<Tag>, std::string>(),
+        .def(py::init<sec_t, Interval<sec_t>, Interval<sec_t>, std::string, Policy, std::set<std::string>, std::set<Tag>, std::string, std::string>(),
              py::arg("duration"),
              py::arg("schedulable_time_range"),
              py::arg("scheduled_time_range"),
@@ -67,9 +67,11 @@ PYBIND11_MODULE(engine, m) {
              py::arg("policy"),
              py::arg("dependencies"),
              py::arg("tags"),
-             py::arg("recurrence_id") = "")
+             py::arg("recurrence_id") = "",
+             py::arg("consistency_group_id") = "")
         .def_readwrite("duration", &Job::duration)
         .def_readwrite("schedulable_time_range", &Job::schedulable_time_range)
+        .def_readwrite("initial_scheduled_time_range", &Job::initial_scheduled_time_range)
         .def_readwrite("scheduled_time_range", &Job::scheduled_time_range)
         .def_readwrite("scheduled_time_ranges", &Job::scheduled_time_ranges)
         .def_readwrite("id", &Job::id)
@@ -77,6 +79,7 @@ PYBIND11_MODULE(engine, m) {
         .def_readwrite("dependencies", &Job::dependencies)
         .def_readwrite("tags", &Job::tags)
         .def_readwrite("recurrence_id", &Job::recurrence_id)
+        .def_readwrite("consistency_group_id", &Job::consistency_group_id)
         .def("is_rigid", &Job::is_rigid)
         .def("__str__", &Job::to_string);
 

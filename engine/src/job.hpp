@@ -17,6 +17,8 @@ public:
     sec_t duration;
     /** @brief Allowed placement window. */
     TimeRange schedulable_time_range;
+    /** @brief Immutable initial scheduled placement used for family grouping. */
+    TimeRange initial_scheduled_time_range;
     /** @brief Primary scheduled placement window. */
     TimeRange scheduled_time_range;
     /** @brief Concrete scheduled pieces (for split jobs). */
@@ -31,6 +33,8 @@ public:
     std::set<Tag> tags;
     /** @brief Recurrence identifier grouping related occurrences. */
     ID recurrence_id;
+    /** @brief Stable family key segment used by consistency cost grouping. */
+    ID consistency_group_id;
 
     /**
      * @brief Construct a job from core scheduling attributes.
@@ -42,7 +46,8 @@ public:
         Policy policy,
         std::set<ID> dependencies,
         std::set<Tag> tags,
-        ID recurrence_id = "");
+        ID recurrence_id = "",
+        ID consistency_group_id = "");
 
     /** @brief Whether this job has a fixed duration and window. */
     bool is_rigid() const;

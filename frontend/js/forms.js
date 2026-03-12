@@ -33,9 +33,10 @@ import {
   createRecurrencesBulk,
   updateRecurrence,
 } from "./api.js";
-import { alertDialog, confirmDialog } from "./popups.js";
+import { alertDialog, choiceDialog, confirmDialog } from "./popups.js";
 import { bindDateTimePickers, syncDateTimeDisplays } from "./datetime_picker.js";
 import {
+  deleteOccurrenceAndLaterWithUndo,
   deleteOccurrenceWithUndo,
   deleteRecurrenceWithUndo,
   updateOccurrencesWithUndo,
@@ -3045,23 +3046,52 @@ async function deleteOccurrence() {
     dom.formStatus.textContent = "Missing occurrence start.";
     return;
   }
-  const confirmed = await confirmDialog("Delete only this occurrence?", {
-    confirmText: "Delete",
-    cancelText: "Cancel",
-    destructive: true,
-  });
-  if (!confirmed) return;
+  const occurrenceChoice = await choiceDialog(
+    "Delete this occurrence, this occurrence and later, or the full recurrence?",
+    {
+      confirmText: "Delete recurrence",
+      confirmValue: "recurrence",
+      altText: "Delete and later",
+      altValue: "occurrence-and-later",
+      cancelText: "Delete occurrence",
+      cancelValue: "occurrence",
+      destructive: true,
+      altDestructive: true,
+      cancelDestructive: true,
+      confirmVariant: "ghost",
+      altVariant: "ghost",
+      actionOrder: "confirm-alt-cancel",
+      dismissValue: null,
+    }
+  );
+  if (!occurrenceChoice) return;
   dom.formStatus.textContent = "Deleting occurrence...";
   try {
-    const blob = state.blobs.find((item) => item.recurrence_id === state.editingRecurrenceId);
-    await deleteOccurrenceWithUndo(
+    if (occurrenceChoice === "recurrence") {
+      await deleteRecurrenceWithUndo(state.editingRecurrenceId);
+      dom.formStatus.textContent = "Deleted.";
+      toggleForm(false);
+      resetFormMode();
+      await refreshCalendar();
+      return;
+    }
+    const occurrenceKey = normalizeOccurrenceKey(occurrenceStart);
+    const blob = state.blobs.find((item) => {
+      if (item.recurrence_id !== state.editingRecurrenceId) return false;
+      return normalizeOccurrenceKey(getOccurrenceKeyFromBlob(item)) === occurrenceKey;
+    });
+    const deleteTarget =
       blob || {
         recurrence_id: state.editingRecurrenceId,
         recurrence_type: state.editingRecurrenceType,
         recurrence_payload: state.editingRecurrencePayload,
         schedulable_timerange: { start: occurrenceStart },
-      }
-    );
+      };
+    if (occurrenceChoice === "occurrence-and-later") {
+      await deleteOccurrenceAndLaterWithUndo(deleteTarget);
+    } else {
+      await deleteOccurrenceWithUndo(deleteTarget);
+    }
     dom.formStatus.textContent = "Deleted.";
     toggleForm(false);
     resetFormMode();
@@ -3509,6 +3539,11 @@ async function handleBlobSubmit(event) {
       stars: Array.isArray(priorPayload.stars) ? priorPayload.stars : [],
       exclusions: Array.isArray(priorPayload.exclusions) ? priorPayload.exclusions : [],
       unstarred: Array.isArray(priorPayload.unstarred) ? priorPayload.unstarred : [],
+      occurrence_overrides:
+        priorPayload.occurrence_overrides &&
+        typeof priorPayload.occurrence_overrides === "object"
+          ? priorPayload.occurrence_overrides
+          : {},
     };
   }
   if (recurrenceCalendarViewPayload) {

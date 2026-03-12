@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <queue>
 #include <random>
@@ -61,17 +62,29 @@ sec_t get_job_anchor_start(const Job& job) {
     return earliest;
 }
 
-double normalized_weekly_distance(sec_t a, sec_t b) {
-    const sec_t week_seconds = static_cast<sec_t>(7) * constants::DAY;
-    if (week_seconds == 0) {
+sec_t consistency_phase_slot(sec_t start, sec_t slot_seconds) {
+    const sec_t safe_slot_seconds = slot_seconds > 0 ? slot_seconds : 1;
+    const sec_t day_seconds = constants::DAY;
+    if (day_seconds == 0) {
+        return start;
+    }
+    const sec_t phase = start % day_seconds;
+    const sec_t rounded = ((phase + (safe_slot_seconds / 2)) / safe_slot_seconds) * safe_slot_seconds;
+    return rounded % day_seconds;
+}
+
+double daily_slot_distance(sec_t a, sec_t b, sec_t slot_seconds) {
+    const sec_t day_seconds = constants::DAY;
+    if (day_seconds == 0) {
         return 0.0;
     }
-    const sec_t phase_a = a % week_seconds;
-    const sec_t phase_b = b % week_seconds;
+    const sec_t safe_slot_seconds = slot_seconds > 0 ? slot_seconds : 1;
+    const sec_t phase_a = a % day_seconds;
+    const sec_t phase_b = b % day_seconds;
     const sec_t direct = (phase_a >= phase_b) ? (phase_a - phase_b) : (phase_b - phase_a);
-    const sec_t wrapped = week_seconds - direct;
+    const sec_t wrapped = day_seconds - direct;
     const sec_t distance = std::min(direct, wrapped);
-    return static_cast<double>(distance) / static_cast<double>(week_seconds);
+    return static_cast<double>(distance) / static_cast<double>(safe_slot_seconds);
 }
 
 double normalized_half_hour_distance(sec_t t) {
@@ -84,6 +97,236 @@ double normalized_half_hour_distance(sec_t t) {
     const sec_t to_next_mark = half_hour_seconds - phase;
     const sec_t distance = std::min(to_prev_mark, to_next_mark);
     return static_cast<double>(distance) / static_cast<double>(half_hour_seconds);
+}
+
+std::string consistency_family_key(const Job& job) {
+    if (!job.consistency_group_id.empty()) {
+        std::string key = job.recurrence_id;
+        key.push_back('|');
+        key += job.consistency_group_id;
+        return key;
+    }
+    const sec_t day_seconds = constants::DAY;
+    const sec_t initial_phase = day_seconds == 0
+        ? job.initial_scheduled_time_range.get_low()
+        : (job.initial_scheduled_time_range.get_low() % day_seconds);
+    std::string key = job.recurrence_id;
+    key.push_back('|');
+    key += std::to_string(initial_phase);
+    key.push_back('|');
+    key += std::to_string(job.schedulable_time_range.length());
+    key.push_back('|');
+    key += std::to_string(job.duration);
+    key.push_back('|');
+    key += std::to_string(static_cast<unsigned int>(job.policy.get_scheduling_policies()));
+    key.push_back('|');
+    for (const auto& tag : job.tags) {
+        key += tag.get_name();
+        key.push_back(',');
+    }
+    return key;
+}
+
+bool can_place_without_forbidden_overlap(
+    const std::vector<Job>& jobs,
+    size_t moving_job_index,
+    const TimeRange& candidate
+) {
+    const Job& moving_job = jobs[moving_job_index];
+    if (moving_job.policy.is_overlappable()) {
+        return true;
+    }
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        if (i == moving_job_index) {
+            continue;
+        }
+        const Job& other_job = jobs[i];
+        if (other_job.policy.is_overlappable()) {
+            continue;
+        }
+        for (const auto& other_range : get_job_scheduled_ranges(other_job)) {
+            if (candidate.overlaps(other_range)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+std::optional<TimeRange> best_range_for_daily_phase(
+    const std::vector<Job>& jobs,
+    size_t job_index,
+    sec_t target_phase,
+    sec_t granularity
+) {
+    const Job& job = jobs[job_index];
+    const sec_t safe_granularity = granularity > 0 ? granularity : 1;
+    const TimeRange& schedulable = job.schedulable_time_range;
+    if (schedulable.get_high() <= schedulable.get_low() || job.duration == 0) {
+        return std::nullopt;
+    }
+    if (schedulable.length() < job.duration) {
+        return std::nullopt;
+    }
+
+    sec_t earliest_start = ((schedulable.get_low() + safe_granularity - 1) / safe_granularity)
+        * safe_granularity;
+    const sec_t raw_latest_start = schedulable.get_high() - job.duration;
+    const sec_t latest_start = (raw_latest_start / safe_granularity) * safe_granularity;
+    if (latest_start < earliest_start) {
+        return std::nullopt;
+    }
+
+    const sec_t day_seconds = constants::DAY;
+    if (day_seconds == 0) {
+        const TimeRange fallback_range(earliest_start, earliest_start + job.duration);
+        if (can_place_without_forbidden_overlap(jobs, job_index, fallback_range)) {
+            return fallback_range;
+        }
+        return std::nullopt;
+    }
+
+    const sec_t normalized_target_phase = target_phase % day_seconds;
+    const sec_t current_start = get_job_anchor_start(job);
+    double best_score = std::numeric_limits<double>::infinity();
+    sec_t best_delta = std::numeric_limits<sec_t>::max();
+    std::optional<TimeRange> best_range = std::nullopt;
+
+    auto maybe_update = [&](sec_t candidate_start) {
+        if (candidate_start < earliest_start || candidate_start > latest_start) {
+            return;
+        }
+        const TimeRange candidate_range(candidate_start, candidate_start + job.duration);
+        if (!can_place_without_forbidden_overlap(jobs, job_index, candidate_range)) {
+            return;
+        }
+        const double score = daily_slot_distance(
+            candidate_start,
+            normalized_target_phase,
+            safe_granularity
+        );
+        const sec_t delta = candidate_start >= current_start
+            ? (candidate_start - current_start)
+            : (current_start - candidate_start);
+        if (!best_range.has_value() || score < best_score || (score == best_score && delta < best_delta)) {
+            best_range = candidate_range;
+            best_score = score;
+            best_delta = delta;
+        }
+    };
+
+    maybe_update(earliest_start);
+    maybe_update(latest_start);
+
+    const sec_t phase_floor = (normalized_target_phase / safe_granularity) * safe_granularity;
+    std::vector<sec_t> candidate_phases;
+    const size_t max_phase_offset_slots = 24;
+    candidate_phases.reserve(max_phase_offset_slots * 2 + 1);
+    auto add_phase = [&](sec_t phase) {
+        for (const sec_t existing : candidate_phases) {
+            if (existing == phase) {
+                return;
+            }
+        }
+        candidate_phases.push_back(phase);
+    };
+    add_phase(phase_floor);
+    for (size_t slot_offset = 1; slot_offset <= max_phase_offset_slots; ++slot_offset) {
+        const sec_t delta = static_cast<sec_t>(slot_offset) * safe_granularity;
+        if (delta >= day_seconds) {
+            break;
+        }
+        add_phase((phase_floor + delta) % day_seconds);
+        add_phase((phase_floor + day_seconds - delta) % day_seconds);
+    }
+
+    const sec_t start_day = earliest_start / day_seconds;
+    const sec_t end_day = latest_start / day_seconds;
+    for (sec_t day = start_day; day <= end_day; ++day) {
+        for (const sec_t phase : candidate_phases) {
+            maybe_update(day * day_seconds + phase);
+        }
+        if (day == std::numeric_limits<sec_t>::max()) {
+            break;
+        }
+    }
+
+    return best_range;
+}
+
+bool apply_family_phase_neighbor(
+    std::vector<Job>& jobs,
+    sec_t granularity,
+    std::mt19937& gen
+) {
+    std::unordered_map<std::string, std::vector<size_t>> family_to_indices;
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        const Job& job = jobs[i];
+        if (job.is_rigid() || job.recurrence_id.empty()) {
+            continue;
+        }
+        family_to_indices[consistency_family_key(job)].push_back(i);
+    }
+
+    std::vector<const std::vector<size_t>*> candidate_families;
+    for (const auto& [family_key, indices] : family_to_indices) {
+        (void)family_key;
+        if (indices.size() >= 2) {
+            candidate_families.push_back(&indices);
+        }
+    }
+    if (candidate_families.empty()) {
+        return false;
+    }
+
+    std::uniform_int_distribution<size_t> family_dist(0, candidate_families.size() - 1);
+    const auto& selected_family = *candidate_families[family_dist(gen)];
+
+    const sec_t safe_granularity = granularity > 0 ? granularity : 1;
+    std::unordered_map<sec_t, size_t> phase_counts;
+    for (const size_t index : selected_family) {
+        const Job& job = jobs[index];
+        if (job.get_scheduled_time_ranges().size() > 1) {
+            continue;
+        }
+        const sec_t phase = consistency_phase_slot(get_job_anchor_start(job), safe_granularity);
+        phase_counts[phase] += 1;
+    }
+    if (phase_counts.empty()) {
+        return false;
+    }
+    size_t max_count = 0;
+    std::vector<sec_t> candidate_target_phases;
+    for (const auto& [phase, count] : phase_counts) {
+        if (count > max_count) {
+            max_count = count;
+            candidate_target_phases = {phase};
+        } else if (count == max_count) {
+            candidate_target_phases.push_back(phase);
+        }
+    }
+    std::uniform_int_distribution<size_t> phase_dist(0, candidate_target_phases.size() - 1);
+    const sec_t target_phase = candidate_target_phases[phase_dist(gen)];
+
+    bool changed = false;
+    for (const size_t index : selected_family) {
+        Job& job = jobs[index];
+        if (job.get_scheduled_time_ranges().size() > 1) {
+            continue;
+        }
+        const auto aligned_range = best_range_for_daily_phase(jobs, index, target_phase, granularity);
+        if (!aligned_range.has_value()) {
+            continue;
+        }
+        const auto current_ranges = job.get_scheduled_time_ranges();
+        if (current_ranges.size() == 1 && current_ranges.front() == aligned_range.value()) {
+            continue;
+        }
+        job.set_scheduled_time_ranges({aligned_range.value()});
+        changed = true;
+    }
+
+    return changed;
 }
 
 std::vector<std::vector<Job>> get_disjoint_intervals(std::vector<Job> jobs) {
@@ -257,6 +500,12 @@ Schedule generate_random_schedule_neighbor(
     }
 
     if (flexible_indices.empty()) {
+        return s;
+    }
+
+    constexpr double family_alignment_move_probability = 0.35;
+    std::bernoulli_distribution family_move_decision(family_alignment_move_probability);
+    if (family_move_decision(gen) && apply_family_phase_neighbor(jobs, granularity, gen)) {
         return s;
     }
 
@@ -580,25 +829,33 @@ double ScheduleCostFunction::split_cost() const {
 }
 
 double ScheduleCostFunction::consistency_cost() const {
-    std::unordered_map<ID, std::vector<sec_t>> starts_by_recurrence;
+    std::unordered_map<std::string, std::vector<sec_t>> starts_by_family;
     for (const auto& job : schedule_ref.scheduled_jobs) {
         if (job.recurrence_id.empty()) {
             continue;
         }
-        starts_by_recurrence[job.recurrence_id].push_back(get_job_anchor_start(job));
+        starts_by_family[consistency_family_key(job)].push_back(get_job_anchor_start(job));
     }
 
+    const sec_t safe_granularity = granularity > 0 ? granularity : 1;
     double cost = 0.0;
-    for (const auto& [recurrence_id, starts] : starts_by_recurrence) {
-        (void)recurrence_id;
+    for (const auto& [family_id, starts] : starts_by_family) {
+        (void)family_id;
         if (starts.size() < 2) {
             continue;
         }
-        for (size_t i = 0; i < starts.size(); ++i) {
-            for (size_t j = i + 1; j < starts.size(); ++j) {
-                cost += normalized_weekly_distance(starts[i], starts[j]);
-            }
+        std::unordered_map<sec_t, size_t> phase_counts;
+        for (const sec_t start : starts) {
+            const sec_t phase = consistency_phase_slot(start, safe_granularity);
+            phase_counts[phase] += 1;
         }
+        const double total_pairs = static_cast<double>(starts.size() * (starts.size() - 1)) / 2.0;
+        double same_phase_pairs = 0.0;
+        for (const auto& [phase, count] : phase_counts) {
+            (void)phase;
+            same_phase_pairs += static_cast<double>(count * (count - 1)) / 2.0;
+        }
+        cost += (total_pairs - same_phase_pairs);
     }
     return cost;
 }
@@ -664,49 +921,118 @@ std::pair<Schedule, std::vector<double>> schedule_jobs(
 
     std::vector<std::vector<Job>> disjoint_jobs = get_disjoint_intervals(jobs);
     (void)disjoint_jobs;
-    std::mt19937 gen(constants::RNG_SEED());
 
     Schedule initial_schedule = Schedule(jobs);
+    const uint64_t run_count = std::max<uint64_t>(1, config.num_workers);
+    const uint32_t base_seed = constants::RNG_SEED();
 
-    ScheduleCostFunction initial_cost_function = ScheduleCostFunction(
-        initial_schedule,
-        config.granularity,
-        config.illegal_schedule_weight,
-        config.overlap_cost_weight,
-        config.split_cost_weight,
-        config.consistency_cost_weight,
-        config.granularity_cost_weight
-    );
-    (void)initial_cost_function;
+    auto schedule_cost = [&config](const Schedule& s) {
+        ScheduleCostFunction cost_function = ScheduleCostFunction(
+            s,
+            config.granularity,
+            config.illegal_schedule_weight,
+            config.overlap_cost_weight,
+            config.split_cost_weight,
+            config.consistency_cost_weight,
+            config.granularity_cost_weight
+        );
+        return cost_function.schedule_cost();
+    };
+    auto illegal_cost = [&config](const Schedule& s) {
+        ScheduleCostFunction cost_function = ScheduleCostFunction(
+            s,
+            config.granularity,
+            config.illegal_schedule_weight,
+            config.overlap_cost_weight,
+            config.split_cost_weight,
+            config.consistency_cost_weight,
+            config.granularity_cost_weight
+        );
+        return cost_function.illegal_schedule_cost();
+    };
 
-    SimulatedAnnealingOptimizer<Schedule> optimizer = SimulatedAnnealingOptimizer<Schedule>(
-        [config](Schedule s) {
-            ScheduleCostFunction cost_function = ScheduleCostFunction(
-                s,
-                config.granularity,
-                config.illegal_schedule_weight,
-                config.overlap_cost_weight,
-                config.split_cost_weight,
-                config.consistency_cost_weight,
-                config.granularity_cost_weight
-            );
-            return cost_function.schedule_cost();
-        },
-        [config, &gen](Schedule s) {
-            return generate_random_schedule_neighbor(
-                s,
-                config.granularity,
-                gen);
-        },
-        config.initial_temp,
-        config.final_temp,
-        config.num_iters
-    );
+    Schedule best_schedule = initial_schedule;
+    std::vector<double> best_cost_history{};
+    double best_cost = 0.0;
+    double best_illegal_cost = constants::ILLEGAL_SCHEDULE_COST;
+    bool has_best = false;
+    auto maybe_promote = [&](Schedule&& candidate_schedule, std::vector<double>&& candidate_cost_history) {
+        const double candidate_cost = schedule_cost(candidate_schedule);
+        const double candidate_illegal_cost = illegal_cost(candidate_schedule);
+        const bool candidate_is_legal = candidate_illegal_cost <= constants::EPSILON;
+        if (!has_best) {
+            best_schedule = std::move(candidate_schedule);
+            best_cost_history = std::move(candidate_cost_history);
+            best_cost = candidate_cost;
+            best_illegal_cost = candidate_illegal_cost;
+            has_best = true;
+            return;
+        }
+        const bool best_is_legal = best_illegal_cost <= constants::EPSILON;
+        const bool should_promote =
+            (candidate_is_legal && !best_is_legal) ||
+            (candidate_is_legal == best_is_legal && (candidate_cost + constants::EPSILON < best_cost));
+        if (should_promote) {
+            best_schedule = std::move(candidate_schedule);
+            best_cost_history = std::move(candidate_cost_history);
+            best_cost = candidate_cost;
+            best_illegal_cost = candidate_illegal_cost;
+        }
+    };
+    auto run_trial = [&](uint32_t run_seed, uint64_t max_iters, bool randomize_initial) {
+        std::mt19937 trial_gen(run_seed);
+        Schedule run_initial_schedule = initial_schedule;
+        if (randomize_initial && !run_initial_schedule.scheduled_jobs.empty()) {
+            const size_t warmup_steps = run_initial_schedule.scheduled_jobs.size() * 3;
+            for (size_t step = 0; step < warmup_steps; ++step) {
+                run_initial_schedule = generate_random_schedule_neighbor(
+                    run_initial_schedule,
+                    config.granularity,
+                    trial_gen
+                );
+            }
+        }
 
-    Schedule best_schedule = optimizer.optimize(initial_schedule);
-    std::vector<double> cost_history = optimizer.get_cost_history();
+        std::mt19937 neighbor_gen(run_seed);
+        SimulatedAnnealingOptimizer<Schedule> optimizer = SimulatedAnnealingOptimizer<Schedule>(
+            schedule_cost,
+            [config, &neighbor_gen](const Schedule& s) {
+                return generate_random_schedule_neighbor(
+                    s,
+                    config.granularity,
+                    neighbor_gen);
+            },
+            config.initial_temp,
+            config.final_temp,
+            static_cast<int>(max_iters),
+            run_seed
+        );
 
-    return std::make_pair(best_schedule, cost_history);
+        Schedule run_best_schedule = optimizer.optimize(run_initial_schedule);
+        std::vector<double> run_cost_history = optimizer.get_cost_history();
+        maybe_promote(std::move(run_best_schedule), std::move(run_cost_history));
+    };
+
+    for (uint64_t run_index = 0; run_index < run_count; ++run_index) {
+        const uint32_t run_seed = base_seed + static_cast<uint32_t>(run_index * 2654435761u);
+        run_trial(run_seed, config.num_iters, false);
+    }
+    if (best_illegal_cost > constants::EPSILON) {
+        const uint64_t extra_run_count = std::max<uint64_t>(8, run_count * 4);
+        const uint64_t extra_num_iters = config.num_iters > (std::numeric_limits<uint64_t>::max() / 2)
+            ? std::numeric_limits<uint64_t>::max()
+            : std::max<uint64_t>(config.num_iters, config.num_iters * 2);
+        for (uint64_t extra_index = 0; extra_index < extra_run_count; ++extra_index) {
+            const uint64_t run_index = run_count + extra_index;
+            const uint32_t run_seed = base_seed + static_cast<uint32_t>(run_index * 2654435761u);
+            run_trial(run_seed, extra_num_iters, true);
+            if (best_illegal_cost <= constants::EPSILON) {
+                break;
+            }
+        }
+    }
+
+    return std::make_pair(best_schedule, best_cost_history);
 }
 
 Schedule schedule(

@@ -53,8 +53,135 @@ async def _mark_schedule_dirty(session: AsyncSession) -> None:
         session.add(state)
     else:
         state.dirty = True
-    await session.execute(delete(ScheduledOccurrenceModel))
     await session.commit()
+
+
+def _occurrence_overrides(payload: dict | None) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    raw = payload.get("occurrence_overrides")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _default_timerange_from_override(override: dict, tzinfo) -> TimeRange | None:
+    default_override = override.get("default_scheduled_timerange")
+    if not isinstance(default_override, dict):
+        return None
+    try:
+        parsed_default = _parse_timerange(default_override, tzinfo)
+    except HTTPException:
+        return None
+    if parsed_default.start >= parsed_default.end:
+        return None
+    return parsed_default
+
+
+def _schedulable_contains_default(override: dict, default_tr: TimeRange, tzinfo) -> bool:
+    sched_override = override.get("schedulable_timerange")
+    if not isinstance(sched_override, dict):
+        return True
+    try:
+        parsed_sched = _parse_timerange(sched_override, tzinfo)
+    except HTTPException:
+        return False
+    if parsed_sched.start >= parsed_sched.end:
+        return False
+    return parsed_sched.start <= default_tr.start and parsed_sched.end >= default_tr.end
+
+
+def _normalize_override_key_to_datetime(key: str) -> datetime | None:
+    try:
+        parsed = _parse_datetime(key)
+    except HTTPException:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+async def _scheduled_ids_by_timestamp(
+    session: AsyncSession, recurrence_id: str
+) -> dict[int, list[str]]:
+    rows = await session.execute(
+        select(ScheduledOccurrenceModel.id).where(
+            ScheduledOccurrenceModel.id.like(f"{recurrence_id}:%")
+        )
+    )
+    ids_by_ts: dict[int, list[str]] = {}
+    for (occurrence_id,) in rows:
+        if not isinstance(occurrence_id, str) or ":" not in occurrence_id:
+            continue
+        key = occurrence_id.split(":", 1)[1]
+        parsed = _normalize_override_key_to_datetime(key)
+        if parsed is None:
+            continue
+        ids_by_ts.setdefault(int(parsed.timestamp()), []).append(occurrence_id)
+    return ids_by_ts
+
+
+async def _sync_scheduled_rows_for_changed_overrides(
+    session: AsyncSession,
+    recurrence_id: str,
+    previous_payload: dict | None,
+    next_payload: dict | None,
+) -> None:
+    previous_overrides = _occurrence_overrides(previous_payload)
+    next_overrides = _occurrence_overrides(next_payload)
+    changed_keys = {
+        key
+        for key in (set(previous_overrides.keys()) | set(next_overrides.keys()))
+        if previous_overrides.get(key) != next_overrides.get(key)
+    }
+    if not changed_keys:
+        return
+
+    ids_by_ts = await _scheduled_ids_by_timestamp(session, recurrence_id)
+    for key in changed_keys:
+        parsed_key = _normalize_override_key_to_datetime(key)
+        if parsed_key is None:
+            continue
+        key_ts = int(parsed_key.timestamp())
+        existing_ids = ids_by_ts.get(key_ts, [])
+        fallback_id = f"{recurrence_id}:{parsed_key.isoformat()}"
+        candidate_ids = existing_ids or [fallback_id]
+
+        for occurrence_id in candidate_ids:
+            await session.execute(
+                delete(ScheduledOccurrenceModel).where(
+                    ScheduledOccurrenceModel.id == occurrence_id
+                )
+            )
+
+        next_override = next_overrides.get(key)
+        if not isinstance(next_override, dict):
+            continue
+        if next_override.get("finished_at"):
+            continue
+
+        default_tr = _default_timerange_from_override(next_override, parsed_key.tzinfo)
+        if default_tr is None:
+            continue
+        if not _schedulable_contains_default(next_override, default_tr, parsed_key.tzinfo):
+            continue
+
+        realized_start = (
+            default_tr.start.replace(tzinfo=DEFAULT_TZ)
+            if default_tr.start.tzinfo is None
+            else default_tr.start.astimezone(DEFAULT_TZ)
+        )
+        realized_end = (
+            default_tr.end.replace(tzinfo=DEFAULT_TZ)
+            if default_tr.end.tzinfo is None
+            else default_tr.end.astimezone(DEFAULT_TZ)
+        )
+        session.add(
+            ScheduledOccurrenceModel(
+                id=candidate_ids[0],
+                segment_index=0,
+                realized_start=realized_start,
+                realized_end=realized_end,
+            )
+        )
 
 
 def _normalize_recurrence_type(value: str | None) -> str:
@@ -345,14 +472,29 @@ def _to_occurrence_schema(
                 key_dt = key_dt.astimezone(occurrence_start.tzinfo)
             if int(key_dt.timestamp()) == occurrence_ts:
                 override = value
-                break
         if override:
             tzinfo = blob.tz or occurrence_start.tzinfo
+            candidate_default = None
+            default_override = override.get("default_scheduled_timerange")
+            if isinstance(default_override, dict):
+                parsed_default = _parse_timerange(default_override, tzinfo)
+                if parsed_default.start < parsed_default.end:
+                    candidate_default = parsed_default
+            candidate_schedulable = None
             sched_override = override.get("schedulable_timerange")
             if isinstance(sched_override, dict):
-                candidate = _parse_timerange(sched_override, tzinfo)
-                if candidate.start < candidate.end:
-                    schedulable_tr = candidate
+                parsed_schedulable = _parse_timerange(sched_override, tzinfo)
+                if parsed_schedulable.start < parsed_schedulable.end:
+                    candidate_schedulable = parsed_schedulable
+
+            next_default = candidate_default or default_tr
+            next_schedulable = candidate_schedulable or schedulable_tr
+            if (
+                next_schedulable.start <= next_default.start
+                and next_schedulable.end >= next_default.end
+            ):
+                default_tr = next_default
+                schedulable_tr = next_schedulable
     return OccurrenceRead(
         id=_occurrence_id(recurrence_id, blob),
         recurrence_id=recurrence_id,
@@ -524,6 +666,12 @@ async def update_recurrence(
         )
     except Exception:
         logger.exception("Failed to record analytics for recurrence update: %s", recurrence.id)
+    await _sync_scheduled_rows_for_changed_overrides(
+        session,
+        recurrence_id=recurrence.id,
+        previous_payload=previous_payload,
+        next_payload=new_payload,
+    )
     await _mark_schedule_dirty(session)
     return RecurrenceRead(id=recurrence.id, type=recurrence.type, payload=recurrence.payload)
 

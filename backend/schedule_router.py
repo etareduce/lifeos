@@ -72,6 +72,10 @@ def _is_main_recurrence(payload: dict | None) -> bool:
     if isinstance(calendar_view, dict):
         if "is_main" in calendar_view:
             return bool(calendar_view.get("is_main"))
+        view_id = str(calendar_view.get("id") or "").strip().lower()
+        view_source = str(calendar_view.get("source") or "").strip().lower()
+        if view_id == "main" or view_source == "main":
+            return True
         return False
     source = payload.get("integration_source")
     if not isinstance(source, dict):
@@ -84,8 +88,14 @@ def _occurrence_override(payload: dict, occurrence) -> dict | None:
     overrides = payload.get("occurrence_overrides") if isinstance(payload, dict) else None
     if not isinstance(overrides, dict):
         return None
+    candidate_timestamps: set[int] = set()
     occurrence_start = occurrence.schedulable_timerange.start
-    occurrence_ts = int(occurrence_start.timestamp())
+    candidate_timestamps.add(int(occurrence_start.timestamp()))
+
+    occurrence_key_dt = _occurrence_key_datetime(occurrence, occurrence_start.tzinfo)
+    if occurrence_key_dt is not None:
+        candidate_timestamps.add(int(occurrence_key_dt.timestamp()))
+
     for key, value in overrides.items():
         if not isinstance(value, dict):
             continue
@@ -97,7 +107,7 @@ def _occurrence_override(payload: dict, occurrence) -> dict | None:
             key_dt = key_dt.replace(tzinfo=occurrence_start.tzinfo)
         else:
             key_dt = key_dt.astimezone(occurrence_start.tzinfo)
-        if int(key_dt.timestamp()) == occurrence_ts:
+        if int(key_dt.timestamp()) in candidate_timestamps:
             return value
     return None
 
@@ -206,6 +216,86 @@ def _tags_from_payload(raw_tags) -> set:
 def _to_epoch_seconds(value_utc: datetime, epoch_start_utc: datetime) -> int:
     value_utc = _as_utc(value_utc)
     return int((value_utc - epoch_start_utc).total_seconds())
+
+
+def _occurrence_key_from_id(occurrence) -> str | None:
+    occurrence_id = getattr(occurrence, "id", None)
+    recurrence_id = getattr(occurrence, "recurrence_id", None)
+    if not isinstance(occurrence_id, str) or not isinstance(recurrence_id, str):
+        return None
+    prefix = f"{recurrence_id}:"
+    if not occurrence_id.startswith(prefix):
+        return None
+    key = occurrence_id[len(prefix):].strip()
+    return key or None
+
+
+def _occurrence_key_datetime(occurrence, tzinfo) -> datetime | None:
+    raw_key = _occurrence_key_from_id(occurrence)
+    if not raw_key:
+        return None
+    try:
+        parsed = _parse_datetime(raw_key)
+    except HTTPException:
+        return None
+    if tzinfo is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=tzinfo)
+        else:
+            parsed = parsed.astimezone(tzinfo)
+    return parsed
+
+
+def _policy_signature(policy: dict | None) -> int:
+    if not isinstance(policy, dict):
+        return 0
+    if "scheduling_policies" in policy:
+        try:
+            return int(policy.get("scheduling_policies") or 0)
+        except (TypeError, ValueError):
+            return 0
+    bitmask = 0
+    if _coerce_bool(policy.get("is_splittable")):
+        bitmask |= 1
+    if _coerce_bool(policy.get("is_overlappable")):
+        bitmask |= 2
+    if _coerce_bool(policy.get("is_invisible")):
+        bitmask |= 4
+    if _coerce_bool(policy.get("round_to_granularity")):
+        bitmask |= 8
+    return bitmask
+
+
+def _occurrence_consistency_group_id(occurrence) -> str:
+    sched_start = occurrence.schedulable_timerange.start
+    anchor = sched_start
+    parsed = _occurrence_key_datetime(occurrence, sched_start.tzinfo)
+    if parsed is not None:
+        anchor = parsed
+
+    phase_seconds = anchor.hour * 3600 + anchor.minute * 60 + anchor.second
+    default_duration_seconds = int(
+        (
+            _as_utc(occurrence.default_scheduled_timerange.end)
+            - _as_utc(occurrence.default_scheduled_timerange.start)
+        ).total_seconds()
+    )
+    sched_span_seconds = int(
+        (
+            _as_utc(occurrence.schedulable_timerange.end)
+            - _as_utc(occurrence.schedulable_timerange.start)
+        ).total_seconds()
+    )
+    tags = sorted(str(tag).strip() for tag in (occurrence.tags or []) if str(tag).strip())
+    dependencies = sorted(
+        str(dep).strip() for dep in (occurrence.dependencies or []) if str(dep).strip()
+    )
+    policy_sig = _policy_signature(occurrence.policy if isinstance(occurrence.policy, dict) else {})
+    name_sig = str(occurrence.name or "").strip().lower()
+    return (
+        f"phase={phase_seconds}|dur={default_duration_seconds}|span={sched_span_seconds}|"
+        f"policy={policy_sig}|name={name_sig}|tags={','.join(tags)}|deps={','.join(dependencies)}"
+    )
 
 
 def _dependency_violation_message(jobs: list[engine.Job]) -> str | None:
@@ -492,6 +582,7 @@ async def run_schedule(
             set(occurrence.dependencies or []),
             _tags_from_payload(occurrence.tags),
             occurrence.recurrence_id,
+            _occurrence_consistency_group_id(occurrence),
         )
         jobs.append(job)
 

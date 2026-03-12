@@ -2,6 +2,7 @@ import { dom } from "./dom.js";
 
 let resolver = null;
 let actionMap = { confirm: true, cancel: false, alt: null };
+let dismissResult = false;
 let lastFocusedElement = null;
 
 function setModalActive(active) {
@@ -34,6 +35,7 @@ function closeDialog(result) {
   const resolve = resolver;
   resolver = null;
   actionMap = { confirm: true, cancel: false, alt: null };
+  dismissResult = false;
   setModalActive(false);
   resolve(result);
 }
@@ -48,6 +50,7 @@ function configureDialog({
   altVariant,
   destructive = false,
   altDestructive = false,
+  cancelDestructive = false,
   actionOrder = "cancel-alt-confirm",
 }) {
   if (dom.alertTitle) dom.alertTitle.textContent = title || "Notice";
@@ -62,6 +65,7 @@ function configureDialog({
     } else {
       dom.alertCancelBtn.style.display = "none";
     }
+    dom.alertCancelBtn.classList.toggle("danger", cancelDestructive);
   }
   if (dom.alertAltBtn) {
     if (altText) {
@@ -86,7 +90,7 @@ function configureDialog({
   }
 }
 
-function showDialog(options, actions) {
+function showDialog(options, actions, options2 = {}) {
   if (resolver) {
     closeDialog(false);
   }
@@ -94,6 +98,9 @@ function showDialog(options, actions) {
   if (actions) {
     actionMap = actions;
   }
+  dismissResult = Object.prototype.hasOwnProperty.call(options2, "dismissValue")
+    ? options2.dismissValue
+    : actionMap.cancel;
   setModalActive(true);
   return new Promise((resolve) => {
     resolver = resolve;
@@ -108,8 +115,10 @@ function confirmDialog(message, options = {}) {
       confirmText: options.confirmText || "Confirm",
       cancelText: options.cancelText || "Cancel",
       destructive: Boolean(options.destructive),
+      cancelDestructive: Boolean(options.cancelDestructive),
     },
-    { confirm: true, cancel: false, alt: false }
+    { confirm: true, cancel: false, alt: false },
+    { dismissValue: false }
   );
 }
 
@@ -121,7 +130,8 @@ function alertDialog(message, options = {}) {
       confirmText: options.confirmText || "OK",
       cancelText: null,
     },
-    { confirm: true, cancel: true, alt: true }
+    { confirm: true, cancel: true, alt: true },
+    { dismissValue: true }
   );
 }
 
@@ -135,6 +145,7 @@ function choiceDialog(message, options = {}) {
       cancelText: options.cancelText || "Cancel",
       destructive: Boolean(options.destructive),
       altDestructive: Boolean(options.altDestructive),
+      cancelDestructive: Boolean(options.cancelDestructive),
       confirmVariant: options.confirmVariant,
       altVariant: options.altVariant,
       actionOrder: options.actionOrder || "cancel-alt-confirm",
@@ -143,6 +154,11 @@ function choiceDialog(message, options = {}) {
       confirm: options.confirmValue ?? "confirm",
       alt: options.altValue ?? "alt",
       cancel: options.cancelValue ?? null,
+    },
+    {
+      dismissValue: Object.prototype.hasOwnProperty.call(options, "dismissValue")
+        ? options.dismissValue
+        : (options.cancelValue ?? null),
     }
   );
 }
@@ -158,12 +174,12 @@ function bindDialogEvents() {
     dom.alertAltBtn.addEventListener("click", () => closeDialog(actionMap.alt));
   }
   if (dom.alertBackdrop) {
-    dom.alertBackdrop.addEventListener("click", () => closeDialog(actionMap.cancel));
+    dom.alertBackdrop.addEventListener("click", () => closeDialog(dismissResult));
   }
   window.addEventListener("keydown", (event) => {
     if (!resolver) return;
     if (event.key === "Escape") {
-      closeDialog(actionMap.cancel);
+      closeDialog(dismissResult);
     }
   });
 }

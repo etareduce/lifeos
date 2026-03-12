@@ -1,7 +1,8 @@
 import { appConfig, minuteGranularity, saveView, state } from "./core.js";
 import { dom } from "./dom.js";
-import { alertDialog, choiceDialog } from "./popups.js";
+import { alertDialog, choiceDialog, confirmDialog } from "./popups.js";
 import {
+  deleteOccurrenceAndLaterWithUndo,
   deleteOccurrenceWithUndo,
   deleteRecurrenceWithUndo,
   moveOccurrenceToMainWithRefresh,
@@ -568,13 +569,30 @@ function getPolicyAllowsOverlap(blob) {
   return getPolicyFlags(blob?.policy || {}).overlappable;
 }
 
+function isMainCalendarBlob(blob) {
+  const context = getBlobCalendarContext(blob);
+  return Boolean(context?.isMain);
+}
+
+function isNonEditableAllDayOccurrence(blob) {
+  if (!blob || canEditTiming(blob)) return false;
+  const range = getEffectiveOccurrenceRange(blob) || occurrenceRangeFromBlob(blob);
+  if (!range) return false;
+  const end = range.effectiveEnd || range.end;
+  if (!(range.start instanceof Date) || !(end instanceof Date)) return false;
+  if (Number.isNaN(range.start.getTime()) || Number.isNaN(end.getTime())) return false;
+  return end.getTime() - range.start.getTime() >= 23 * 60 * 60 * 1000;
+}
+
 function occurrenceConflict(blob, nextRange, options = {}) {
   if (!blob || !nextRange) return true;
+  if (!isMainCalendarBlob(blob)) return false;
   const ignoreBlobIds = options.ignoreBlobIds instanceof Set ? options.ignoreBlobIds : null;
   const currentBlobId = normalizeTimelineBlobId(blob.id);
   const currentKey = getOccurrenceKeyFromBlob(blob);
   return getCalendarBlobs().some((other) => {
     if (!other || other.preview) return false;
+    if (!isMainCalendarBlob(other)) return false;
     const otherBlobId = normalizeTimelineBlobId(other.id);
     if (otherBlobId && ignoreBlobIds?.has(otherBlobId)) return false;
     if (otherBlobId === currentBlobId) return false;
@@ -584,7 +602,10 @@ function occurrenceConflict(blob, nextRange, options = {}) {
     ) {
       return false;
     }
-    const otherRange = occurrenceRangeFromBlob(other) || getEffectiveOccurrenceRange(other);
+    if (isNonEditableAllDayOccurrence(other)) {
+      return false;
+    }
+    const otherRange = getEffectiveOccurrenceRange(other) || occurrenceRangeFromBlob(other);
     if (!otherRange) return false;
     const otherEnd = otherRange.effectiveEnd || otherRange.end;
     if (!overlaps(nextRange.start, nextRange.end, otherRange.start, otherEnd)) {
@@ -1226,15 +1247,21 @@ function layoutTimedBlocks(blocks) {
   });
 }
 
-function getPointerDateForSession(session, clientX, clientY) {
+function getPointerDateForSession(session, clientX, clientY, options = {}) {
   if (!session) return null;
+  const anchorOffsetPx = Number.isFinite(options.anchorOffsetPx)
+    ? Number(options.anchorOffsetPx)
+    : 0;
   if (session.view === "day") {
-    const minutes = getTrackMinutesFromPointer(session.dayTrack, clientY);
+    const minutes = getTrackMinutesFromPointer(
+      session.dayTrack,
+      clientY - anchorOffsetPx
+    );
     return dateFromTrackPosition(state.anchorDate, minutes, session.blobTimeZone);
   }
   const columnIndex = getWeekColumnIndex(session.dayColumns, clientX);
   const track = session.dayColumns[columnIndex]?.querySelector(".week-day-track");
-  const minutes = getTrackMinutesFromPointer(track, clientY);
+  const minutes = getTrackMinutesFromPointer(track, clientY - anchorOffsetPx);
   return dateFromTrackPosition(session.days[columnIndex], minutes, session.blobTimeZone);
 }
 
@@ -1284,6 +1311,24 @@ function createNextRangesFromSession(session, pointerDate) {
   }
 
   return { defaultRange: nextDefault, schedulableRange: nextSched };
+}
+
+function resolvePointerAnchorOffsetPx(event) {
+  if (!event || !Number.isFinite(event.clientY)) return 0;
+  const directTarget =
+    event.currentTarget instanceof Element && event.currentTarget.classList.contains("day-block")
+      ? event.currentTarget
+      : null;
+  const block =
+    directTarget ||
+    (event.target instanceof Element ? event.target.closest(".day-block") : null);
+  if (!block) return 0;
+  const rect = block.getBoundingClientRect();
+  if (!Number.isFinite(rect.top) || !Number.isFinite(rect.height) || rect.height <= 0) {
+    return 0;
+  }
+  const offset = event.clientY - rect.top;
+  return Math.min(Math.max(offset, 0), rect.height);
 }
 
 function validateSessionRanges(session, nextDefaultRange, nextSchedulableRange) {
@@ -1437,7 +1482,9 @@ function beginOccurrenceDrag(session) {
       document.body.classList.add("occurrence-dragging");
       setDragSourceStateForSession(session, true);
     }
-    const pointerDate = getPointerDateForSession(session, event.clientX, event.clientY);
+    const pointerDate = getPointerDateForSession(session, event.clientX, event.clientY, {
+      anchorOffsetPx: session.mode === "move" ? session.pointerAnchorOffsetPx : 0,
+    });
     const nextRanges = createNextRangesFromSession(session, pointerDate);
     if (!nextRanges) return;
     const { valid, changed } = validateSessionRanges(
@@ -1980,31 +2027,49 @@ async function handleInfoCardDelete(event) {
   const blob = getBlobById(blobId);
   if (blob?.preview) return;
   if (!blob?.recurrence_id) return;
-  const choice = await choiceDialog("Delete this occurrence or the full recurrence?", {
-    confirmText: "Delete recurrence",
-    confirmValue: "recurrence",
-    altText: "Delete occurrence",
-    altValue: "occurrence",
-    cancelText: "Cancel",
-    destructive: true,
-    altDestructive: true,
-    confirmVariant: "ghost",
-    altVariant: "ghost",
-    actionOrder: "confirm-alt-cancel",
-  });
+  if (blob.recurrence_type === "single") {
+    const confirmed = await confirmDialog("Delete this occurrence?", {
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await deleteRecurrenceWithUndo(blob.recurrence_id);
+    } catch (error) {
+      await alertDialog(error?.message || "Unable to delete.");
+    }
+    return;
+  }
+  const choice = await choiceDialog(
+    "Delete this occurrence, this occurrence and later, or the full recurrence?",
+    {
+      confirmText: "Delete recurrence",
+      confirmValue: "recurrence",
+      altText: "Delete and later",
+      altValue: "occurrence-and-later",
+      cancelText: "Delete occurrence",
+      cancelValue: "occurrence",
+      destructive: true,
+      altDestructive: true,
+      cancelDestructive: true,
+      confirmVariant: "ghost",
+      altVariant: "ghost",
+      actionOrder: "confirm-alt-cancel",
+      dismissValue: null,
+    }
+  );
   if (!choice) return;
   try {
-    if (choice === "occurrence" && blob.recurrence_type === "single") {
-      await deleteRecurrenceWithUndo(blob.recurrence_id);
-      return;
-    }
-    if (choice === "occurrence") {
-      await deleteOccurrenceWithUndo(blob);
-      return;
-    }
     if (choice === "recurrence") {
       await deleteRecurrenceWithUndo(blob.recurrence_id);
+      return;
     }
+    if (choice === "occurrence-and-later") {
+      await deleteOccurrenceAndLaterWithUndo(blob);
+      return;
+    }
+    await deleteOccurrenceWithUndo(blob);
   } catch (error) {
     await alertDialog(error?.message || "Unable to delete.");
   }
@@ -2300,6 +2365,7 @@ function renderDay() {
     const originalSchedulableRange = schedulableRangeFromBlob(blob);
     if (!originalDefaultRange || !originalSchedulableRange) return;
     const shiftTargets = mode === "move" ? getEditableSelectedShiftTargets(blob) : [];
+    const pointerAnchorOffsetPx = mode === "move" ? resolvePointerAnchorOffsetPx(event) : 0;
     const initialPointerDate = getPointerDateForSession(
       {
         view: "day",
@@ -2307,7 +2373,8 @@ function renderDay() {
         blobTimeZone: getBlobTimeZone(blob),
       },
       event.clientX,
-      event.clientY
+      event.clientY,
+      { anchorOffsetPx: pointerAnchorOffsetPx }
     );
     if (!initialPointerDate) return;
     beginOccurrenceDrag({
@@ -2326,7 +2393,11 @@ function renderDay() {
       hourHeight,
       initialClientX: event.clientX,
       initialClientY: event.clientY,
-      anchorOffsetMs: initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
+      anchorOffsetMs:
+        mode === "move"
+          ? 0
+          : initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
+      pointerAnchorOffsetPx,
       nextDefaultRange: originalDefaultRange,
       nextSchedulableRange: originalSchedulableRange,
       shiftTargets,
@@ -3002,6 +3073,7 @@ function renderWeek() {
     const originalSchedulableRange = schedulableRangeFromBlob(blob);
     if (!originalDefaultRange || !originalSchedulableRange) return;
     const shiftTargets = mode === "move" ? getEditableSelectedShiftTargets(blob) : [];
+    const pointerAnchorOffsetPx = mode === "move" ? resolvePointerAnchorOffsetPx(event) : 0;
     const initialPointerDate = getPointerDateForSession(
       {
         view: "week",
@@ -3010,7 +3082,8 @@ function renderWeek() {
         blobTimeZone: getBlobTimeZone(blob),
       },
       event.clientX,
-      event.clientY
+      event.clientY,
+      { anchorOffsetPx: pointerAnchorOffsetPx }
     );
     if (!initialPointerDate) return;
     beginOccurrenceDrag({
@@ -3029,7 +3102,11 @@ function renderWeek() {
       hourHeight,
       initialClientX: event.clientX,
       initialClientY: event.clientY,
-      anchorOffsetMs: initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
+      anchorOffsetMs:
+        mode === "move"
+          ? 0
+          : initialPointerDate.getTime() - originalDefaultRange.start.getTime(),
+      pointerAnchorOffsetPx,
       nextDefaultRange: originalDefaultRange,
       nextSchedulableRange: originalSchedulableRange,
       shiftTargets,

@@ -371,3 +371,471 @@ async def test_occurrences_preserve_show_on_tasks_page_policy(api_client):
     occurrence = next((item for item in occurrences if item.get("name") == "Quiet task"), None)
     assert occurrence is not None
     assert occurrence["policy"]["show_on_tasks_page"] is False
+
+
+@pytest.mark.asyncio
+async def test_occurrence_timing_override_applies_and_finished_override_skips_schedule(
+    api_client, monkeypatch
+):
+    fixed_now = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)
+
+    import backend.schedule_router as schedule_router
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(schedule_router, "datetime", FrozenDateTime)
+
+    base_default_start = datetime(2026, 3, 9, 18, 0, tzinfo=timezone.utc)
+    base_default_end = datetime(2026, 3, 9, 19, 0, tzinfo=timezone.utc)
+    base_sched_start = datetime(2026, 3, 9, 17, 0, tzinfo=timezone.utc)
+    base_sched_end = datetime(2026, 3, 9, 21, 0, tzinfo=timezone.utc)
+    occurrence_key = base_sched_start.isoformat()
+
+    moved_default_start = base_default_start + timedelta(hours=1)
+    moved_default_end = base_default_end + timedelta(hours=1)
+    moved_sched_start = base_sched_start + timedelta(hours=1)
+    moved_sched_end = base_sched_end + timedelta(hours=1)
+
+    def parse_iso(value: str) -> datetime:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    weekly_payload = {
+        "recurrence_name": "Weekly override case",
+        "interval": 1,
+        "blobs_of_week": [
+            {
+                "name": "Weekly override case",
+                "description": "Verify per-occurrence timing override",
+                "tz": "UTC",
+                "default_scheduled_timerange": {
+                    "start": base_default_start.isoformat(),
+                    "end": base_default_end.isoformat(),
+                },
+                "schedulable_timerange": {
+                    "start": base_sched_start.isoformat(),
+                    "end": base_sched_end.isoformat(),
+                },
+                "policy": {},
+                "dependencies": [],
+                "tags": [],
+            }
+        ],
+    }
+
+    async with api_client as client:
+        create_resp = await client.post(
+            "/recurrences",
+            json={"type": "weekly", "payload": weekly_payload},
+        )
+        assert create_resp.status_code == 201
+        recurrence_id = create_resp.json()["id"]
+
+        updated_payload = {
+            **weekly_payload,
+            "occurrence_overrides": {
+                occurrence_key: {
+                    "default_scheduled_timerange": {
+                        "start": moved_default_start.isoformat(),
+                        "end": moved_default_end.isoformat(),
+                    },
+                    "schedulable_timerange": {
+                        "start": moved_sched_start.isoformat(),
+                        "end": moved_sched_end.isoformat(),
+                    },
+                    "finished_at": (moved_default_end + timedelta(minutes=10)).isoformat(),
+                }
+            },
+        }
+        update_resp = await client.put(
+            f"/recurrences/{recurrence_id}",
+            json={"type": "weekly", "payload": updated_payload},
+        )
+        assert update_resp.status_code == 200
+
+        occurrences_resp = await client.get(
+            "/occurrences",
+            params={
+                "start": fixed_now.isoformat(),
+                "end": (fixed_now + timedelta(days=2)).isoformat(),
+            },
+        )
+        assert occurrences_resp.status_code == 200
+        occurrences = occurrences_resp.json()
+        updated_occurrence = next(
+            (item for item in occurrences if item.get("recurrence_id") == recurrence_id),
+            None,
+        )
+        assert updated_occurrence is not None
+        assert parse_iso(
+            updated_occurrence["default_scheduled_timerange"]["start"]
+        ) == moved_default_start
+        assert parse_iso(
+            updated_occurrence["default_scheduled_timerange"]["end"]
+        ) == moved_default_end
+        assert parse_iso(
+            updated_occurrence["schedulable_timerange"]["start"]
+        ) == moved_sched_start
+        assert parse_iso(
+            updated_occurrence["schedulable_timerange"]["end"]
+        ) == moved_sched_end
+
+        schedule_resp = await client.post(
+            "/schedule",
+            json={
+                "granularity_minutes": 5,
+                "lookahead_seconds": 3 * 24 * 60 * 60,
+                "user_timezone": "UTC",
+            },
+        )
+        assert schedule_resp.status_code == 200
+        scheduled_occurrences = schedule_resp.json().get("occurrences") or []
+
+    scheduled_occurrence = next(
+        (item for item in scheduled_occurrences if item.get("recurrence_id") == recurrence_id),
+        None,
+    )
+    assert scheduled_occurrence is not None
+    assert scheduled_occurrence.get("realized_timerange") is None
+
+
+@pytest.mark.asyncio
+async def test_updating_one_occurrence_keeps_realized_rows_for_unmodified_siblings(
+    api_client, monkeypatch
+):
+    fixed_now = datetime(2026, 3, 1, 0, 0, tzinfo=timezone.utc)
+
+    import backend.schedule_router as schedule_router
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(schedule_router, "datetime", FrozenDateTime)
+
+    base_default_start = datetime(2026, 3, 2, 17, 0, tzinfo=timezone.utc)
+    base_default_end = base_default_start + timedelta(minutes=30)
+    base_sched_start = datetime(2026, 3, 2, 16, 0, tzinfo=timezone.utc)
+    base_sched_end = datetime(2026, 3, 2, 20, 0, tzinfo=timezone.utc)
+
+    weekly_payload = {
+        "recurrence_name": "Sibling realized rows stay intact",
+        "interval": 1,
+        "blobs_of_week": [
+            {
+                "name": "Sibling realized rows stay intact",
+                "description": "Regression for drag-update behavior",
+                "tz": "UTC",
+                "default_scheduled_timerange": {
+                    "start": base_default_start.isoformat(),
+                    "end": base_default_end.isoformat(),
+                },
+                "schedulable_timerange": {
+                    "start": base_sched_start.isoformat(),
+                    "end": base_sched_end.isoformat(),
+                },
+                "policy": {},
+                "dependencies": [],
+                "tags": [],
+            }
+        ],
+    }
+
+    window_start = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    window_end = datetime(2026, 3, 24, tzinfo=timezone.utc)
+
+    async with api_client as client:
+        create_resp = await client.post(
+            "/recurrences",
+            json={"type": "weekly", "payload": weekly_payload},
+        )
+        assert create_resp.status_code == 201
+        recurrence_id = create_resp.json()["id"]
+
+        schedule_resp = await client.post(
+            "/schedule",
+            json={
+                "granularity_minutes": 5,
+                "lookahead_seconds": 24 * 24 * 60 * 60,
+                "user_timezone": "UTC",
+            },
+        )
+        assert schedule_resp.status_code == 200
+
+        before_resp = await client.get(
+            "/occurrences",
+            params={"start": window_start.isoformat(), "end": window_end.isoformat()},
+        )
+        assert before_resp.status_code == 200
+        before = [
+            item
+            for item in before_resp.json()
+            if item.get("recurrence_id") == recurrence_id
+        ]
+        realized_before = [item for item in before if item.get("realized_timerange")]
+        assert len(realized_before) >= 2
+
+        moved_occurrence = realized_before[0]
+        sibling_occurrence = realized_before[1]
+        moved_key = moved_occurrence["id"].split(":", 1)[1]
+
+        moved_default_start = datetime.fromisoformat(
+            moved_occurrence["default_scheduled_timerange"]["start"].replace("Z", "+00:00")
+        ) + timedelta(minutes=20)
+        moved_default_end = datetime.fromisoformat(
+            moved_occurrence["default_scheduled_timerange"]["end"].replace("Z", "+00:00")
+        ) + timedelta(minutes=20)
+
+        update_payload = {
+            **weekly_payload,
+            "occurrence_overrides": {
+                moved_key: {
+                    "default_scheduled_timerange": {
+                        "start": moved_default_start.isoformat(),
+                        "end": moved_default_end.isoformat(),
+                    },
+                    "schedulable_timerange": moved_occurrence["schedulable_timerange"],
+                }
+            },
+        }
+        update_resp = await client.put(
+            f"/recurrences/{recurrence_id}",
+            json={"type": "weekly", "payload": update_payload},
+        )
+        assert update_resp.status_code == 200
+
+        after_resp = await client.get(
+            "/occurrences",
+            params={"start": window_start.isoformat(), "end": window_end.isoformat()},
+        )
+        assert after_resp.status_code == 200
+        after = [
+            item
+            for item in after_resp.json()
+            if item.get("recurrence_id") == recurrence_id
+        ]
+
+    sibling_after = next(
+        (item for item in after if item.get("id") == sibling_occurrence["id"]),
+        None,
+    )
+    moved_after = next(
+        (item for item in after if item.get("id") == moved_occurrence["id"]),
+        None,
+    )
+    assert sibling_after is not None
+    assert sibling_after.get("realized_timerange") is not None
+    assert moved_after is not None
+    assert moved_after.get("realized_timerange") is not None
+    assert datetime.fromisoformat(
+        moved_after["realized_timerange"]["start"].replace("Z", "+00:00")
+    ) == moved_default_start
+    assert datetime.fromisoformat(
+        moved_after["realized_timerange"]["end"].replace("Z", "+00:00")
+    ) == moved_default_end
+
+
+@pytest.mark.asyncio
+async def test_occurrence_override_timestamp_alias_prefers_latest_entry(api_client):
+    weekly_payload = {
+        "recurrence_name": "Override alias regression",
+        "interval": 1,
+        "blobs_of_week": [
+            {
+                "name": "Override alias regression",
+                "description": "Detect mixed key format collisions",
+                "tz": "UTC",
+                "default_scheduled_timerange": {
+                    "start": datetime(2026, 3, 16, 14, 0, tzinfo=timezone.utc).isoformat(),
+                    "end": datetime(2026, 3, 16, 14, 30, tzinfo=timezone.utc).isoformat(),
+                },
+                "schedulable_timerange": {
+                    "start": datetime(2026, 3, 16, 12, 0, tzinfo=timezone.utc).isoformat(),
+                    "end": datetime(2026, 3, 16, 20, 0, tzinfo=timezone.utc).isoformat(),
+                },
+                "policy": {},
+                "dependencies": [],
+                "tags": [],
+            }
+        ],
+    }
+
+    query_start = datetime(2026, 3, 16, 0, 0, tzinfo=timezone.utc)
+    query_end = datetime(2026, 3, 17, 0, 0, tzinfo=timezone.utc)
+
+    async with api_client as client:
+        create_resp = await client.post(
+            "/recurrences",
+            json={"type": "weekly", "payload": weekly_payload},
+        )
+        assert create_resp.status_code == 201
+        recurrence_id = create_resp.json()["id"]
+
+        before_resp = await client.get(
+            "/occurrences",
+            params={"start": query_start.isoformat(), "end": query_end.isoformat()},
+        )
+        assert before_resp.status_code == 200
+        target = next(
+            (
+                item
+                for item in before_resp.json()
+                if item.get("recurrence_id") == recurrence_id
+            ),
+            None,
+        )
+        assert target is not None
+
+        canonical_key = target["id"].split(":", 1)[1]
+        canonical_dt = datetime.fromisoformat(canonical_key.replace("Z", "+00:00"))
+        alias_key = canonical_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        assert alias_key != canonical_key
+
+        stale_start = datetime(2026, 3, 16, 14, 10, tzinfo=timezone.utc)
+        stale_end = stale_start + timedelta(minutes=30)
+        updated_start = datetime(2026, 3, 16, 15, 40, tzinfo=timezone.utc)
+        updated_end = updated_start + timedelta(minutes=30)
+
+        update_payload = {
+            **weekly_payload,
+            "occurrence_overrides": {
+                canonical_key: {
+                    "default_scheduled_timerange": {
+                        "start": stale_start.isoformat(),
+                        "end": stale_end.isoformat(),
+                    },
+                    "schedulable_timerange": target["schedulable_timerange"],
+                },
+                alias_key: {
+                    "default_scheduled_timerange": {
+                        "start": updated_start.isoformat(),
+                        "end": updated_end.isoformat(),
+                    },
+                    "schedulable_timerange": target["schedulable_timerange"],
+                },
+            },
+        }
+        update_resp = await client.put(
+            f"/recurrences/{recurrence_id}",
+            json={"type": "weekly", "payload": update_payload},
+        )
+        assert update_resp.status_code == 200
+
+        after_resp = await client.get(
+            "/occurrences",
+            params={"start": query_start.isoformat(), "end": query_end.isoformat()},
+        )
+        assert after_resp.status_code == 200
+        updated = next(
+            (
+                item
+                for item in after_resp.json()
+                if item.get("recurrence_id") == recurrence_id
+            ),
+            None,
+        )
+        assert updated is not None
+
+    assert datetime.fromisoformat(
+        updated["default_scheduled_timerange"]["start"].replace("Z", "+00:00")
+    ) == updated_start
+    assert datetime.fromisoformat(
+        updated["default_scheduled_timerange"]["end"].replace("Z", "+00:00")
+    ) == updated_end
+
+
+@pytest.mark.asyncio
+async def test_schedule_ignores_non_main_recurrences(api_client, monkeypatch):
+    fixed_now = datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc)
+
+    import backend.schedule_router as schedule_router
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    monkeypatch.setattr(schedule_router, "datetime", FrozenDateTime)
+
+    sched_start = datetime(2026, 3, 10, 15, 0, tzinfo=timezone.utc)
+    sched_end = sched_start + timedelta(minutes=30)
+
+    main_payload = {
+        "blob": {
+            "name": "Main event",
+            "description": "Should be scheduled",
+            "tz": "UTC",
+            "default_scheduled_timerange": {
+                "start": sched_start.isoformat(),
+                "end": sched_end.isoformat(),
+            },
+            "schedulable_timerange": {
+                "start": sched_start.isoformat(),
+                "end": sched_end.isoformat(),
+            },
+            "policy": {},
+            "dependencies": [],
+            "tags": [],
+        }
+    }
+    non_main_payload = {
+        "blob": {
+            "name": "Imported event",
+            "description": "Should be ignored by scheduler",
+            "tz": "UTC",
+            "default_scheduled_timerange": {
+                "start": sched_start.isoformat(),
+                "end": sched_end.isoformat(),
+            },
+            "schedulable_timerange": {
+                "start": sched_start.isoformat(),
+                "end": sched_end.isoformat(),
+            },
+            "policy": {},
+            "dependencies": [],
+            "tags": [],
+        },
+        "calendar_view": {
+            "id": "custom:team",
+            "name": "Team Calendar",
+            "source": "custom",
+            "is_main": False,
+        },
+    }
+
+    async with api_client as client:
+        main_resp = await client.post(
+            "/recurrences", json={"type": "single", "payload": main_payload}
+        )
+        assert main_resp.status_code == 201
+        main_id = main_resp.json()["id"]
+
+        non_main_resp = await client.post(
+            "/recurrences", json={"type": "single", "payload": non_main_payload}
+        )
+        assert non_main_resp.status_code == 201
+        non_main_id = non_main_resp.json()["id"]
+
+        schedule_resp = await client.post(
+            "/schedule",
+            json={
+                "granularity_minutes": 5,
+                "lookahead_seconds": 2 * 24 * 60 * 60,
+                "user_timezone": "UTC",
+            },
+        )
+        assert schedule_resp.status_code == 200
+        scheduled = schedule_resp.json().get("occurrences") or []
+
+    scheduled_recurrence_ids = {item.get("recurrence_id") for item in scheduled}
+    assert main_id in scheduled_recurrence_ids
+    assert non_main_id not in scheduled_recurrence_ids

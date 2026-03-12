@@ -30,6 +30,7 @@ public:
         double initial_temp,
         double final_temp,
         int max_iters,
+        uint32_t rng_seed = constants::RNG_SEED(),
         TemperatureSchedule temp_schedule = default_schedule
     )
     : cost_fn(cost_fn),
@@ -37,6 +38,7 @@ public:
       initial_temp(initial_temp),
       final_temp(final_temp),
       max_iters(max_iters),
+      rng_seed(rng_seed),
       temp_schedule(temp_schedule)
     {}
 
@@ -46,6 +48,8 @@ public:
      * @return Best state discovered during the run.
      */
     State optimize(const State& initial_state) {
+        cost_history.clear();
+
         State curr_state = initial_state;
         State best_state = curr_state;
 
@@ -54,7 +58,7 @@ public:
 
         cost_history.push_back(curr_cost);
 
-        std::mt19937 gen(constants::RNG_SEED());
+        std::mt19937 gen(rng_seed);
         std::uniform_real_distribution<> dis(0.0, 1.0);
 
         for (int iter = 0; iter < max_iters; ++iter) {
@@ -94,12 +98,13 @@ private:
     double initial_temp;
     double final_temp;
     int max_iters;
+    uint32_t rng_seed;
     TemperatureSchedule temp_schedule;
     std::vector<double> cost_history;
 
-    /** @brief Default geometric cooling schedule (`t0 * 0.95^iter`). */
+    /** @brief Default geometric cooling schedule with slower decay for deeper search. */
     static double default_schedule(double t0, int iter) {
-        return t0 * std::pow(0.95, iter); // geometric cooling
+        return t0 * std::pow(0.9992, iter);
     }
 };
 
