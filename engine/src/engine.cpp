@@ -366,7 +366,7 @@ bool apply_family_phase_neighbor(
                 continue;
             }
             job.set_scheduled_time_ranges({aligned_range.value()});
-            candidate_ranges[index] = aligned_range.value();
+            candidate_ranges.insert_or_assign(index, aligned_range.value());
             candidate_moved += 1;
         }
 
