@@ -178,6 +178,66 @@ def _changed_overrides(previous_payload: dict | None, next_payload: dict | None)
     return keys
 
 
+def _normalize_occurrence_key(value) -> str | None:
+    if not value:
+        return None
+    try:
+        return _parse_occurrence_key(str(value)).astimezone(timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
+def _normalize_recurrence_type_value(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "one_time": "single",
+        "weekly_cadence": "weekly",
+        "fixed_interval": "delta",
+        "annual_date": "date",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _payload_default_ranges_by_occurrence_key(
+    recurrence_type: str | None, payload: dict | None
+) -> dict[str, dict]:
+    if not isinstance(payload, dict):
+        return {}
+
+    normalized_type = _normalize_recurrence_type_value(recurrence_type)
+    blob_candidates = []
+    if normalized_type in {"single", "date"}:
+        blob_candidates = [payload.get("blob")]
+    elif normalized_type == "multiple":
+        blob_candidates = payload.get("blobs") or []
+    elif normalized_type == "weekly":
+        blob_candidates = payload.get("blobs_of_week") or []
+    elif normalized_type == "delta":
+        blob_candidates = [payload.get("start_blob")]
+
+    result: dict[str, dict] = {}
+    for blob_payload in blob_candidates:
+        if not isinstance(blob_payload, dict):
+            continue
+        default_range = blob_payload.get("default_scheduled_timerange")
+        schedulable_range = blob_payload.get("schedulable_timerange")
+        if not isinstance(default_range, dict) or not isinstance(schedulable_range, dict):
+            continue
+        occurrence_key = _normalize_occurrence_key(schedulable_range.get("start"))
+        if not occurrence_key:
+            continue
+        if default_range.get("start") is None or default_range.get("end") is None:
+            continue
+        result[occurrence_key] = {
+            "occurrence_key": occurrence_key,
+            "default_scheduled_timerange": {
+                "start": default_range.get("start"),
+                "end": default_range.get("end"),
+            },
+        }
+    return result
+
+
 def _completion_events(previous_payload: dict | None, next_payload: dict | None) -> list[dict]:
     previous = (
         previous_payload.get("occurrence_overrides")
@@ -199,7 +259,12 @@ def _completion_events(previous_payload: dict | None, next_payload: dict | None)
     return events
 
 
-def _preference_edits(previous_payload: dict | None, next_payload: dict | None) -> list[dict]:
+def _preference_edits(
+    previous_type: str,
+    previous_payload: dict | None,
+    next_type: str,
+    next_payload: dict | None,
+) -> list[dict]:
     previous = (
         previous_payload.get("occurrence_overrides")
         if isinstance(previous_payload, dict)
@@ -215,14 +280,58 @@ def _preference_edits(previous_payload: dict | None, next_payload: dict | None) 
         before_range = before.get("schedulable_timerange") if isinstance(before, dict) else None
         after_range = after.get("schedulable_timerange") if isinstance(after, dict) else None
         if not after_range or after_range == before_range:
+            pass
+        else:
+            edits.append(
+                {
+                    "occurrence_key": key,
+                    "before_override": dict(before or {}),
+                    "after_override": dict(after or {}),
+                    "before_schedulable_timerange": dict(before_range or {}) if before_range else None,
+                    "after_schedulable_timerange": dict(after_range or {}),
+                    "change_kind": "override_schedulable_timerange",
+                }
+            )
+        before_default_range = (
+            before.get("default_scheduled_timerange") if isinstance(before, dict) else None
+        )
+        after_default_range = (
+            after.get("default_scheduled_timerange") if isinstance(after, dict) else None
+        )
+        if not after_default_range or after_default_range == before_default_range:
             continue
         edits.append(
             {
                 "occurrence_key": key,
                 "before_override": dict(before or {}),
                 "after_override": dict(after or {}),
-                "before_schedulable_timerange": dict(before_range or {}) if before_range else None,
-                "after_schedulable_timerange": dict(after_range or {}),
+                "before_default_scheduled_timerange": (
+                    dict(before_default_range or {}) if before_default_range else None
+                ),
+                "after_default_scheduled_timerange": dict(after_default_range or {}),
+                "change_kind": "override_default_scheduled_timerange",
+            }
+        )
+
+    previous_defaults = _payload_default_ranges_by_occurrence_key(previous_type, previous_payload)
+    current_defaults = _payload_default_ranges_by_occurrence_key(next_type, next_payload)
+    occurrence_keys = set(previous_defaults.keys())
+    occurrence_keys.update(current_defaults.keys())
+    for key in occurrence_keys:
+        before_item = previous_defaults.get(key) or {}
+        after_item = current_defaults.get(key) or {}
+        before_default_range = before_item.get("default_scheduled_timerange")
+        after_default_range = after_item.get("default_scheduled_timerange")
+        if not after_default_range or after_default_range == before_default_range:
+            continue
+        edits.append(
+            {
+                "occurrence_key": key,
+                "before_default_scheduled_timerange": (
+                    dict(before_default_range or {}) if before_default_range else None
+                ),
+                "after_default_scheduled_timerange": dict(after_default_range or {}),
+                "change_kind": "payload_default_scheduled_timerange",
             }
         )
     return edits
@@ -241,7 +350,9 @@ async def record_recurrence_update_signals(
     next_updated_at: datetime,
 ) -> None:
     completion_events = _completion_events(previous_payload, next_payload)
-    preference_edits = _preference_edits(previous_payload, next_payload)
+    preference_edits = _preference_edits(
+        previous_type, previous_payload, next_type, next_payload
+    )
     if not completion_events and not preference_edits:
         return
 

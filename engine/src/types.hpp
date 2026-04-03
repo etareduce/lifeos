@@ -12,6 +12,12 @@
  * @brief Integral type used for second-based timestamps and durations.
  *
  * The width can be configured at compile time through `ELASTISCHED_SEC_T_BITS`.
+ *
+ * Expressiveness: 
+ *      8  bits => 256          seconds
+ *      16 bits => 18.2         hours
+ *      32 bits => 136.1        years
+ *      64 bits => ~100 billion years
  */
 #if ELASTISCHED_SEC_T_BITS == 8
 using sec_t = uint8_t;

@@ -427,6 +427,73 @@ async def test_batches_manual_schedule_preference_updates(tmp_path_factory):
 
 
 @pytest.mark.asyncio
+async def test_logs_manual_default_scheduled_timerange_preference_update(tmp_path_factory):
+    api_client = await _build_api_client(tmp_path_factory, batch_size=20)
+    start = datetime(2024, 6, 15, 9, 0, tzinfo=timezone.utc)
+    end = start + timedelta(hours=1)
+    payload = {
+        "recurrence_name": "Manual timing tweak",
+        "blob": {
+            "name": "Manual timing tweak",
+            "description": "Single event",
+            "tz": "UTC",
+            "default_scheduled_timerange": {"start": start.isoformat(), "end": end.isoformat()},
+            "schedulable_timerange": {
+                "start": (start - timedelta(hours=1)).isoformat(),
+                "end": (end + timedelta(hours=1)).isoformat(),
+            },
+            "policy": {},
+            "dependencies": [],
+            "tags": [],
+        },
+    }
+
+    async with api_client as client:
+        create_resp = await client.post("/recurrences", json={"type": "single", "payload": payload})
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+
+        moved_start = start + timedelta(minutes=30)
+        moved_end = end + timedelta(minutes=30)
+        updated_payload = {
+            **payload,
+            "blob": {
+                **payload["blob"],
+                "default_scheduled_timerange": {
+                    "start": moved_start.isoformat(),
+                    "end": moved_end.isoformat(),
+                },
+            },
+        }
+        update_resp = await client.put(
+            f"/recurrences/{created['id']}",
+            json={"type": "single", "payload": updated_payload},
+        )
+        assert update_resp.status_code == 200
+
+    conn = sqlite3.connect(api_client._analytics_db_path)
+    try:
+        row = conn.execute(
+            "SELECT edit_count, before_state, after_state, edits "
+            "FROM schedule_feedback_batches"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row[0] == 1
+    before_state = json.loads(row[1])
+    after_state = json.loads(row[2])
+    edits = json.loads(row[3])
+    assert before_state["recurrence_count"] == 1
+    assert after_state["recurrence_count"] == 1
+    assert len(edits) == 1
+    assert edits[0]["change_kind"] == "payload_default_scheduled_timerange"
+    assert edits[0]["after_default_scheduled_timerange"]["start"] == moved_start.isoformat()
+    assert edits[0]["after_default_scheduled_timerange"]["end"] == moved_end.isoformat()
+
+
+@pytest.mark.asyncio
 async def test_flush_preference_batches_closes_partial_batch(tmp_path_factory):
     api_client = await _build_api_client(tmp_path_factory, batch_size=20)
     start = datetime(2024, 7, 1, 9, 0, tzinfo=timezone.utc)
