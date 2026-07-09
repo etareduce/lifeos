@@ -28,9 +28,7 @@ import {
 } from "./utils.js";
 import { setActive, showCapturedCreatePreview, startInteractiveCreate } from "./render.js";
 import {
-  createLLMRecurrenceDraft,
   createRecurrence,
-  createRecurrencesBulk,
   updateRecurrence,
 } from "./api.js";
 import { alertDialog, choiceDialog, confirmDialog } from "./popups.js";
@@ -62,9 +60,6 @@ const slotDependencyStore = new WeakMap();
 let isDraggingForm = false;
 let dragOffset = { x: 0, y: 0 };
 let formPosition = null;
-let isDraggingLlm = false;
-let llmDragOffset = { x: 0, y: 0 };
-let llmPosition = null;
 let settingsHydrating = false;
 let settingsDirty = false;
 let sidebarResizeSession = null;
@@ -243,38 +238,6 @@ function markSettingsSavedState() {
 function updateAdvancedEngineVisibility(enabled) {
   if (!dom.advancedEngineCard) return;
   dom.advancedEngineCard.classList.toggle("is-hidden", !enabled);
-}
-
-function toggleLlm(show) {
-  if (!dom.llmPanel) return;
-  const isActive = typeof show === "boolean" ? show : !dom.llmPanel.classList.contains("active");
-  dom.llmPanel.classList.toggle("active", isActive);
-  dom.llmPanel.classList.toggle("floating", isActive);
-  dom.llmPanel.setAttribute("aria-hidden", (!isActive).toString());
-  if (isActive && llmPosition) {
-    dom.llmPanel.style.left = `${llmPosition.x}px`;
-    dom.llmPanel.style.top = `${llmPosition.y}px`;
-    dom.llmPanel.style.right = "auto";
-  }
-  if (!isActive && dom.llmStatus) {
-    dom.llmStatus.textContent = "";
-  }
-}
-
-function setLlmPreviewControls(hasPreview) {
-  const hasDraft = Boolean(state.llmDraftRecurrences?.length);
-  if (dom.llmConfirmBtn) dom.llmConfirmBtn.disabled = !hasDraft;
-  if (dom.llmDiscardBtn) dom.llmDiscardBtn.disabled = !hasDraft && !hasPreview;
-}
-
-async function clearLlmPreview() {
-  state.previewBlobs = [];
-  state.llmDraftRecurrences = null;
-  state.llmDraftNotes = null;
-  setLlmPreviewControls(false);
-  if (refreshView) {
-    await refreshView(state.view);
-  }
 }
 
 function setUtilitySidebarActive(targetId) {
@@ -884,52 +847,11 @@ function calendarSourceLabel(source) {
   const normalized = String(source || "").trim().toLowerCase();
   if (!normalized) return "";
   if (normalized === "main") return "Main";
-  if (normalized === "google") return "Google";
-  if (normalized === "custom") return "Custom";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function getCalendarViewsForForm() {
-  const rawViews = Array.isArray(state.calendarViews) ? state.calendarViews : [];
-  const views = [];
-  const seen = new Set();
-  let mainView = { id: "main", name: "Main", source: "main", isMain: true };
-  rawViews.forEach((view) => {
-    const id = String(view?.id || "").trim();
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    const source = String(view?.source || "").trim().toLowerCase();
-    const isMain = Boolean(view?.is_main) || id === "main" || source === "main";
-    const normalized = {
-      id,
-      name: String(view?.name || id).trim() || id,
-      source,
-      isMain,
-      accountKey: view?.account_key ? String(view.account_key) : null,
-      accountName: view?.account_name ? String(view.account_name) : null,
-      accountId: view?.account_id ? String(view.account_id) : null,
-      calendarId: view?.calendar_id ? String(view.calendar_id) : null,
-    };
-    if (isMain) {
-      mainView = normalized;
-      return;
-    }
-    views.push(normalized);
-  });
-  return [mainView, ...views];
-}
-
-function getLlmCalendarViewsPayload() {
-  return getCalendarViewsForForm().map((view) => ({
-    id: view.id,
-    name: view.name,
-    source: view.source || "main",
-    is_main: Boolean(view.isMain),
-    ...(view.accountKey ? { account_key: view.accountKey } : {}),
-    ...(view.accountName ? { account_name: view.accountName } : {}),
-    ...(view.accountId ? { account_id: view.accountId } : {}),
-    ...(view.calendarId ? { calendar_id: view.calendarId } : {}),
-  }));
+  return [{ id: "main", name: "Main", source: "main", isMain: true }];
 }
 
 function formatCalendarViewOptionLabel(view) {
@@ -968,16 +890,7 @@ function getSelectedRecurrenceCalendarViewId() {
 function buildRecurrenceCalendarViewPayload(viewId) {
   const selected = getCalendarViewsForForm().find((view) => view.id === viewId);
   if (!selected || selected.isMain) return null;
-  return {
-    id: selected.id,
-    name: selected.name,
-    source: selected.source || "custom",
-    is_main: false,
-    ...(selected.accountKey ? { account_key: selected.accountKey } : {}),
-    ...(selected.accountName ? { account_name: selected.accountName } : {}),
-    ...(selected.accountId ? { account_id: selected.accountId } : {}),
-    ...(selected.calendarId ? { calendar_id: selected.calendarId } : {}),
-  };
+  return null;
 }
 
 function getRecurrenceEndValue() {
@@ -3728,117 +3641,6 @@ function handleSettingsClick() {
   setSettingsDirty(false);
 }
 
-function handleLlmOpen() {
-  toggleLlm(true);
-  setLlmPreviewControls(Boolean(state.previewBlobs?.length));
-}
-
-function handleCloseLlm() {
-  toggleLlm(false);
-}
-
-async function handleLlmSubmit(event) {
-  event.preventDefault();
-  if (!dom.llmStatus) return;
-  const formData = new FormData(dom.llmForm);
-  const message = formData.get("llmPrompt")?.toString().trim() || "";
-  if (!message) {
-    dom.llmStatus.textContent = "Add a prompt to continue.";
-    return;
-  }
-  dom.llmStatus.textContent = "Generating preview...";
-  setLlmPreviewControls(false);
-  const contextRaw = formData.get("llmContext")?.toString().trim() || "";
-  const context = contextRaw ? [{ type: "text", content: contextRaw, label: "User notes" }] : [];
-  const range = getViewRange(state.view, state.anchorDate, appConfig.dayEndsAtMinutes);
-  const payload = {
-    message,
-    context,
-    view_start: toProjectIsoFromDate(range.start, appConfig.projectTimeZone),
-    view_end: toProjectIsoFromDate(range.end, appConfig.projectTimeZone),
-    user_timezone: appConfig.userTimeZone,
-    project_timezone: appConfig.projectTimeZone,
-    granularity_minutes: appConfig.minuteGranularity,
-    calendar_views: getLlmCalendarViewsPayload(),
-  };
-  try {
-    const draft = await createLLMRecurrenceDraft(payload);
-    state.llmDraftRecurrences = draft.recurrences || [];
-    state.previewBlobs = Array.isArray(draft.occurrences) ? draft.occurrences : [];
-    state.llmDraftNotes = draft.notes || null;
-    const hasPreview = Boolean(state.previewBlobs?.length);
-    const viewRange = getViewRange(state.view, state.anchorDate, appConfig.dayEndsAtMinutes);
-    const hasPreviewInView =
-      hasPreview &&
-      state.previewBlobs.some((blob) => {
-        const defaultRange = blob.default_scheduled_timerange || {};
-        const schedRange = blob.schedulable_timerange || {};
-        const start = new Date(defaultRange.start || schedRange.start || "");
-        const end = new Date(defaultRange.end || schedRange.end || "");
-        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-          return false;
-        }
-        return overlaps(viewRange.start, viewRange.end, start, end);
-      });
-    if (refreshView) {
-      if (hasPreview && !hasPreviewInView) {
-        const first = state.previewBlobs[0];
-        const firstStart = new Date(
-          first?.default_scheduled_timerange?.start ||
-            first?.schedulable_timerange?.start ||
-            ""
-        );
-        if (!Number.isNaN(firstStart.getTime())) {
-          state.anchorDate = firstStart;
-          await refreshView("week");
-        } else {
-          await refreshView(state.view);
-        }
-      } else {
-        await refreshView(state.view);
-      }
-    }
-    if (draft.notes) {
-      dom.llmStatus.textContent = `Preview ready. ${draft.notes}`;
-    } else if (!hasPreview && state.llmDraftRecurrences?.length) {
-      dom.llmStatus.textContent =
-        "Draft created, but no preview in the current view. Try a different date range.";
-    } else {
-      dom.llmStatus.textContent = "Preview ready. Does this look good?";
-    }
-    setLlmPreviewControls(hasPreview);
-  } catch (error) {
-    dom.llmStatus.textContent = error?.message || "Failed to generate preview.";
-    state.previewBlobs = [];
-    state.llmDraftRecurrences = null;
-    state.llmDraftNotes = null;
-    setActive(state.view);
-  }
-}
-
-async function handleLlmConfirm() {
-  if (!state.llmDraftRecurrences?.length) {
-    if (dom.llmStatus) dom.llmStatus.textContent = "No draft to confirm yet.";
-    return;
-  }
-  if (dom.llmStatus) dom.llmStatus.textContent = "Saving draft...";
-  try {
-    await createRecurrencesBulk(state.llmDraftRecurrences);
-    await clearLlmPreview();
-    if (dom.llmStatus) dom.llmStatus.textContent = "Saved.";
-    toggleLlm(false);
-  } catch (error) {
-    if (dom.llmStatus) {
-      dom.llmStatus.textContent = error?.message || "Unable to save draft.";
-    }
-  }
-}
-
-async function handleLlmDiscard() {
-  await clearLlmPreview();
-  if (dom.llmStatus) dom.llmStatus.textContent = "Preview cleared.";
-}
-
 function handleCloseSettings() {
   applyTheme(appConfig.theme);
   toggleSettings(false);
@@ -3892,46 +3694,6 @@ function bindDraggableForm() {
   window.addEventListener("pointercancel", stopDrag);
 }
 
-function bindDraggableLlmPanel() {
-  if (!dom.llmPanel) return;
-  const header = dom.llmPanel.querySelector(".form-header");
-  if (!header) return;
-
-  const onPointerDown = (event) => {
-    if (event.button !== 0) return;
-    if (event.target.closest("button")) return;
-    const rect = dom.llmPanel.getBoundingClientRect();
-    isDraggingLlm = true;
-    llmDragOffset = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-    dom.llmPanel.classList.add("dragging");
-    dom.llmPanel.setPointerCapture?.(event.pointerId);
-  };
-
-  const onPointerMove = (event) => {
-    if (!isDraggingLlm) return;
-    const nextX = Math.max(12, event.clientX - llmDragOffset.x);
-    const nextY = Math.max(12, event.clientY - llmDragOffset.y);
-    llmPosition = { x: nextX, y: nextY };
-    dom.llmPanel.style.left = `${nextX}px`;
-    dom.llmPanel.style.top = `${nextY}px`;
-    dom.llmPanel.style.right = "auto";
-  };
-
-  const stopDrag = () => {
-    if (!isDraggingLlm) return;
-    isDraggingLlm = false;
-    dom.llmPanel.classList.remove("dragging");
-  };
-
-  header.addEventListener("pointerdown", onPointerDown);
-  window.addEventListener("pointermove", onPointerMove);
-  window.addEventListener("pointerup", stopDrag);
-  window.addEventListener("pointercancel", stopDrag);
-}
-
 function getActiveView() {
   const activeViewEntry = Object.entries(dom.views).find(([, el]) => el.classList.contains("active"));
   if (activeViewEntry) {
@@ -3974,11 +3736,6 @@ function bindFormHandlers(onRefresh) {
   setRefreshHandler(onRefresh);
   if (dom.formPanel) {
     dom.formPanel.addEventListener("click", (event) => {
-      event.stopPropagation();
-    });
-  }
-  if (dom.llmPanel) {
-    dom.llmPanel.addEventListener("click", (event) => {
       event.stopPropagation();
     });
   }
@@ -4046,13 +3803,9 @@ function bindFormHandlers(onRefresh) {
     dom.starOccurrenceBtn.addEventListener("click", toggleStarOccurrence);
   }
   bindDraggableForm();
-  bindDraggableLlmPanel();
   bindSidebarResize();
   bindDateTimePickers();
   dom.toggleFormBtn.addEventListener("click", handleAddClick);
-  if (dom.llmScheduleBtn) {
-    dom.llmScheduleBtn.addEventListener("click", handleLlmOpen);
-  }
   if (dom.settingsBtn) {
     dom.settingsBtn.addEventListener("click", handleSettingsClick);
   }
@@ -4066,18 +3819,6 @@ function bindFormHandlers(onRefresh) {
   }
   if (dom.settingsBackdrop) {
     dom.settingsBackdrop.addEventListener("click", handleCloseSettings);
-  }
-  if (dom.closeLlmBtn) {
-    dom.closeLlmBtn.addEventListener("click", handleCloseLlm);
-  }
-  if (dom.llmForm) {
-    dom.llmForm.addEventListener("submit", handleLlmSubmit);
-  }
-  if (dom.llmConfirmBtn) {
-    dom.llmConfirmBtn.addEventListener("click", handleLlmConfirm);
-  }
-  if (dom.llmDiscardBtn) {
-    dom.llmDiscardBtn.addEventListener("click", handleLlmDiscard);
   }
   dom.closeFormBtn.addEventListener("click", handleCloseForm);
   dom.prevDayBtn.addEventListener("click", handlePrevDay);

@@ -81,54 +81,6 @@
             <span class="sidebar-link-subtitle">Find events quickly</span>
           </button>
         </nav>
-        <section class="sidebar-calendars" id="sidebarCalendars">
-          <div class="sidebar-calendars-header">
-            <div class="sidebar-calendars-title">Calendars</div>
-            <button class="ghost small" type="button" id="sidebarCalendarsRefreshBtn">Refresh</button>
-          </div>
-          <div class="sidebar-calendars-body">
-            <details class="sidebar-calendar-group" open>
-              <summary>
-                <span>Google</span>
-                <span class="sidebar-calendar-summary" id="sidebarGoogleMeta">Not connected</span>
-              </summary>
-              <div class="sidebar-calendar-actions">
-                <button type="button" class="ghost small" id="sidebarGoogleConnectBtn">Connect</button>
-                <button type="button" class="primary small" id="sidebarGoogleQuickSyncBtn">
-                  Sync
-                </button>
-              </div>
-              <div class="sidebar-calendar-subtitle">Source calendars</div>
-              <div class="sidebar-calendar-actions">
-                <button type="button" class="ghost small" id="sidebarGoogleSelectAllBtn">Check all</button>
-                <button type="button" class="ghost small" id="sidebarGoogleClearAllBtn">Uncheck all</button>
-              </div>
-              <div class="sidebar-calendar-list" id="sidebarGoogleCalendarList"></div>
-            </details>
-            <details class="sidebar-calendar-group" open>
-              <summary>
-                <span>Your calendars</span>
-                <span class="sidebar-calendar-summary">Main + local</span>
-              </summary>
-              <div class="sidebar-calendar-actions">
-                <input
-                  type="text"
-                  id="sidebarCustomCalendarNameInput"
-                  placeholder="New calendar"
-                  data-settings-ignore="true"
-                />
-                <button type="button" class="ghost small" id="sidebarCreateCustomCalendarBtn">
-                  Add
-                </button>
-                <button type="button" class="ghost small" id="sidebarGoogleAdvancedBtn">
-                  Advanced
-                </button>
-              </div>
-              <div class="sidebar-calendar-list" id="sidebarCalendarViewList"></div>
-            </details>
-            <div class="form-status" id="sidebarGoogleSyncMessage"></div>
-          </div>
-        </section>
         <nav class="sidebar-nav sidebar-utility-nav" aria-label="Workspace tools">
           <button class="sidebar-icon-link" id="settingsBtn" type="button" data-short="S" title="Settings" aria-label="Settings">
             <span class="sidebar-link-icon" aria-hidden="true">
@@ -179,12 +131,6 @@
               </button>
               <button class="settings-tab" type="button" data-settings-tab="scheduling">
                 Scheduling
-              </button>
-              <button class="settings-tab" type="button" data-settings-tab="integrations">
-                Integrations
-              </button>
-              <button class="settings-tab" type="button" data-settings-tab="export">
-                Export
               </button>
             </div>
             <div class="settings-section active" data-settings-section="general">
@@ -414,131 +360,6 @@
                 </article>
               </div>
             </div>
-            <div class="settings-section" data-settings-section="integrations">
-              <div class="settings-section-header">
-                <div class="settings-section-title">Calendar integrations</div>
-                <div class="settings-section-copy">
-                  Connect external calendars and sync selected Google calendars into separate imported views.
-                </div>
-              </div>
-              <div class="settings-grid integration-settings" data-settings-ignore="true">
-                <article class="settings-card">
-                  <div class="settings-card-title">Google accounts</div>
-                  <div class="settings-card-copy">
-                    Connect one or more Google accounts. Disconnecting an account only removes its
-                    imported calendars and leaves your main calendar untouched.
-                  </div>
-                  <div class="integration-status-row">
-                    <span id="googleConnectionStatus" class="integration-status-chip disconnected">
-                      Not connected
-                    </span>
-                    <span id="googleConnectionMeta" class="integration-meta"></span>
-                  </div>
-                  <div class="integration-account-list" id="googleAccountsList"></div>
-                  <div class="integration-actions" data-settings-ignore="true">
-                    <button type="button" class="primary" id="googleConnectBtn">Add Google account</button>
-                  </div>
-                  <details class="integration-manual-auth" data-settings-ignore="true">
-                    <summary>Advanced: paste access token manually</summary>
-                    <label data-settings-ignore="true">
-                      Google access token
-                      <input
-                        type="password"
-                        name="googleAccessToken"
-                        id="googleAccessTokenInput"
-                        placeholder="Paste OAuth access token"
-                        autocomplete="off"
-                        data-settings-ignore="true"
-                      />
-                    </label>
-                    <div class="integration-actions" data-settings-ignore="true">
-                      <button type="button" class="ghost" id="googleManualConnectBtn">
-                        Connect using token
-                      </button>
-                    </div>
-                  </details>
-                  <div class="form-status" id="googleConnectionMessage"></div>
-                </article>
-                <article class="settings-card">
-                  <div class="settings-card-title">Google calendars</div>
-                  <div class="settings-card-copy">
-                    Load calendars from connected Google accounts, choose which ones to sync, and
-                    import them into independent calendar views. This does not edit your main calendar.
-                  </div>
-                  <div class="integration-actions" data-settings-ignore="true">
-                    <button type="button" class="ghost" id="googleLoadCalendarsBtn">
-                      Load Google calendars
-                    </button>
-                    <button type="button" class="primary" id="googleApplyBtn">
-                      Sync selected
-                    </button>
-                  </div>
-                  <div class="form-status" id="googleSyncMessage"></div>
-                  <div class="integration-calendars" id="googleCalendarList"></div>
-                  <div class="settings-card-title">Displayed calendar views</div>
-                  <div class="settings-card-copy">
-                    Toggle which calendars appear in the UI and copy imported calendars into main.
-                  </div>
-                  <div class="integration-actions" data-settings-ignore="true">
-                    <button type="button" class="ghost" id="googleRefreshViewsBtn">
-                      Refresh calendar views
-                    </button>
-                  </div>
-                  <div class="integration-actions" data-settings-ignore="true">
-                    <input
-                      type="text"
-                      id="customCalendarNameInput"
-                      placeholder="New calendar name"
-                      data-settings-ignore="true"
-                    />
-                    <button type="button" class="ghost" id="createCustomCalendarBtn">
-                      Create calendar
-                    </button>
-                  </div>
-                  <div class="integration-calendars" id="calendarViewList"></div>
-                </article>
-              </div>
-            </div>
-            <div class="settings-section" data-settings-section="export">
-              <div class="settings-section-header">
-                <div class="settings-section-title">Export schedule</div>
-                <div class="settings-section-copy">
-                  Export selected calendar views as newline-delimited JSON. Each line contains one
-                  recurrence plus its calendar metadata.
-                </div>
-              </div>
-              <div class="settings-grid" data-settings-ignore="true">
-                <article class="settings-card">
-                  <div class="settings-card-title">NDJSON export</div>
-                  <div class="settings-card-copy">
-                    Choose one or more calendars, then download an `.ndjson` file for backup or
-                    downstream processing.
-                  </div>
-                  <div class="integration-actions" data-settings-ignore="true">
-                    <button type="button" class="ghost" id="exportSelectAllBtn">Select all</button>
-                    <button type="button" class="ghost" id="exportClearAllBtn">Clear</button>
-                    <button type="button" class="primary" id="exportDownloadBtn">
-                      Export selected
-                    </button>
-                  </div>
-                  <div class="form-status" id="exportStatus"></div>
-                  <div class="integration-calendars" id="exportCalendarList"></div>
-                </article>
-                <article class="settings-card">
-                  <div class="settings-card-title">User data archive</div>
-                  <div class="settings-card-copy">
-                    Download a JSON archive with backend records, analytics data, and your local
-                    app settings.
-                  </div>
-                  <div class="integration-actions" data-settings-ignore="true">
-                    <button type="button" class="primary" id="userDataExportBtn">
-                      Export user data
-                    </button>
-                  </div>
-                  <div class="form-status" id="userDataExportStatus"></div>
-                </article>
-              </div>
-            </div>
           </form>
           <div class="settings-save-dock">
             <span class="form-status settings-dirty-indicator" id="settingsDirtyIndicator"></span>
@@ -549,36 +370,6 @@
           </div>
         </section>
       </div>
-
-      <section class="panel form-panel llm-panel" id="llmPanel">
-        <div class="form-header">
-          <div>
-            <div class="form-title">Draft with AI</div>
-            <div class="form-subtitle">Describe the events you want to schedule</div>
-          </div>
-          <button class="ghost small" id="closeLlmBtn">Close</button>
-        </div>
-        <form id="llmForm" class="blob-form">
-          <label>
-            What should be scheduled?
-            <textarea name="llmPrompt" rows="5" placeholder="e.g. Deep work on thesis next Tue/Thu, 2-4pm, repeat for 3 weeks."></textarea>
-          </label>
-          <label>
-            Extra context (optional)
-            <textarea
-              name="llmContext"
-              rows="4"
-              placeholder="Add details, constraints, or notes..."
-            ></textarea>
-          </label>
-          <div class="form-actions">
-            <button type="submit" class="primary" id="llmGenerateBtn">Generate preview</button>
-            <button type="button" class="ghost" id="llmDiscardBtn">Discard preview</button>
-            <button type="button" class="primary" id="llmConfirmBtn">Looks good</button>
-            <span class="form-status" id="llmStatus"></span>
-          </div>
-        </form>
-      </section>
 
       <div class="modal" id="alertModal" aria-hidden="true">
         <div class="modal-backdrop" id="alertBackdrop"></div>
@@ -1122,29 +913,6 @@
                 aria-label="Add recurrence"
               >
                 +
-              </button>
-              <button
-                class="ghost icon action-icon ai"
-                id="llmScheduleBtn"
-                title="Add with AI"
-                aria-label="Add with AI"
-              >
-                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path
-                    d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linejoin="round"
-                  />
-                  <path
-                    d="M18.5 14l0.9 2.3 2.3 0.7-2.3 0.7-0.9 2.3-0.9-2.3-2.3-0.7 2.3-0.7z"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.4"
-                    stroke-linejoin="round"
-                  />
-                </svg>
               </button>
               <button class="primary schedule-btn" id="runScheduleBtn">Run schedule</button>
               <div class="schedule-status" id="scheduleStatus" role="status" aria-live="polite">

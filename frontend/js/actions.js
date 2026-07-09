@@ -2,8 +2,6 @@ import {
   createRecurrence,
   deleteRecurrence,
   getRecurrence,
-  moveOccurrenceToMain,
-  moveRecurrenceToMain,
   updateRecurrence,
 } from "./api.js";
 import { appConfig } from "./core.js";
@@ -662,29 +660,11 @@ async function deleteOccurrencesWithUndo(blobs) {
   return combined;
 }
 
-async function moveRecurrenceToMainWithRefresh(recurrenceId) {
-  if (!recurrenceId) return null;
-  const result = await moveRecurrenceToMain(recurrenceId);
-  refreshCalendar();
-  return result;
-}
-
-async function moveOccurrenceToMainWithRefresh(blob) {
-  if (!blob?.recurrence_id) return null;
-  const occurrenceStart = getOccurrenceKeyFromBlob(blob);
-  if (!occurrenceStart) return null;
-  const result = await moveOccurrenceToMain(blob.recurrence_id, occurrenceStart);
-  refreshCalendar();
-  return result;
-}
-
 export {
   deleteOccurrenceAndLaterWithUndo,
   deleteOccurrenceWithUndo,
   deleteOccurrencesWithUndo,
   deleteRecurrenceWithUndo,
-  moveRecurrenceToMainWithRefresh,
-  moveOccurrenceToMainWithRefresh,
   updateOccurrencesWithUndo,
   updateOccurrenceWithUndo,
   updateOccurrenceTimingWithUndo,
