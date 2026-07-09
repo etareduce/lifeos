@@ -8,7 +8,7 @@
       (() => {
         try {
           const raw = window.localStorage.getItem("elastisched:workspace-mode");
-          const mode = raw === "tasks" || raw === "search" ? raw : "home";
+          const mode = raw === "search" ? raw : "home";
           document.documentElement.dataset.workspaceMode = mode;
         } catch (error) {
           document.documentElement.dataset.workspaceMode = "home";
@@ -48,7 +48,7 @@
             <span class="sidebar-link-title">Home</span>
             <span class="sidebar-link-subtitle">Main calendar</span>
           </button>
-          <button class="sidebar-link" id="tasksBtn" type="button" data-short="T">
+          <button class="sidebar-link" id="tasksBtn" type="button" data-short="T" hidden disabled aria-hidden="true">
             <span class="sidebar-link-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
                 <rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" />
@@ -81,6 +81,32 @@
             <span class="sidebar-link-subtitle">Find events quickly</span>
           </button>
         </nav>
+        <section class="sidebar-calendars" id="sidebarCalendars">
+          <div class="sidebar-calendars-header">
+            <div class="sidebar-calendars-title">Calendars</div>
+          </div>
+          <div class="sidebar-calendars-body">
+            <details class="sidebar-calendar-group" open>
+              <summary>
+                <span>Your calendars</span>
+                <span class="sidebar-calendar-summary">Main + local</span>
+              </summary>
+              <div class="sidebar-calendar-actions">
+                <input
+                  type="text"
+                  id="sidebarCustomCalendarNameInput"
+                  placeholder="New calendar"
+                  data-settings-ignore="true"
+                />
+                <button type="button" class="ghost small" id="sidebarCreateCustomCalendarBtn">
+                  Add
+                </button>
+              </div>
+              <div class="sidebar-calendar-list" id="sidebarCalendarViewList"></div>
+              <div class="form-status" id="sidebarCalendarMessage"></div>
+            </details>
+          </div>
+        </section>
         <nav class="sidebar-nav sidebar-utility-nav" aria-label="Workspace tools">
           <button class="sidebar-icon-link" id="settingsBtn" type="button" data-short="S" title="Settings" aria-label="Settings">
             <span class="sidebar-link-icon" aria-hidden="true">
@@ -1008,7 +1034,6 @@
             <div class="task-draft-actions">
               <button type="submit" class="primary" id="taskQuickDraftCreateBtn">Create task</button>
               <button type="button" class="ghost" id="taskQuickDraftOpenBtn">Open full form</button>
-              <button type="button" class="ghost" id="taskQuickDraftAiBtn">Draft with AI</button>
               <span class="form-status" id="taskQuickDraftStatus"></span>
             </div>
           </form>

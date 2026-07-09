@@ -847,11 +847,34 @@ function calendarSourceLabel(source) {
   const normalized = String(source || "").trim().toLowerCase();
   if (!normalized) return "";
   if (normalized === "main") return "Main";
+  if (normalized === "custom") return "Custom";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function getCalendarViewsForForm() {
-  return [{ id: "main", name: "Main", source: "main", isMain: true }];
+  const rawViews = Array.isArray(state.calendarViews) ? state.calendarViews : [];
+  const views = [];
+  const seen = new Set();
+  let mainView = { id: "main", name: "Main", source: "main", isMain: true };
+  rawViews.forEach((view) => {
+    const id = String(view?.id || "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const source = String(view?.source || "").trim().toLowerCase();
+    const isMain = Boolean(view?.is_main || view?.isMain) || id === "main" || source === "main";
+    const normalized = {
+      id,
+      name: String(view?.name || id).trim() || id,
+      source: source || (isMain ? "main" : "custom"),
+      isMain,
+    };
+    if (isMain) {
+      mainView = normalized;
+      return;
+    }
+    views.push(normalized);
+  });
+  return [mainView, ...views];
 }
 
 function formatCalendarViewOptionLabel(view) {
@@ -890,7 +913,12 @@ function getSelectedRecurrenceCalendarViewId() {
 function buildRecurrenceCalendarViewPayload(viewId) {
   const selected = getCalendarViewsForForm().find((view) => view.id === viewId);
   if (!selected || selected.isMain) return null;
-  return null;
+  return {
+    id: selected.id,
+    name: selected.name,
+    source: selected.source || "custom",
+    is_main: false,
+  };
 }
 
 function getRecurrenceEndValue() {
@@ -3960,7 +3988,6 @@ function bindFormHandlers(onRefresh) {
     setRecurrenceCalendarViewOptions(getSelectedRecurrenceCalendarViewId());
   });
   setRecurrenceCalendarViewOptions("main");
-  setLlmPreviewControls(Boolean(state.previewBlobs?.length));
   bindBlobTypeToggle(nonWeeklyField);
   applySidebarState();
   if (settingsTabs.length) {

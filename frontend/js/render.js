@@ -659,8 +659,23 @@ function getPolicyFlags(policy = {}) {
   return { splittable, overlappable, invisible, showOnTasksPage };
 }
 
+function getCalendarViewIdFromBlob(blob) {
+  const payload = blob?.recurrence_payload;
+  if (!payload || typeof payload !== "object") return "";
+  const calendarView = payload.calendar_view;
+  if (!calendarView || typeof calendarView !== "object") return "";
+  return String(calendarView.id || "").trim();
+}
+
 function isBlobVisible(blob) {
-  return Boolean(blob);
+  if (!blob) return false;
+  const calendarViewId = getCalendarViewIdFromBlob(blob);
+  if (!calendarViewId || calendarViewId === "main") return true;
+  const visibility = state.calendarVisibilityByViewId || {};
+  if (!Object.prototype.hasOwnProperty.call(visibility, calendarViewId)) {
+    return true;
+  }
+  return visibility[calendarViewId] !== false;
 }
 
 function getCalendarBlobs() {
