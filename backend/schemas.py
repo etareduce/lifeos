@@ -1,7 +1,5 @@
 from datetime import datetime
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -95,63 +93,5 @@ class ScheduleResponse(ScheduleStatus):
     occurrences: list[OccurrenceRead]
 
 
-class LLMChatRequest(BaseModel):
-    message: str = Field(min_length=1)
-    system: str | None = None
-    max_steps: int | None = Field(default=6, ge=1, le=10)
-
-
-class LLMChatResponse(BaseModel):
-    text: str | None = None
-    tool_calls: list[dict] = Field(default_factory=list)
-
-
-class LLMContextPart(BaseModel):
-    type: Literal["text"]
-    content: str
-    label: str | None = None
-
-
-class LLMCalendarViewContext(BaseModel):
-    id: str = Field(min_length=1, max_length=256)
-    name: str = Field(min_length=1, max_length=256)
-    source: str = Field(default="main", max_length=64)
-    is_main: bool = False
-    account_key: str | None = Field(default=None, max_length=256)
-    account_name: str | None = Field(default=None, max_length=256)
-    account_id: str | None = Field(default=None, max_length=256)
-    calendar_id: str | None = Field(default=None, max_length=256)
-
-
-class LLMRecurrenceDraftRequest(BaseModel):
-    message: str = Field(min_length=1)
-    context: list[LLMContextPart] = Field(default_factory=list)
-    view_start: datetime
-    view_end: datetime
-    user_timezone: str = Field(default="UTC", max_length=64)
-    project_timezone: str = Field(default="UTC", max_length=64)
-    granularity_minutes: int = Field(default=5, ge=1, le=120)
-    calendar_views: list[LLMCalendarViewContext] = Field(default_factory=list)
-
-
 class PreviewOccurrence(OccurrenceRead):
     preview: bool = True
-
-
-class LLMRecurrenceDraftResponse(BaseModel):
-    recurrences: list[RecurrenceCreate]
-    occurrences: list[PreviewOccurrence]
-    notes: str | None = None
-
-
-class LLMDurationEstimateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    description: str | None = Field(default=None, max_length=2000)
-    context: list[LLMContextPart] = Field(default_factory=list)
-    granularity_minutes: int = Field(default=5, ge=1, le=120)
-
-
-class LLMDurationEstimateResponse(BaseModel):
-    estimated_minutes: int
-    rounded_minutes: int
-    rationale: str | None = None

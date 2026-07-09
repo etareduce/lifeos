@@ -858,12 +858,6 @@ html[data-workspace-mode="search"] #searchBtn {
   z-index: 35;
 }
 
-.llm-panel.form-panel.floating {
-  top: 120px;
-  right: 40px;
-  width: min(560px, 92vw);
-}
-
 .form-panel.floating .form-header {
   cursor: grab;
   user-select: none;
@@ -898,15 +892,6 @@ html[data-workspace-mode="search"] #searchBtn {
   width: min(720px, 92vw);
   max-height: 85vh;
   overflow: auto;
-}
-
-.llm-panel .blob-form {
-  grid-template-columns: 1fr;
-}
-
-.llm-panel textarea {
-  min-height: 120px;
-  resize: vertical;
 }
 
 #settingsPanel {

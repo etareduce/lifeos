@@ -37,7 +37,6 @@ import {
   toggleForm,
   toggleSettings,
 } from "./forms.js";
-import { bindIntegrationHandlers } from "./integrations.js";
 import {
   clearInfoCardLock,
   setActive,
@@ -74,7 +73,6 @@ function syncDeviceTimeZone() {
 }
 
 bindFormHandlers(refreshView);
-bindIntegrationHandlers(refreshView);
 
 const WORKSPACE_MODE = {
   HOME: "home",

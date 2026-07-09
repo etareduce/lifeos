@@ -70,14 +70,8 @@ def _is_main_recurrence(payload: dict | None) -> bool:
         return True
     calendar_view = payload.get("calendar_view")
     if isinstance(calendar_view, dict):
-        if "is_main" in calendar_view:
-            return bool(calendar_view.get("is_main"))
-        return False
-    source = payload.get("integration_source")
-    if not isinstance(source, dict):
-        return True
-    provider = str(source.get("provider") or "").strip().lower()
-    return provider not in {"google", "custom"}
+        return bool(calendar_view.get("is_main"))
+    return "integration_source" not in payload
 
 
 def _occurrence_override(payload: dict, occurrence) -> dict | None:

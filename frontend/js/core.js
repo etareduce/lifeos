@@ -31,10 +31,6 @@ const state = {
   batchEditOccurrenceIds: [],
   batchEditBaseline: null,
   previewBlobs: [],
-  calendarVisibilityByViewId: {},
-  calendarViews: [],
-  llmDraftRecurrences: null,
-  llmDraftNotes: null,
   workspaceMode: "home",
 };
 

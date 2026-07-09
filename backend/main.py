@@ -7,8 +7,6 @@ from fastapi.staticfiles import StaticFiles
 from backend.analytics_router import analytics_router
 from backend.analytics_db import init_analytics_db
 from backend.db import init_db
-from backend.integrations.router import integration_router
-from backend.llm_router import llm_router
 from backend.router import router as blob_router
 from backend.recurrence_router import (
     occurrence_router,
@@ -36,9 +34,7 @@ async def health() -> dict:
 
 
 app.include_router(blob_router)
-app.include_router(llm_router)
 app.include_router(recurrence_router)
 app.include_router(occurrence_router)
 app.include_router(schedule_router)
-app.include_router(integration_router)
 app.include_router(analytics_router)
