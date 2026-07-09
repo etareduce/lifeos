@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db import get_session
 from backend.models import (
-    IntegrationConnectionModel,
     RecurrenceModel,
     ScheduledOccurrenceModel,
     ScheduleStateModel,
@@ -414,41 +413,6 @@ def _exclusion_set(payload: dict) -> set[int]:
     return exclusions
 
 
-def _calendar_view_id(payload: dict | None) -> str | None:
-    if not isinstance(payload, dict):
-        return None
-    calendar_view = payload.get("calendar_view")
-    if not isinstance(calendar_view, dict):
-        return None
-    value = str(calendar_view.get("id") or "").strip()
-    return value or None
-
-
-async def _calendar_visibility_map(session: AsyncSession) -> dict[str, bool]:
-    result = await session.execute(
-        select(IntegrationConnectionModel).where(
-            IntegrationConnectionModel.provider == "google"
-        )
-    )
-    connection = result.scalar_one_or_none()
-    if connection is None:
-        return {}
-    metadata = dict(connection.metadata_json or {})
-    raw = metadata.get("calendar_visibility")
-    if not isinstance(raw, dict):
-        return {}
-    return {str(key): bool(value) for key, value in raw.items()}
-
-
-def _is_visible_recurrence(payload: dict | None, visibility_map: dict[str, bool]) -> bool:
-    view_id = _calendar_view_id(payload)
-    if not view_id:
-        return True
-    if view_id == "main":
-        return True
-    return visibility_map.get(view_id, True)
-
-
 def _to_occurrence_schema(
     recurrence_id: str, recurrence_type: str, payload: dict, blob: Blob
 ) -> OccurrenceRead:
@@ -710,12 +674,9 @@ async def list_occurrences(
     elif start.tzinfo and end.tzinfo and start.tzinfo != end.tzinfo:
         end = end.astimezone(start.tzinfo)
     timerange = TimeRange(start=start, end=end)
-    visibility_map = await _calendar_visibility_map(session)
     result = await session.execute(select(RecurrenceModel))
     occurrences: list[OccurrenceRead] = []
     for recurrence in result.scalars().all():
-        if not _is_visible_recurrence(recurrence.payload or {}, visibility_map):
-            continue
         recurrence_type = _normalize_recurrence_type(recurrence.type)
         exclusions = _exclusion_set(recurrence.payload or {})
         recurrence_obj = _recurrence_from_payload(recurrence_type, recurrence.payload)

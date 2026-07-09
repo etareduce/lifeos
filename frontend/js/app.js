@@ -38,7 +38,6 @@ import {
   toggleForm,
   toggleSettings,
 } from "./forms.js";
-import { bindIntegrationHandlers } from "./integrations.js";
 import {
   clearInfoCardLock,
   setActive,
@@ -75,13 +74,13 @@ function syncDeviceTimeZone() {
 }
 
 bindFormHandlers(refreshView);
-bindIntegrationHandlers(refreshView);
 
 const WORKSPACE_MODE = {
   HOME: "home",
   TASKS: "tasks",
   SEARCH: "search",
 };
+const ENABLE_TASKS_WORKSPACE = false;
 const WORKSPACE_LOOKAHEAD_DAYS = 90;
 const TASKS_OVERDUE_LOOKBACK_DAYS = 30;
 const ZOOM_SCROLL_THRESHOLD = 1.05;
@@ -204,7 +203,13 @@ function getWorkspaceDataRange() {
 }
 
 function setWorkspaceMode(mode) {
-  const nextMode = Object.values(WORKSPACE_MODE).includes(mode) ? mode : WORKSPACE_MODE.HOME;
+  const requestedMode = Object.values(WORKSPACE_MODE).includes(mode)
+    ? mode
+    : WORKSPACE_MODE.HOME;
+  const nextMode =
+    requestedMode === WORKSPACE_MODE.TASKS && !ENABLE_TASKS_WORKSPACE
+      ? WORKSPACE_MODE.HOME
+      : requestedMode;
   state.workspaceMode = nextMode;
   document.documentElement.dataset.workspaceMode = nextMode;
   saveWorkspaceMode(nextMode);
@@ -331,6 +336,224 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function normalizeCalendarViewId(value) {
+  return String(value || "").trim();
+}
+
+function getBlobCalendarView(blob) {
+  const payload = blob?.recurrence_payload;
+  if (!payload || typeof payload !== "object") return null;
+  const calendarView = payload.calendar_view;
+  return calendarView && typeof calendarView === "object" ? calendarView : null;
+}
+
+function isMainCalendarPayload(payload) {
+  if (!payload || typeof payload !== "object") return true;
+  const calendarView = payload.calendar_view;
+  if (!calendarView || typeof calendarView !== "object") return true;
+  const viewId = normalizeCalendarViewId(calendarView.id);
+  const source = String(calendarView.source || "").trim().toLowerCase();
+  return Boolean(calendarView.is_main) || viewId === "main" || source === "main";
+}
+
+function normalizeCustomCalendarViews() {
+  const seen = new Set();
+  return (Array.isArray(appConfig.customCalendarViews) ? appConfig.customCalendarViews : [])
+    .map((view) => {
+      const id = normalizeCalendarViewId(view?.id);
+      if (!id || id === "main" || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        name: String(view?.name || id).trim() || id,
+        source: "custom",
+        is_main: false,
+      };
+    })
+    .filter(Boolean);
+}
+
+function saveCalendarSettings() {
+  appConfig.customCalendarViews = normalizeCustomCalendarViews();
+  appConfig.calendarVisibilityByViewId = { ...(state.calendarVisibilityByViewId || {}) };
+  saveSettings(appConfig);
+}
+
+function buildLocalCalendarViews() {
+  const views = new Map();
+  const recurrenceIdsByView = new Map();
+  views.set("main", {
+    id: "main",
+    name: "Main",
+    source: "main",
+    is_main: true,
+    visible: true,
+    recurrence_count: 0,
+  });
+  recurrenceIdsByView.set("main", new Set());
+
+  normalizeCustomCalendarViews().forEach((view) => {
+    views.set(view.id, {
+      ...view,
+      visible: (state.calendarVisibilityByViewId || {})[view.id] !== false,
+      recurrence_count: 0,
+    });
+    recurrenceIdsByView.set(view.id, new Set());
+  });
+
+  state.blobs.forEach((blob) => {
+    const payload = blob?.recurrence_payload || {};
+    const calendarView = getBlobCalendarView(blob);
+    const viewId = isMainCalendarPayload(payload)
+      ? "main"
+      : normalizeCalendarViewId(calendarView?.id);
+    if (!viewId) return;
+    if (!views.has(viewId)) {
+      views.set(viewId, {
+        id: viewId,
+        name: String(calendarView?.name || viewId).trim() || viewId,
+        source: String(calendarView?.source || "custom").trim().toLowerCase() || "custom",
+        is_main: false,
+        visible: (state.calendarVisibilityByViewId || {})[viewId] !== false,
+        recurrence_count: 0,
+      });
+      recurrenceIdsByView.set(viewId, new Set());
+    }
+    const recurrenceKey = String(blob?.recurrence_id || blob?.id || "").trim();
+    if (recurrenceKey) {
+      recurrenceIdsByView.get(viewId)?.add(recurrenceKey);
+    }
+  });
+
+  recurrenceIdsByView.forEach((ids, viewId) => {
+    const view = views.get(viewId);
+    if (view) view.recurrence_count = ids.size;
+  });
+  return Array.from(views.values());
+}
+
+function renderLocalCalendarViews() {
+  state.calendarVisibilityByViewId = {
+    ...(appConfig.calendarVisibilityByViewId || {}),
+    ...(state.calendarVisibilityByViewId || {}),
+  };
+  state.calendarViews = buildLocalCalendarViews();
+  window.dispatchEvent(
+    new CustomEvent("elastisched:calendar-views-updated", {
+      detail: { calendarViews: state.calendarViews },
+    })
+  );
+  if (!dom.sidebarCalendarViewList) return;
+  dom.sidebarCalendarViewList.innerHTML = state.calendarViews
+    .map((view) => {
+      const id = normalizeCalendarViewId(view.id);
+      const isMain = Boolean(view.is_main) || id === "main";
+      const checked = isMain || view.visible !== false;
+      const count = Number(view.recurrence_count || 0);
+      const deleteDisabled = isMain || count > 0;
+      return `
+        <div class="integration-calendar-item">
+          <input
+            type="checkbox"
+            data-calendar-view-id="${escapeHtml(id)}"
+            ${checked ? "checked" : ""}
+            ${isMain ? "disabled" : ""}
+          />
+          <div class="integration-calendar-meta">
+            <span class="integration-calendar-name">${escapeHtml(view.name || id)}</span>
+            <span class="integration-calendar-tz">${count} recurrence${count === 1 ? "" : "s"}</span>
+          </div>
+          <div class="integration-calendar-actions">
+            <span class="integration-calendar-badge">${isMain ? "Main" : "Custom"}</span>
+            <button
+              type="button"
+              class="ghost danger integration-icon-btn"
+              data-delete-calendar-view-id="${escapeHtml(id)}"
+              title="Delete empty calendar"
+              aria-label="Delete empty calendar"
+              ${deleteDisabled ? "disabled" : ""}
+            >
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="M5 7h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                <path d="M9 7V5.8A1.8 1.8 0 0 1 10.8 4h2.4A1.8 1.8 0 0 1 15 5.8V7" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path d="M8 9.5v8.7A1.8 1.8 0 0 0 9.8 20h4.4A1.8 1.8 0 0 0 16 18.2V9.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function setCalendarMessage(message = "", error = false) {
+  if (!dom.sidebarCalendarMessage) return;
+  dom.sidebarCalendarMessage.textContent = message;
+  dom.sidebarCalendarMessage.classList.toggle("error", Boolean(error));
+}
+
+function createLocalCalendar() {
+  const rawName = dom.sidebarCustomCalendarNameInput?.value?.trim() || "";
+  if (!rawName) {
+    setCalendarMessage("Add a calendar name first.", true);
+    return;
+  }
+  const slug = rawName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "calendar";
+  const existingIds = new Set(buildLocalCalendarViews().map((view) => view.id));
+  let id = `custom:${slug}`;
+  let suffix = 2;
+  while (existingIds.has(id)) {
+    id = `custom:${slug}-${suffix}`;
+    suffix += 1;
+  }
+  appConfig.customCalendarViews = [
+    ...normalizeCustomCalendarViews(),
+    { id, name: rawName, source: "custom", is_main: false },
+  ];
+  if (dom.sidebarCustomCalendarNameInput) dom.sidebarCustomCalendarNameInput.value = "";
+  saveCalendarSettings();
+  renderLocalCalendarViews();
+  setCalendarMessage("Calendar added.");
+}
+
+function handleCalendarSidebarClick(event) {
+  const deleteButton = event.target.closest("[data-delete-calendar-view-id]");
+  if (!deleteButton) return;
+  const viewId = normalizeCalendarViewId(deleteButton.getAttribute("data-delete-calendar-view-id"));
+  if (!viewId || viewId === "main") return;
+  const view = state.calendarViews.find((item) => item.id === viewId);
+  if (Number(view?.recurrence_count || 0) > 0) {
+    setCalendarMessage("Only empty calendars can be deleted.", true);
+    return;
+  }
+  appConfig.customCalendarViews = normalizeCustomCalendarViews().filter(
+    (item) => item.id !== viewId
+  );
+  delete state.calendarVisibilityByViewId[viewId];
+  saveCalendarSettings();
+  renderLocalCalendarViews();
+  setCalendarMessage("Calendar deleted.");
+}
+
+function handleCalendarSidebarChange(event) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  const viewId = normalizeCalendarViewId(input.getAttribute("data-calendar-view-id"));
+  if (!viewId || viewId === "main") return;
+  state.calendarVisibilityByViewId = {
+    ...(state.calendarVisibilityByViewId || {}),
+    [viewId]: input.checked,
+  };
+  saveCalendarSettings();
+  renderLocalCalendarViews();
+  setActive(state.view);
+  updateNowIndicators();
 }
 
 function renderTasksPanel() {
@@ -521,6 +744,7 @@ async function switchWorkspaceMode(mode) {
   }
   const range = getWorkspaceDataRange();
   await ensureOccurrences(range.start, range.end);
+  renderLocalCalendarViews();
   renderWorkspacePanels();
   if (mode === WORKSPACE_MODE.SEARCH && dom.eventSearchInput) {
     dom.eventSearchInput.focus();
@@ -550,6 +774,7 @@ async function refreshView(nextView = state.view, options = {}) {
     if (todayRange.end > rangeEnd) rangeEnd = todayRange.end;
   }
   await ensureOccurrences(rangeStart, rangeEnd);
+  renderLocalCalendarViews();
   setActive(view);
   refreshScheduleStatus();
   renderNowPanel();
@@ -967,7 +1192,7 @@ if (dom.homeBtn) {
   });
 }
 
-if (dom.tasksBtn) {
+if (dom.tasksBtn && ENABLE_TASKS_WORKSPACE) {
   dom.tasksBtn.addEventListener("click", () => {
     switchWorkspaceMode(WORKSPACE_MODE.TASKS);
   });
@@ -983,6 +1208,23 @@ if (dom.eventSearchInput) {
   dom.eventSearchInput.addEventListener("input", () => {
     renderSearchPanel();
   });
+}
+
+if (dom.sidebarCreateCustomCalendarBtn) {
+  dom.sidebarCreateCustomCalendarBtn.addEventListener("click", createLocalCalendar);
+}
+
+if (dom.sidebarCustomCalendarNameInput) {
+  dom.sidebarCustomCalendarNameInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    createLocalCalendar();
+  });
+}
+
+if (dom.sidebarCalendarViewList) {
+  dom.sidebarCalendarViewList.addEventListener("click", handleCalendarSidebarClick);
+  dom.sidebarCalendarViewList.addEventListener("change", handleCalendarSidebarChange);
 }
 
 if (dom.runScheduleBtn) {
@@ -1331,9 +1573,11 @@ state.anchorDate = new Date(Date.now() - initialDayBoundaryMinutes * 60000);
 const savedView = loadView();
 const initialView = savedView || "day";
 const savedWorkspaceMode = loadWorkspaceMode();
-const initialWorkspaceMode = Object.values(WORKSPACE_MODE).includes(savedWorkspaceMode)
-  ? savedWorkspaceMode
-  : WORKSPACE_MODE.HOME;
+const initialWorkspaceMode =
+  savedWorkspaceMode === WORKSPACE_MODE.SEARCH ||
+  (ENABLE_TASKS_WORKSPACE && savedWorkspaceMode === WORKSPACE_MODE.TASKS)
+    ? savedWorkspaceMode
+    : WORKSPACE_MODE.HOME;
 if (initialWorkspaceMode === WORKSPACE_MODE.HOME) {
   if (shouldPersistViewAnchor(initialView)) {
     const savedAnchorDate = loadViewAnchor(initialView);

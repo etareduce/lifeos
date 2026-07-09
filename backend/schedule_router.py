@@ -77,11 +77,7 @@ def _is_main_recurrence(payload: dict | None) -> bool:
         if view_id == "main" or view_source == "main":
             return True
         return False
-    source = payload.get("integration_source")
-    if not isinstance(source, dict):
-        return True
-    provider = str(source.get("provider") or "").strip().lower()
-    return provider not in {"google", "custom"}
+    return "integration_source" not in payload
 
 
 def _occurrence_override(payload: dict, occurrence) -> dict | None:

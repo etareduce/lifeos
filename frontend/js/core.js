@@ -31,11 +31,9 @@ const state = {
   batchEditOccurrenceIds: [],
   batchEditBaseline: null,
   previewBlobs: [],
-  calendarVisibilityByViewId: {},
-  calendarViews: [],
-  llmDraftRecurrences: null,
-  llmDraftNotes: null,
   workspaceMode: "home",
+  calendarViews: [],
+  calendarVisibilityByViewId: {},
 };
 
 const KEYBIND_DEFAULTS = Object.freeze({
@@ -191,6 +189,14 @@ const defaultConfig = {
     Number(window.APP_CONFIG?.engineGranularityCostWeight || 1.0)
   ),
   keybinds: normalizeKeybindConfig(window.APP_CONFIG?.keybinds),
+  customCalendarViews: Array.isArray(window.APP_CONFIG?.customCalendarViews)
+    ? window.APP_CONFIG.customCalendarViews
+    : [],
+  calendarVisibilityByViewId:
+    window.APP_CONFIG?.calendarVisibilityByViewId &&
+    typeof window.APP_CONFIG.calendarVisibilityByViewId === "object"
+      ? window.APP_CONFIG.calendarVisibilityByViewId
+      : {},
 };
 
 const storedConfig = (() => {
@@ -209,6 +215,15 @@ const appConfig = {
 appConfig.keybinds = normalizeKeybindConfig(appConfig.keybinds);
 appConfig.useDeviceTimeZone = appConfig.useDeviceTimeZone !== false;
 appConfig.dayEndsAtMinutes = normalizeDayBoundaryMinutes(appConfig.dayEndsAtMinutes);
+appConfig.customCalendarViews = Array.isArray(appConfig.customCalendarViews)
+  ? appConfig.customCalendarViews
+  : [];
+appConfig.calendarVisibilityByViewId =
+  appConfig.calendarVisibilityByViewId &&
+  typeof appConfig.calendarVisibilityByViewId === "object"
+    ? appConfig.calendarVisibilityByViewId
+    : {};
+state.calendarVisibilityByViewId = { ...appConfig.calendarVisibilityByViewId };
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 240;

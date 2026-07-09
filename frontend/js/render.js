@@ -5,8 +5,6 @@ import {
   deleteOccurrenceAndLaterWithUndo,
   deleteOccurrenceWithUndo,
   deleteRecurrenceWithUndo,
-  moveOccurrenceToMainWithRefresh,
-  moveRecurrenceToMainWithRefresh,
   updateOccurrencesWithUndo,
   updateOccurrenceTimingWithUndo,
 } from "./actions.js";
@@ -670,68 +668,14 @@ function getCalendarViewIdFromBlob(blob) {
 }
 
 function isBlobVisible(blob) {
+  if (!blob) return false;
   const calendarViewId = getCalendarViewIdFromBlob(blob);
-  if (!calendarViewId || calendarViewId === "main") {
-    return true;
-  }
+  if (!calendarViewId || calendarViewId === "main") return true;
   const visibility = state.calendarVisibilityByViewId || {};
   if (!Object.prototype.hasOwnProperty.call(visibility, calendarViewId)) {
     return true;
   }
   return visibility[calendarViewId] !== false;
-}
-
-function importedGoogleOccurrenceDedupKey(blob) {
-  const payload = blob?.recurrence_payload;
-  if (!payload || typeof payload !== "object") return "";
-  const source =
-    payload.integration_source && typeof payload.integration_source === "object"
-      ? payload.integration_source
-      : null;
-  const calendarView =
-    payload.calendar_view && typeof payload.calendar_view === "object"
-      ? payload.calendar_view
-      : null;
-  const integrationLinks = Array.isArray(payload.integration_links)
-    ? payload.integration_links
-    : [];
-  const googleLink =
-    integrationLinks.find(
-      (item) =>
-        item &&
-        typeof item === "object" &&
-        String(item.provider || "")
-          .trim()
-          .toLowerCase() === "google"
-    ) || null;
-  const provider = String(
-    source?.provider || googleLink?.provider || calendarView?.source || ""
-  )
-    .trim()
-    .toLowerCase();
-  if (provider !== "google") return "";
-  const calendarId = String(
-    source?.calendar_id || googleLink?.calendar_id || calendarView?.calendar_id || ""
-  ).trim();
-  const externalKey = String(source?.external_key || "").trim();
-  let externalRecurrenceId = String(
-    source?.external_recurrence_id || googleLink?.external_recurrence_id || ""
-  ).trim();
-  if (!externalRecurrenceId && externalKey) {
-    externalRecurrenceId = externalKey.includes(":")
-      ? externalKey.split(":").slice(1).join(":")
-      : externalKey;
-  }
-  if (!calendarId || !externalRecurrenceId) return "";
-  const occurrenceKey =
-    getOccurrenceKeyFromBlob(blob) ||
-    String(
-      blob?.default_scheduled_timerange?.start ||
-        blob?.schedulable_timerange?.start ||
-        ""
-    ).trim();
-  if (!occurrenceKey) return "";
-  return `google:${calendarId}:${externalRecurrenceId}:${occurrenceKey}`;
 }
 
 function getCalendarBlobs() {
@@ -762,19 +706,7 @@ function getCalendarBlobs() {
       merged[existingIndex] = item;
     });
   }
-  const deduped = [];
-  const seenImportedGoogleKeys = new Set();
-  merged.forEach((item) => {
-    const dedupKey = importedGoogleOccurrenceDedupKey(item);
-    if (dedupKey) {
-      if (seenImportedGoogleKeys.has(dedupKey)) {
-        return;
-      }
-      seenImportedGoogleKeys.add(dedupKey);
-    }
-    deduped.push(item);
-  });
-  return deduped;
+  return merged;
 }
 
 function getBlobById(blobId) {
@@ -834,47 +766,8 @@ function renderPolicyBadges(policy, { compact = false } = {}) {
     .join("");
 }
 
-const SYNC_COLOR_SEQUENCE = [
-  "sand",
-  "sage",
-  "mist",
-  "clay",
-  "moss",
-  "coral",
-  "sky",
-  "violet",
-  "teal",
-  "lemon",
-  "indigo",
-  "ruby",
-  "mint",
-  "slate",
-];
-
-function colorForKey(value) {
-  const raw = String(value || "");
-  if (!raw) return "";
-  let checksum = 0;
-  for (const char of raw) checksum += char.charCodeAt(0);
-  return SYNC_COLOR_SEQUENCE[checksum % SYNC_COLOR_SEQUENCE.length] || "";
-}
-
-function importedGoogleCalendarColor(blob) {
-  const payload = blob?.recurrence_payload;
-  if (!payload || typeof payload !== "object") return "";
-  const source = payload.integration_source;
-  if (!source || typeof source !== "object") return "";
-  if (String(source.provider || "").toLowerCase() !== "google") return "";
-  const calendarView = payload.calendar_view;
-  if (!calendarView || typeof calendarView !== "object") return "";
-  const calendarViewId = String(calendarView.id || "").trim();
-  if (!calendarViewId || calendarViewId === "main") return "";
-  return colorForKey(calendarViewId);
-}
-
 function getRecurrenceColorClass(blob) {
-  const importedColor = importedGoogleCalendarColor(blob);
-  const color = importedColor || blob?.recurrence_payload?.color;
+  const color = blob?.recurrence_payload?.color;
   return color ? `palette-${color}` : "";
 }
 
@@ -907,7 +800,6 @@ function calendarSourceLabel(source) {
   const normalized = String(source || "").trim().toLowerCase();
   if (!normalized) return "";
   if (normalized === "main") return "Main";
-  if (normalized === "google") return "Google";
   if (normalized === "custom") return "Custom";
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 }
@@ -994,8 +886,6 @@ function allDaySpansDayStamp(startParts, endParts, viewDayStamp) {
 }
 
 function fullDayRenderKey(blob) {
-  const importedKey = importedGoogleOccurrenceDedupKey(blob);
-  if (importedKey) return importedKey;
   const normalizedId = normalizeTimelineBlobId(blob?.id);
   if (normalizedId) return `id:${normalizedId}`;
   const occurrenceKey = getOccurrenceKeyFromBlob(blob);
@@ -1798,23 +1688,10 @@ function showInfoCard(blob, anchorRect) {
     `
     : "";
   const previewBadge = isPreview ? `<span class="info-preview">Preview</span>` : "";
-  const canMoveToMain = !calendarInfo.isMain && Boolean(blob.recurrence_id);
-  const moveAction = canMoveToMain
-    ? `
-      <button class="info-move" type="button" aria-label="Move to main options" title="Move to Main calendar">
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M4 6.5h10.5A3.5 3.5 0 0 1 18 10v.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-          <path d="M14 12l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-          <rect x="4" y="13.5" width="8" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8" />
-        </svg>
-      </button>
-    `
-    : "";
   const actions = isPreview
     ? ""
     : `
       <span class="info-title-actions">
-        ${moveAction}
         <button class="info-edit" type="button" aria-label="Edit recurrence" title="Edit recurrence">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <path d="M4 16.8V20h3.2L18 9.2 14.8 6 4 16.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
@@ -2089,40 +1966,6 @@ async function handleInfoCardEdit(event) {
     openEditForm(blob);
   } catch (error) {
     await alertDialog(error?.message || "Unable to open edit form.");
-  }
-}
-
-async function handleInfoCardMove(event) {
-  const button = event.target.closest(".info-move");
-  if (!button) return;
-  const blobId = dom.infoCard?.dataset?.blobId || state.lockedBlobId;
-  if (!blobId) return;
-  const blob = getBlobById(blobId);
-  if (!blob?.recurrence_id || blob.preview) return;
-  const calendarInfo = resolveBlobCalendarInfo(blob);
-  if (calendarInfo.isMain) return;
-  const choice = await choiceDialog(
-    "Move this occurrence or the full recurrence to Main calendar?",
-    {
-      confirmText: "Move recurrence",
-      confirmValue: "recurrence",
-      altText: "Move occurrence",
-      altValue: "occurrence",
-      cancelText: "Cancel",
-      confirmVariant: "ghost",
-      altVariant: "ghost",
-      actionOrder: "confirm-alt-cancel",
-    }
-  );
-  if (!choice) return;
-  try {
-    if (choice === "occurrence" && blob.recurrence_type !== "single") {
-      await moveOccurrenceToMainWithRefresh(blob);
-      return;
-    }
-    await moveRecurrenceToMainWithRefresh(blob.recurrence_id);
-  } catch (error) {
-    await alertDialog(error?.message || "Unable to move to main calendar.");
   }
 }
 
@@ -2596,10 +2439,6 @@ function renderDay() {
     document.removeEventListener("click", state.infoCardActionHandler);
   }
   state.infoCardActionHandler = (event) => {
-    if (event.target.closest(".info-move")) {
-      handleInfoCardMove(event);
-      return;
-    }
     if (event.target.closest(".info-edit")) {
       handleInfoCardEdit(event);
       return;
@@ -3394,10 +3233,6 @@ function renderWeek() {
     document.removeEventListener("click", state.infoCardActionHandler);
   }
   state.infoCardActionHandler = (event) => {
-    if (event.target.closest(".info-move")) {
-      handleInfoCardMove(event);
-      return;
-    }
     if (event.target.closest(".info-edit")) {
       handleInfoCardEdit(event);
       return;
