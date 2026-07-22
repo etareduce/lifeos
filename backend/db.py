@@ -34,6 +34,7 @@ async def init_db() -> None:
             await _ensure_sqlite_blob_columns(conn)
             await _ensure_sqlite_scheduled_occurrence_columns(conn)
             await _ensure_sqlite_recurrence_columns(conn)
+            await _ensure_sqlite_lifeos_columns(conn)
 
 
 async def _ensure_sqlite_blob_columns(conn) -> None:
@@ -80,3 +81,115 @@ async def _ensure_sqlite_recurrence_columns(conn) -> None:
                 "updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)"
             )
         )
+
+
+async def _ensure_sqlite_lifeos_columns(conn) -> None:
+    await _ensure_sqlite_type_definition_columns(conn)
+    await _ensure_sqlite_life_object_columns(conn)
+
+
+async def _ensure_sqlite_type_definition_columns(conn) -> None:
+    result = await conn.execute(text("PRAGMA table_info(type_definitions)"))
+    columns = {row[1] for row in result.fetchall()}
+    if not columns:
+        return
+    missing = []
+    if "fields" not in columns:
+        missing.append(("fields", "JSON DEFAULT '[]'"))
+    if "metadata" not in columns:
+        missing.append(("metadata", "JSON DEFAULT '{}'"))
+    if "created_at" not in columns:
+        missing.append(("created_at", "DATETIME"))
+    if "updated_at" not in columns:
+        missing.append(("updated_at", "DATETIME"))
+    for name, col_type in missing:
+        await conn.execute(text(f"ALTER TABLE type_definitions ADD COLUMN {name} {col_type}"))
+    if missing:
+        await conn.execute(
+            text(
+                "UPDATE type_definitions "
+                "SET fields = COALESCE(fields, '[]'), "
+                "metadata = COALESCE(metadata, '{}'), "
+                "created_at = COALESCE(created_at, CURRENT_TIMESTAMP), "
+                "updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)"
+            )
+        )
+
+
+async def _ensure_sqlite_life_object_columns(conn) -> None:
+    result = await conn.execute(text("PRAGMA table_info(life_objects)"))
+    columns = {row[1] for row in result.fetchall()}
+    if not columns:
+        return
+    if "type_id" in columns:
+        await _rebuild_legacy_sqlite_life_objects_table(conn, columns)
+        result = await conn.execute(text("PRAGMA table_info(life_objects)"))
+        columns = {row[1] for row in result.fetchall()}
+    missing = []
+    if "type_name" not in columns:
+        missing.append(("type_name", "VARCHAR(80) DEFAULT 'Page'"))
+    if "fields" not in columns:
+        missing.append(("fields", "JSON DEFAULT '{}'"))
+    if "metadata" not in columns:
+        missing.append(("metadata", "JSON DEFAULT '{}'"))
+    if "blob_ids" not in columns:
+        missing.append(("blob_ids", "JSON DEFAULT '[]'"))
+    if "created_at" not in columns:
+        missing.append(("created_at", "DATETIME"))
+    if "updated_at" not in columns:
+        missing.append(("updated_at", "DATETIME"))
+    for name, col_type in missing:
+        await conn.execute(text(f"ALTER TABLE life_objects ADD COLUMN {name} {col_type}"))
+    if missing:
+        await conn.execute(
+            text(
+                "UPDATE life_objects "
+                "SET type_name = COALESCE(type_name, 'Page'), "
+                "fields = COALESCE(fields, '{}'), "
+                "metadata = COALESCE(metadata, '{}'), "
+                "blob_ids = COALESCE(blob_ids, '[]'), "
+                "created_at = COALESCE(created_at, CURRENT_TIMESTAMP), "
+                "updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)"
+            )
+        )
+
+
+async def _rebuild_legacy_sqlite_life_objects_table(conn, columns: set[str]) -> None:
+    await conn.execute(text("DROP TABLE IF EXISTS life_objects_legacy"))
+    await conn.execute(text("ALTER TABLE life_objects RENAME TO life_objects_legacy"))
+    await conn.execute(
+        text(
+            "CREATE TABLE life_objects ("
+            "id VARCHAR(36) NOT NULL PRIMARY KEY, "
+            "type_name VARCHAR(80) NOT NULL, "
+            "fields JSON NOT NULL, "
+            "metadata JSON NOT NULL, "
+            "blob_ids JSON NOT NULL, "
+            "created_at DATETIME NOT NULL, "
+            "updated_at DATETIME NOT NULL"
+            ")"
+        )
+    )
+    fields_expr = "fields" if "fields" in columns else "NULL"
+    value_expr = "value_json" if "value_json" in columns else "NULL"
+    metadata_expr = "metadata" if "metadata" in columns else "NULL"
+    metadata_json_expr = "metadata_json" if "metadata_json" in columns else "NULL"
+    blob_ids_expr = "blob_ids" if "blob_ids" in columns else "NULL"
+    type_name_expr = "type_name" if "type_name" in columns else "NULL"
+    await conn.execute(
+        text(
+            "INSERT INTO life_objects "
+            "(id, type_name, fields, metadata, blob_ids, created_at, updated_at) "
+            "SELECT "
+            "id, "
+            f"COALESCE({type_name_expr}, 'Page'), "
+            f"COALESCE({fields_expr}, {value_expr}, '{{}}'), "
+            f"COALESCE({metadata_expr}, {metadata_json_expr}, '{{}}'), "
+            f"COALESCE({blob_ids_expr}, '[]'), "
+            "COALESCE(created_at, CURRENT_TIMESTAMP), "
+            "COALESCE(updated_at, CURRENT_TIMESTAMP) "
+            "FROM life_objects_legacy"
+        )
+    )
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_life_objects_type_name ON life_objects (type_name)"))
+    await conn.execute(text("DROP TABLE life_objects_legacy"))

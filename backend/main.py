@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.analytics_router import analytics_router
 from backend.analytics_db import init_analytics_db
 from backend.db import init_db
+from backend.lifeos_router import lifeos_router
 from backend.router import router as blob_router
 from backend.recurrence_router import (
     occurrence_router,
@@ -22,8 +23,8 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Elastisched API", lifespan=lifespan)
-_UI_DIR = Path(__file__).resolve().parents[2] / "frontend"
+app = FastAPI(title="LifeOS API", lifespan=lifespan)
+_UI_DIR = Path(__file__).resolve().parents[1] / "frontend"
 if _UI_DIR.exists():
     app.mount("/ui", StaticFiles(directory=_UI_DIR, html=True), name="ui")
 
@@ -34,6 +35,7 @@ async def health() -> dict:
 
 
 app.include_router(blob_router)
+app.include_router(lifeos_router)
 app.include_router(recurrence_router)
 app.include_router(occurrence_router)
 app.include_router(schedule_router)

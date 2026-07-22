@@ -25,6 +25,36 @@ class BlobModel(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
 
 
+class TypeDefinitionModel(Base):
+    __tablename__ = "type_definitions"
+
+    name: Mapped[str] = mapped_column(String(80), primary_key=True)
+    fields: Mapped[list] = mapped_column(JSON, default=list)
+    meta: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class LifeObjectModel(Base):
+    __tablename__ = "life_objects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    type_name: Mapped[str] = mapped_column(String(80), index=True)
+    fields: Mapped[dict] = mapped_column(JSON, default=dict)
+    meta: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    blob_ids: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class RecurrenceModel(Base):
     __tablename__ = "recurrences"
 

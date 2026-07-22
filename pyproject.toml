@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "pytest-repeat", "black"]
+dev = ["pytest", "pytest-asyncio", "pytest-repeat", "black", "httpx"]
 
 [project.urls]
 Homepage = "https://github.com/chrissuu/elastisched"
