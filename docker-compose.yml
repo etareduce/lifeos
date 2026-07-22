@@ -5,13 +5,13 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ../.env
+      - .env
     environment:
-      DATABASE_URL: sqlite+aiosqlite:///./elastisched.db
+      DATABASE_URL: sqlite+aiosqlite:////app/data/lifeos.db
+      ANALYTICS_DATABASE_URL: sqlite+aiosqlite:////app/data/analytics.db
     volumes:
       - ./:/app
-      - ../elastisched.db:/app/elastisched.db
-      - ../analytics.db:/app/analytics.db
+      - ./data:/app/data
   frontend:
     image: nginx:alpine
     ports:
