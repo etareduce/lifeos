@@ -3,1077 +3,145 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Elastisched</title>
-    <script>
-      (() => {
-        try {
-          const raw = window.localStorage.getItem("elastisched:workspace-mode");
-          const mode = raw === "search" ? raw : "home";
-          document.documentElement.dataset.workspaceMode = mode;
-        } catch (error) {
-          document.documentElement.dataset.workspaceMode = "home";
-        }
-      })();
-    </script>
-    <link rel="stylesheet" href="./css/styles.css" />
+    <title>LifeOS</title>
+    <link rel="stylesheet" href="./css/lifeos.css" />
   </head>
   <body>
-    <div class="page">
-      <aside class="panel sidebar">
-        <div class="sidebar-top-actions">
-          <button class="ghost small sidebar-toggle" id="sidebarToggleBtn" type="button" aria-label="Collapse sidebar">
-            ☰
-          </button>
-        </div>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="LifeOS navigation">
         <div class="brand">
-          <div>
-            <div class="title" id="brandTitle">Elastisched</div>
-            <div class="subtitle" id="brandSubtitle">Schedule at a glance</div>
-          </div>
+          <div class="brand-title">LifeOS</div>
+          <div class="brand-subtitle">Capture first. Structure later.</div>
         </div>
-        <nav class="sidebar-nav sidebar-main-nav" aria-label="Workspace views">
-          <button class="sidebar-link active" id="homeBtn" type="button" data-short="H">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <path
-                  d="M3.5 10.5L12 3l8.5 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-4v6H4.5a1 1 0 0 1-1-1z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </span>
-            <span class="sidebar-link-title">Home</span>
-            <span class="sidebar-link-subtitle">Main calendar</span>
+        <nav class="nav-list">
+          <button class="nav-item active" type="button" data-view="home">Home</button>
+          <button class="nav-item" type="button" data-view="review">
+            <span>Review</span>
+            <span class="review-badge" id="reviewBadge">0</span>
           </button>
-          <button class="sidebar-link" id="tasksBtn" type="button" data-short="T" hidden disabled aria-hidden="true">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" />
-                <path
-                  d="M8 10h8M8 14h8M8 18h5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </span>
-            <span class="sidebar-link-title">Tasks</span>
-            <span class="sidebar-link-subtitle">Upcoming and prioritized</span>
-          </button>
-          <button class="sidebar-link" id="searchBtn" type="button" data-short="/">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8" />
-                <path
-                  d="M16 16l4.5 4.5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </span>
-            <span class="sidebar-link-title">Search</span>
-            <span class="sidebar-link-subtitle">Find events quickly</span>
-          </button>
-        </nav>
-        <section class="sidebar-calendars" id="sidebarCalendars">
-          <div class="sidebar-calendars-header">
-            <div class="sidebar-calendars-title">Calendars</div>
-          </div>
-          <div class="sidebar-calendars-body">
-            <details class="sidebar-calendar-group" open>
-              <summary>
-                <span>Your calendars</span>
-                <span class="sidebar-calendar-summary">Main + local</span>
-              </summary>
-              <div class="sidebar-calendar-actions">
-                <input
-                  type="text"
-                  id="sidebarCustomCalendarNameInput"
-                  placeholder="New calendar"
-                  data-settings-ignore="true"
-                />
-                <button type="button" class="ghost small" id="sidebarCreateCustomCalendarBtn">
-                  Add
-                </button>
-              </div>
-              <div class="sidebar-calendar-list" id="sidebarCalendarViewList"></div>
-              <div class="form-status" id="sidebarCalendarMessage"></div>
-            </details>
-          </div>
-        </section>
-        <nav class="sidebar-nav sidebar-utility-nav" aria-label="Workspace tools">
-          <button class="sidebar-icon-link" id="settingsBtn" type="button" data-short="S" title="Settings" aria-label="Settings">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <path
-                  d="M12 8.8A3.2 3.2 0 1 0 12 15.2A3.2 3.2 0 1 0 12 8.8z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                />
-                <path
-                  d="M19.2 13.3l1.3-1.1-1.5-2.6-1.7.4a5.8 5.8 0 0 0-1-0.6L16 7.7h-3l-0.3 1.7a5.8 5.8 0 0 0-1 .6L10 9.6 8.5 12.2l1.3 1.1a5.5 5.5 0 0 0 0 1.4l-1.3 1.1L10 18.4l1.7-0.4c0.3 0.2 0.6 0.4 1 0.6l0.3 1.7h3l0.3-1.7c0.3-0.2 0.7-0.4 1-0.6l1.7 0.4 1.5-2.6-1.3-1.1a5.5 5.5 0 0 0 0-1.4z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.2"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </span>
-            <span class="sidebar-icon-label">Settings</span>
-          </button>
+          <button class="nav-item" type="button" data-view="goals">Goals</button>
+          <button class="nav-item" type="button" data-view="types">Type</button>
+          <button class="nav-item" type="button" data-view="objects">Objects</button>
+          <button class="nav-item" type="button" data-view="timeline">Timeline</button>
         </nav>
       </aside>
-      <div
-        class="sidebar-resizer"
-        id="sidebarResizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-      ></div>
 
       <main class="workspace">
-      <div class="modal" id="settingsModal" aria-hidden="true">
-        <div class="modal-backdrop" id="settingsBackdrop"></div>
-        <section class="panel form-panel modal-panel" id="settingsPanel">
-          <div class="form-header">
-            <div>
-              <div class="form-title">Settings</div>
-            </div>
-            <div class="settings-header-actions">
-              <button class="ghost small" id="closeSettingsBtn">Close</button>
-            </div>
-          </div>
-          <form id="settingsForm" class="blob-form settings-form">
-            <div class="settings-tabs vertical" role="tablist">
-              <button class="settings-tab active" type="button" data-settings-tab="general">
-                General
-              </button>
-              <button class="settings-tab" type="button" data-settings-tab="scheduling">
-                Scheduling
-              </button>
-            </div>
-            <div class="settings-section active" data-settings-section="general">
-              <div class="settings-section-header">
-                <div class="settings-section-title">General settings</div>
-                <div class="settings-section-copy">
-                  Configure how your workspace appears across the app.
-                </div>
-              </div>
-              <div class="settings-grid">
-                <article class="settings-card">
-                  <div class="settings-card-title">Workspace identity</div>
-                  <div class="settings-card-copy">
-                    Set the primary title and subtitle shown throughout the interface.
-                  </div>
-                  <label>
-                    Schedule name
-                    <input type="text" name="scheduleName" placeholder="Elastisched" />
-                  </label>
-                  <label>
-                    Subtitle
-                    <input type="text" name="subtitle" placeholder="Schedule at a glance" />
-                  </label>
-                </article>
-                <article class="settings-card">
-                  <div class="settings-card-title">Display preferences</div>
-                  <div class="settings-card-copy">
-                    Control your default theme and preferred local timezone.
-                  </div>
-                  <label>
-                    Theme
-                    <select name="theme">
-                      <option value="sand">Sand</option>
-                      <option value="sage">Sage</option>
-                      <option value="ocean">Ocean</option>
-                      <option value="ember">Ember</option>
-                      <option value="midnight">Midnight</option>
-                    </select>
-                  </label>
-                  <label>
-                    User timezone
-                    <select name="userTimeZone"></select>
-                  </label>
-                </article>
-                <article class="settings-card">
-                  <div class="settings-card-title">Keyboard shortcuts</div>
-                  <div class="settings-card-copy">
-                    Click a field and press the shortcut. Use <code>Mod</code> for Ctrl/Cmd.
-                  </div>
-                  <div class="settings-keybind-grid">
-                    <label>
-                      Undo
-                      <input
-                        type="text"
-                        name="keybindUndo"
-                        placeholder="Mod+Z"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Redo
-                      <input
-                        type="text"
-                        name="keybindRedo"
-                        placeholder="Mod+Y"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Close panels
-                      <input
-                        type="text"
-                        name="keybindClosePanels"
-                        placeholder="Escape"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Create task
-                      <input
-                        type="text"
-                        name="keybindCreateTask"
-                        placeholder="N"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Create event
-                      <input
-                        type="text"
-                        name="keybindCreateEvent"
-                        placeholder="C"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Go to today
-                      <input
-                        type="text"
-                        name="keybindGoToday"
-                        placeholder="T"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Previous period
-                      <input
-                        type="text"
-                        name="keybindNavigatePrev"
-                        placeholder="ArrowLeft"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                    <label>
-                      Next period
-                      <input
-                        type="text"
-                        name="keybindNavigateNext"
-                        placeholder="ArrowRight"
-                        readonly
-                        autocomplete="off"
-                        spellcheck="false"
-                      />
-                    </label>
-                  </div>
-                  <div class="settings-keybind-note">
-                    Press Backspace/Delete in a field to clear it and restore the default on save.
-                  </div>
-                </article>
-              </div>
-            </div>
-            <div class="settings-section" data-settings-section="scheduling">
-              <div class="settings-section-header">
-                <div class="settings-section-title">Scheduling defaults</div>
-                <div class="settings-section-copy">
-                  Define planner behavior that controls cadence and schedule regeneration.
-                </div>
-              </div>
-              <div class="settings-grid">
-                <article class="settings-card">
-                  <div class="settings-card-title">Engine behavior</div>
-                  <label>
-                    Minute granularity
-                    <input type="number" name="minuteGranularity" min="1" step="1" />
-                  </label>
-                  <label>
-                    Lookahead minutes
-                    <input type="number" name="lookaheadMinutes" min="1" step="1" />
-                  </label>
-                </article>
-                <article class="settings-card">
-                  <div class="settings-card-title">Execution options</div>
-                  <label>
-                    Tasks window (days)
-                    <input type="number" name="tasksDisplayDays" min="1" step="1" />
-                  </label>
-                  <label>
-                    Finish early buffer (minutes)
-                    <input type="number" name="finishEarlyBufferMinutes" min="1" step="1" />
-                  </label>
-                  <label>
-                    Day ends at
-                    <input type="time" name="dayEndsAt" step="300" />
-                  </label>
-                  <label class="settings-toggle">
-                    <span>Reschedule ongoing events</span>
-                    <input type="checkbox" name="includeActiveOccurrences" />
-                  </label>
-                </article>
-                <article class="settings-card">
-                  <label class="settings-toggle">
-                    <span>Enable advanced engine tuning</span>
-                    <input type="checkbox" name="engineAdvancedEnabled" />
-                  </label>
-                </article>
-                <article class="settings-card settings-advanced-card" id="advancedEngineCard">
-                  <div class="settings-card-title">Advanced engine tuning</div>
-                  <div class="settings-card-copy">
-                    Fine-tune optimization parameters.
-                  </div>
-                  <label>
-                    Initial temp
-                    <input type="number" name="engineInitialTemp" min="0.0001" step="0.0001" />
-                  </label>
-                  <label>
-                    Final temp
-                    <input type="number" name="engineFinalTemp" min="0.000001" step="0.000001" />
-                  </label>
-                  <label>
-                    Num iters
-                    <input type="number" name="engineNumIters" min="1" step="1" />
-                  </label>
-                  <label>
-                    Illegal schedule weight
-                    <input type="number" name="engineIllegalScheduleWeight" min="0" step="0.01" />
-                  </label>
-                  <label>
-                    Overlap cost weight
-                    <input type="number" name="engineOverlapCostWeight" min="0" step="0.01" />
-                  </label>
-                  <label>
-                    Split cost weight
-                    <input type="number" name="engineSplitCostWeight" min="0" step="0.01" />
-                  </label>
-                  <label>
-                    Consistency cost weight
-                    <input type="number" name="engineConsistencyCostWeight" min="0" step="0.01" />
-                  </label>
-                  <label>
-                    Granularity cost weight
-                    <input type="number" name="engineGranularityCostWeight" min="0" step="0.01" />
-                  </label>
-                </article>
-              </div>
-            </div>
-          </form>
-          <div class="settings-save-dock">
-            <span class="form-status settings-dirty-indicator" id="settingsDirtyIndicator"></span>
-            <button type="submit" form="settingsForm" class="primary" id="settingsSaveBtn" disabled>
-              Save changes
-            </button>
-            <span class="form-status" id="settingsStatus"></span>
+        <section class="view active" id="homeView" aria-labelledby="homeTitle">
+          <h1 id="homeTitle" class="sr-only">Home</h1>
+          <div class="capture-surface" id="captureForm">
+            <textarea
+              id="captureInput"
+              rows="24"
+              placeholder=""
+              autofocus
+              spellcheck="true"
+            ></textarea>
+            <span id="captureStatus" class="status sr-only" role="status"></span>
           </div>
         </section>
-      </div>
 
-      <div class="modal" id="alertModal" aria-hidden="true">
-        <div class="modal-backdrop" id="alertBackdrop"></div>
-        <section class="panel modal-panel alert-panel" id="alertPanel" role="dialog" aria-modal="true">
-          <div class="form-header">
-            <div>
-              <div class="form-title" id="alertTitle">Notice</div>
-            </div>
+        <section class="view" id="reviewView" aria-labelledby="reviewTitle">
+          <div class="view-header review-header">
+            <button class="back-button" type="button" id="reviewBackBtn" aria-label="Back to Review">←</button>
+            <h1 id="reviewTitle">Review</h1>
           </div>
-          <div class="alert-message" id="alertMessage"></div>
-          <div class="form-actions alert-actions">
-            <button type="button" class="ghost alert-action cancel" id="alertCancelBtn">Cancel</button>
-            <button type="button" class="ghost alert-action alt" id="alertAltBtn">Delete</button>
-            <button type="button" class="primary alert-action confirm" id="alertConfirmBtn">OK</button>
+          <div class="review-layout" id="reviewLayout">
+            <div class="review-queue" id="reviewQueue"></div>
           </div>
+          <textarea
+            class="review-full-editor"
+            id="reviewFullEditor"
+            rows="24"
+            spellcheck="true"
+          ></textarea>
         </section>
-      </div>
 
-      <div class="modal" id="taskCompletionModal" aria-hidden="true">
-        <div class="modal-backdrop" id="taskCompletionBackdrop"></div>
-        <section
-          class="panel modal-panel task-completion-panel"
-          id="taskCompletionPanel"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div class="form-header">
-            <div>
-              <div class="form-title">Complete overdue task</div>
-              <div class="form-subtitle" id="taskCompletionSummary">
-                Estimate how long it took so we can store completion timing.
-              </div>
-            </div>
-            <button type="button" class="ghost small" id="taskCompletionCloseBtn">Close</button>
+        <section class="view" id="goalsView" aria-labelledby="goalsTitle">
+          <div class="view-header">
+            <h1 id="goalsTitle">Goals</h1>
+            <button class="primary" type="button" id="newGoalBtn">New Goal</button>
           </div>
-          <form id="taskCompletionForm" class="blob-form task-completion-form">
-            <label>
-              Minutes spent
-              <input
-                type="number"
-                id="taskCompletionMinutesInput"
-                name="taskCompletionMinutes"
-                min="1"
-                step="1"
-                inputmode="numeric"
-              />
-            </label>
-            <div class="form-actions">
-              <button type="button" class="ghost" id="taskCompletionCancelBtn">Cancel</button>
-              <button type="submit" class="primary" id="taskCompletionSubmitBtn">
-                Mark complete
-              </button>
-              <span class="form-status" id="taskCompletionStatus"></span>
-            </div>
-          </form>
+          <div class="goal-grid" id="goalsList"></div>
         </section>
-      </div>
 
-      <section class="panel form-panel" id="formPanel">
-        <div class="form-header">
-          <div>
-            <div class="form-title" id="formTitle">Create a recurrence</div>
-            <div class="form-subtitle">Set a one-time or repeating session</div>
+        <section class="view" id="typesView" aria-labelledby="typesTitle">
+          <div class="view-header">
+            <h1 id="typesTitle">Type</h1>
           </div>
-          <button class="ghost small" id="closeFormBtn">Close</button>
-        </div>
-        <form id="blobForm" class="blob-form">
-          <label class="recurrence-primary-field">
-            Recurrence name
-            <input type="text" name="recurrenceName" class="needs-input" />
-          </label>
-          <label class="recurrence-primary-field">
-            Recurrence description
-            <input type="text" name="recurrenceDescription" class="needs-input" />
-          </label>
-          <label class="recurrence-primary-field">
-            Recurrence type
-            <select name="recurrenceType" id="recurrenceType">
-              <option value="single">Single occurrence</option>
-              <option value="multiple">Multiple occurrence</option>
-              <option value="weekly">Weekly cadence</option>
-              <option value="delta">Fixed interval</option>
-              <option value="date">Annual date</option>
-            </select>
-          </label>
-          <label class="recurrence-primary-field">
-            Calendar
-            <select name="recurrenceCalendarView" id="recurrenceCalendarView">
-              <option value="main">Main</option>
-            </select>
-          </label>
-          <div class="recurrence-note" id="recurrenceSummary">
-            One-time event. Switch to create repeats.
-          </div>
-          <div class="recurrence-fields" data-recurrence="multiple">
-            <div class="recurrence-note subtle">
-              Group one-time occurrences together. These do not repeat.
-            </div>
-            <div class="weekly-slots multiple-slots">
-              <div class="weekly-slots-header">
-                <span>Occurrences</span>
-                <button type="button" class="ghost small" id="addMultipleSlotBtn">
-                  Add occurrence
-                </button>
-              </div>
-              <div class="weekly-slot-status" id="multipleSlotStatus"></div>
-              <div id="multipleSlots"></div>
-            </div>
-          </div>
-          <div class="recurrence-fields" data-recurrence="weekly">
-            <div class="weekly-controls">
+          <div class="types-layout">
+            <form class="type-form" id="typeForm">
               <label>
-                Repeat every (weeks)
-                <input type="number" name="weeklyInterval" min="1" step="1" value="1" />
+                Name
+                <input id="typeNameInput" name="name" type="text" autocomplete="off" required />
               </label>
-              <label class="weekly-toggle">
-                Customize each occurrence
-                <input type="checkbox" name="weeklyPerSlot" id="weeklyPerSlot" />
-              </label>
-            </div>
-            <div class="weekly-slots">
-              <div class="weekly-slots-header">
-                <span>Weekly occurrences</span>
-                <button type="button" class="ghost small" id="addWeeklySlotBtn">
-                  Add occurrence
-                </button>
-              </div>
-              <div class="weekly-slot-status" id="weeklySlotStatus"></div>
-              <div id="weeklySlots"></div>
-            </div>
-          </div>
-          <div class="recurrence-fields" data-recurrence="delta">
-            <label>
-              Repeat every
-              <div class="field-row">
-                <input type="number" name="deltaValue" min="1" step="1" value="1" />
-                <select name="deltaUnit">
-                  <option value="minutes">Minutes</option>
-                  <option value="hours">Hours</option>
-                  <option value="days" selected>Days</option>
-                  <option value="weeks">Weeks</option>
+              <label>
+                Kind
+                <select id="typeKindInput" name="kind">
+                  <option value="group">Group</option>
+                  <option value="list">List</option>
+                  <option value="Text">Text</option>
+                  <option value="Number">Number</option>
+                  <option value="Boolean">Boolean</option>
+                  <option value="Date">Date</option>
+                  <option value="Image">Image</option>
+                  <option value="Video">Video</option>
+                  <option value="Blob">Blob</option>
                 </select>
-              </div>
-            </label>
-          </div>
-          <div class="recurrence-fields" data-recurrence="date">
-            <div class="recurrence-note subtle">
-              Repeats annually on the default start date.
-            </div>
-            <label>
-              Annual date
-              <div class="datetime-field" data-mode="date">
-                <input
-                  type="text"
-                  class="datetime-display"
-                  placeholder="Select date"
-                  readonly
-                />
-                <button type="button" class="ghost small datetime-trigger" aria-label="Pick date">
-                  📅
-                </button>
-                <input type="hidden" name="annualDate" data-datetime-input />
-              </div>
-            </label>
-          </div>
-          <div class="recurrence-extras">
-            <label>
-              Recurrence ends
-              <div class="datetime-field">
-                <input
-                  type="text"
-                  class="datetime-display"
-                  placeholder="Select date/time"
-                  readonly
-                />
-                <button type="button" class="ghost small datetime-trigger" aria-label="Pick date">
-                  📅
-                </button>
-                <input type="hidden" name="recurrenceEnd" data-datetime-input />
-              </div>
-            </label>
-          </div>
-          <div class="non-weekly-field weekly-slot single-slot">
-            <div class="weekly-slot-row blob-type-row">
-              <div class="blob-type-toggle" role="group" aria-label="Occurrence type">
-                <button type="button" class="type-pill active" data-blob-type="task" aria-pressed="true">
-                  Task
-                </button>
-                <button type="button" class="type-pill" data-blob-type="event" aria-pressed="false">
-                  Event
-                </button>
-              </div>
-              <input type="hidden" name="blobType" id="blobTypeInput" value="task" data-blob-type-input />
-            </div>
-            <div class="weekly-slot-row task-tracking-row" data-task-tracking-row>
-              <label class="policy-option task-tracking-toggle">
-                <input
-                  type="checkbox"
-                  name="trackOnTasksPage"
-                  checked
-                  data-track-on-tasks-page
-                />
-                <span>Show on Tasks page</span>
               </label>
-            </div>
-            <div class="weekly-slot-row time-range-row">
-              <label>
-                Schedulable start
-                <div class="datetime-field">
-                  <input
-                    type="text"
-                    class="datetime-display"
-                    placeholder="Select date/time"
-                    readonly
-                  />
-                  <button
-                    type="button"
-                    class="ghost small datetime-trigger"
-                    aria-label="Pick date"
-                  >
-                    📅
-                  </button>
-                  <input type="hidden" name="schedulableStart" required data-datetime-input />
+              <label id="typeListItemField">
+                List item type
+                <select id="typeListItemInput" name="listItemType"></select>
+              </label>
+              <div class="type-fields">
+                <div class="type-fields-header">
+                  <span>Fields</span>
                 </div>
-              </label>
-              <label>
-                Schedulable end
-                <div class="datetime-field">
-                  <input
-                    type="text"
-                    class="datetime-display"
-                    placeholder="Select date/time"
-                    readonly
-                  />
-                  <button
-                    type="button"
-                    class="ghost small datetime-trigger"
-                    aria-label="Pick date"
-                  >
-                    📅
-                  </button>
-                  <input type="hidden" name="schedulableEnd" required data-datetime-input />
+                <div class="type-field-builder">
+                  <input id="typeFieldNameInput" type="text" placeholder="Field name" autocomplete="off" />
+                  <select id="typeFieldTypeInput" aria-label="Field type"></select>
+                  <button class="plus-button" id="addTypeFieldBtn" type="button" aria-label="Add field">+</button>
                 </div>
-              </label>
-            </div>
-            <div class="weekly-slot-row time-range-row default-range-row">
-              <label>
-                Default start
-                <div class="datetime-field">
-                  <input
-                    type="text"
-                    class="datetime-display"
-                    placeholder="Select date/time"
-                    readonly
-                  />
-                  <button
-                    type="button"
-                    class="ghost small datetime-trigger"
-                    aria-label="Pick date"
-                  >
-                    📅
-                  </button>
-                  <input type="hidden" name="defaultStart" required data-datetime-input />
-                </div>
-              </label>
-              <label>
-                Default end
-                <div class="datetime-field">
-                  <input
-                    type="text"
-                    class="datetime-display"
-                    placeholder="Select date/time"
-                    readonly
-                  />
-                  <button
-                    type="button"
-                    class="ghost small datetime-trigger"
-                    aria-label="Pick date"
-                  >
-                    📅
-                  </button>
-                  <input type="hidden" name="defaultEnd" required data-datetime-input />
-                </div>
-              </label>
-            </div>
-            <div class="weekly-slot-row slot-meta">
-              <label>
-                Occurrence name
-                <input type="text" name="blobName" class="needs-input" required />
-              </label>
-              <label>
-                Occurrence description
-                <input type="text" name="blobDescription" class="needs-input" />
-              </label>
-            </div>
-            <div class="weekly-slot-row location-row">
-              <label>
-                Location
-                <input type="text" name="blobLocation" class="needs-input" />
-              </label>
-            </div>
-            <div class="weekly-slot-row policy-label-row">
-              <span class="policy-label">Policy options</span>
-            </div>
-            <div class="weekly-slot-row slot-policy">
-              <label class="policy-option policy-splittable">
-                <input type="checkbox" name="policySplittable" />
-                <span>Splittable</span>
-              </label>
-              <label class="policy-option">
-                <input type="checkbox" name="policyOverlappable" />
-                <span>Overlappable</span>
-              </label>
-              <label class="policy-option">
-                <input type="checkbox" name="policyInvisible" />
-                <span>Invisible</span>
-              </label>
-            </div>
-            <div class="weekly-slot-row slot-policy-advanced is-hidden">
-              <label>
-                Max splits
-                <input type="number" name="policyMaxSplits" min="0" step="1" value="1" />
-              </label>
-              <label>
-                Min split duration (min)
-                <input type="number" name="policyMinSplitDuration" min="0" step="1" value="15" />
-              </label>
-              <label class="policy-option">
-                <input type="checkbox" name="policyRoundToGranularity" />
-                <span>Round to granularity</span>
-              </label>
-            </div>
+                <div class="type-field-list" id="typeFieldList"></div>
+              </div>
+              <div class="editor-actions">
+                <button class="primary" id="typeSubmitBtn" type="submit">Create Type</button>
+                <button id="newTypeBtn" type="button">New</button>
+                <span class="status" id="typeStatus" role="status"></span>
+              </div>
+            </form>
+            <div class="type-list" id="typeList"></div>
           </div>
-          <div class="dependency-field">
-            <span class="dependency-label">Dependencies</span>
-            <div class="dependency-input-row">
-              <input
-                type="text"
-                name="blobDependencyInput"
-                class="needs-input"
-                placeholder="Search by blob name or id"
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="ghost small"
-                id="addDependencyBtn"
-                aria-label="Add dependency"
-                title="Add dependency"
-              >
-                +
-              </button>
-            </div>
-            <div class="dependency-suggestions" id="dependencySuggestions"></div>
-            <div class="dependency-list" id="dependencyList"></div>
-          </div>
-          <div class="tag-field" id="recurrenceTagField">
-            <span class="tag-label">Tags</span>
-            <div class="tag-input-row">
-              <input
-                type="text"
-                name="blobTagInput"
-                class="needs-input"
-                placeholder="Search or add a tag"
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="ghost small"
-                id="addTagBtn"
-                aria-label="Add tag"
-                title="Add tag"
-              >
-                +
-              </button>
-            </div>
-            <div class="tag-suggestions" id="tagSuggestions"></div>
-            <div class="tag-list" id="tagList"></div>
-          </div>
-          <div class="color-field">
-            <span class="color-label">Color</span>
-            <div class="color-swatches" role="radiogroup" aria-label="Recurrence color">
-              <label class="color-swatch">
-                <input
-                  type="radio"
-                  name="recurrenceColor"
-                  value="default"
-                  checked
-                  aria-label="Default"
-                />
-                <span class="swatch swatch-default"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="sand" aria-label="Sand" />
-                <span class="swatch swatch-sand"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="sage" aria-label="Sage" />
-                <span class="swatch swatch-sage"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="mist" aria-label="Mist" />
-                <span class="swatch swatch-mist"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="clay" aria-label="Clay" />
-                <span class="swatch swatch-clay"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="moss" aria-label="Moss" />
-                <span class="swatch swatch-moss"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="coral" aria-label="Coral" />
-                <span class="swatch swatch-coral"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="sky" aria-label="Sky" />
-                <span class="swatch swatch-sky"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="violet" aria-label="Violet" />
-                <span class="swatch swatch-violet"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="teal" aria-label="Teal" />
-                <span class="swatch swatch-teal"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="lemon" aria-label="Lemon" />
-                <span class="swatch swatch-lemon"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="indigo" aria-label="Indigo" />
-                <span class="swatch swatch-indigo"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="ruby" aria-label="Ruby" />
-                <span class="swatch swatch-ruby"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="mint" aria-label="Mint" />
-                <span class="swatch swatch-mint"></span>
-              </label>
-              <label class="color-swatch">
-                <input type="radio" name="recurrenceColor" value="slate" aria-label="Slate" />
-                <span class="swatch swatch-slate"></span>
-              </label>
-            </div>
-            <label class="policy-option recurrence-visual-toggle">
-              <input type="checkbox" name="showBordersOnly" />
-              <span>Show borders only</span>
-            </label>
-          </div>
-          <div class="form-actions">
-            <button type="button" class="ghost star edit-only" id="starOccurrenceBtn">
-              Star occurrence
-            </button>
-            <button type="button" class="ghost star edit-only" id="starRecurrenceBtn">
-              Star recurrence
-            </button>
-            <button type="button" class="ghost danger edit-only" id="deleteOccurrenceBtn">
-              Delete occurrence
-            </button>
-            <button type="button" class="ghost danger edit-only" id="deleteRecurrenceBtn">
-              Delete recurrence
-            </button>
-            <button type="submit" class="primary" id="formSubmitBtn">Create</button>
-            <span class="form-status" id="formStatus"></span>
-          </div>
-        </form>
-      </section>
+        </section>
 
-      <section class="panel calendar-panel workspace-section active" id="homeSection" aria-hidden="false">
-        <div class="tab-row">
-          <div class="tabs" role="tablist">
-            <button class="tab active" data-view="day">Day</button>
-            <button class="tab" data-view="week">Week</button>
-            <button class="tab" data-view="month">Month</button>
-            <button class="tab" data-view="year">Year</button>
+        <section class="view" id="objectsView" aria-labelledby="objectsTitle">
+          <div class="view-header">
+            <h1 id="objectsTitle">Objects</h1>
+            <select id="typeFilter" aria-label="Filter by type"></select>
           </div>
-          <div class="nav-actions">
-            <button class="ghost icon" id="prevDayBtn" title="Previous day">&#8592;</button>
-            <button class="ghost" id="goTodayBtn">Today</button>
-            <button class="ghost icon" id="nextDayBtn" title="Next day">&#8594;</button>
-          </div>
-        </div>
-        <div class="now-panel" id="nowPanel">
-          <div class="now-meta">
-            <div class="now-label">Now</div>
-            <div class="now-time" id="nowTime">--:--</div>
-            <div class="now-date" id="nowDate">--</div>
-          </div>
-          <div class="now-actions">
-            <button class="ghost" id="finishNowBtn" disabled>Finish</button>
-            <div class="add-time-menu">
-              <button class="ghost" id="addTimeBtn" disabled>Add time</button>
-              <div class="add-time-popover" id="addTimePopover" role="menu">
-                <button class="add-time-option" type="button" data-add-minutes="1">
-                  +1 min
-                </button>
-                <button class="add-time-option" type="button" data-add-minutes="5">
-                  +5 min
-                </button>
-                <button class="add-time-option" type="button" data-add-minutes="10">
-                  +10 min
-                </button>
-                <button class="add-time-option" type="button" data-add-minutes="30">
-                  +30 min
-                </button>
-                <button class="add-time-option" type="button" data-add-minutes="60">
-                  +60 min
-                </button>
-                <form class="add-time-form" id="addTimeForm">
-                  <input
-                    type="number"
-                    name="addMinutes"
-                    min="1"
-                    step="1"
-                    placeholder="Custom"
-                    aria-label="Add minutes"
-                  />
-                  <button type="submit" class="ghost small">Apply</button>
-                </form>
-              </div>
-            </div>
-          </div>
-          <div class="now-events" id="nowEvents"></div>
-        </div>
-        <div class="view-header">
-          <div class="date-label">
-            <span id="dateLabel">Tuesday, May 21</span>
-            <span class="tz-label" id="timeZoneLabel">UTC</span>
-          </div>
-          <div class="legend">
-            <div class="schedule-controls">
-              <button
-                class="ghost icon action-icon"
-                id="toggleFormBtn"
-                title="Add recurrence"
-                aria-label="Add recurrence"
-              >
-                +
-              </button>
-              <button class="primary schedule-btn" id="runScheduleBtn">Run schedule</button>
-              <div class="schedule-status" id="scheduleStatus" role="status" aria-live="polite">
-                <span class="status-dot" aria-hidden="true"></span>
-                <span class="status-text" id="scheduleStatusText">
-                  Schedule status unknown
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="info-card" id="infoCard" aria-hidden="true"></div>
+          <div class="object-list" id="objectsList"></div>
+        </section>
 
-        <div class="views">
-          <div id="viewDay" class="view active"></div>
-          <div id="viewWeek" class="view"></div>
-          <div id="viewMonth" class="view"></div>
-          <div id="viewYear" class="view"></div>
-        </div>
-      </section>
-      <section class="panel workspace-section tasks-panel" id="tasksSection" aria-hidden="true">
-        <div class="tasks-hero">
-          <div class="tasks-eyebrow">Focus mode</div>
-          <h2 class="tasks-title">Upcoming tasks</h2>
-          <p class="tasks-copy">A clean queue of what is next so you can move with momentum.</p>
-          <form class="task-draft-form" id="taskQuickDraftForm">
-            <div class="task-draft-head">
-              <div class="task-draft-title">Quick Draft</div>
-              <div class="task-draft-subtitle">Capture a task in seconds without leaving this view.</div>
-            </div>
-            <div class="task-draft-grid">
-              <label>
-                Task
-                <input
-                  type="text"
-                  name="quickTaskName"
-                  id="taskQuickDraftName"
-                  maxlength="200"
-                  placeholder="Write project brief"
-                  required
-                />
-              </label>
-              <label>
-                Start (local)
-                <div class="datetime-field">
-                  <input
-                    type="text"
-                    class="datetime-display"
-                    placeholder="Select date/time"
-                    readonly
-                  />
-                  <button type="button" class="ghost small datetime-trigger" aria-label="Pick date">
-                    📅
-                  </button>
-                  <input type="hidden" name="quickTaskStart" id="taskQuickDraftStart" required data-datetime-input />
-                </div>
-              </label>
-              <label>
-                Duration (min)
-                <input
-                  type="number"
-                  name="quickTaskDurationMinutes"
-                  id="taskQuickDraftDuration"
-                  min="5"
-                  step="5"
-                  value="60"
-                  required
-                />
-              </label>
-              <label>
-                Flex window (min)
-                <input
-                  type="number"
-                  name="quickTaskFlexMinutes"
-                  id="taskQuickDraftFlex"
-                  min="5"
-                  step="5"
-                  value="120"
-                  required
-                />
-              </label>
-            </div>
-            <label>
-              Notes (optional)
-              <input
-                type="text"
-                name="quickTaskDescription"
-                id="taskQuickDraftDescription"
-                maxlength="2000"
-                placeholder="Context, acceptance criteria, constraints..."
-              />
-            </label>
-            <div class="task-draft-actions">
-              <button type="submit" class="primary" id="taskQuickDraftCreateBtn">Create task</button>
-              <button type="button" class="ghost" id="taskQuickDraftOpenBtn">Open full form</button>
-              <span class="form-status" id="taskQuickDraftStatus"></span>
-            </div>
-          </form>
-          <div class="tasks-metrics">
-            <div class="tasks-metric">
-              <div class="tasks-metric-value" id="tasksUpcomingCount">0</div>
-              <div class="tasks-metric-label">Window</div>
-            </div>
-            <div class="tasks-metric">
-              <div class="tasks-metric-value" id="tasksTodayCount">0</div>
-              <div class="tasks-metric-label">In progress</div>
-            </div>
-            <div class="tasks-metric">
-              <div class="tasks-metric-value" id="tasksWeekCount">0</div>
-              <div class="tasks-metric-label">Overdue</div>
-            </div>
+        <section class="view" id="timelineView" aria-labelledby="timelineTitle">
+          <div class="view-header">
+            <h1 id="timelineTitle">Timeline</h1>
           </div>
-        </div>
-        <div class="tasks-list" id="tasksList"></div>
-      </section>
-      <section class="panel workspace-section search-panel" id="searchSection" aria-hidden="true">
-        <div class="search-header">
-          <h2 class="search-title">Search recurrences</h2>
-          <p class="search-copy">Find recurring plans by recurrence name or description.</p>
-        </div>
-        <label class="search-input-wrap" for="eventSearchInput">
-          <span class="search-input-icon" aria-hidden="true">/</span>
-          <input
-            id="eventSearchInput"
-            type="search"
-            placeholder="Try: deep work, workout, standup..."
-            autocomplete="off"
-          />
-        </label>
-        <div class="search-results" id="eventSearchResults"></div>
-      </section>
+          <div class="timeline-list" id="timelineList"></div>
+        </section>
       </main>
+
+      <aside class="editor-panel review-type-panel" aria-label="Review Type assignment">
+        <div class="editor-header">
+          <div>
+            <div class="eyebrow">Review</div>
+            <h2 id="editorTitle">No object selected</h2>
+          </div>
+        </div>
+        <form id="objectEditor" class="object-editor"></form>
+      </aside>
     </div>
 
-    <script src="./js/constants.js"></script>
-    <script type="module" src="./js/app.js"></script>
+    <div class="command-palette" id="commandPalette" hidden></div>
+    <script type="module" src="./js/lifeos.js"></script>
   </body>
 </html>
